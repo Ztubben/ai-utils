@@ -54,3 +54,10 @@ not HITL) and `docs/adr/0001–0005`.
   `gh issue close`. `afk_merge` (merge|squash|rebase) maps 1:1 to the `gh pr merge` flag.
   Closing the issue is what makes `ralph_select` count the dep satisfied — the two connect
   through gh CLOSED state, not a shared call.
+- `lib/ralph_hil.py` is the HIL sibling of `ralph_afk.py` (same `Plan`/`run_plan`/CLI shape):
+  `hil_complete_plan` refuses when base is `main` or the story is not `type:hil`; otherwise
+  emits push → `gh pr create` (body **Refs #N**, never `Closes #N`) → `gh issue edit
+  --add-label state:awaiting-bench --remove-label state:in-progress`. It **never** emits a
+  `gh pr merge` or `gh issue close`: the human bench-verifies and merges the clean diff. The
+  issue therefore stays OPEN, so `ralph_select` keeps its dependents ineligible until a human
+  closes it (bench-verified) — the inverse of the AFK path, and the key AC for US-007.

@@ -8,6 +8,7 @@
 #   ralph --branch-name STORY [CONFIG]  Print the story branch name from branch_pattern.
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
+#   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +21,7 @@ usage: ralph --check-config [PATH]
        ralph --branch-name STORY [CONFIG]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG]
+       ralph --complete-hil STORY [CONFIG]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -44,6 +46,11 @@ usage: ralph --check-config [PATH]
        [CONFIG]           stdin) into base per afk_merge and close its issue.
                           Never touches main. Exits 0 on success, 1 on a
                           git/gh failure, 2 on bad config or a refusal.
+  --complete-hil STORY    Open a PR to base for a green HIL story (gh --json
+       [CONFIG]           shape; - for stdin) and move it to
+                          state:awaiting-bench. Never merges or closes; never
+                          touches main. Exits 0 on success, 1 on a git/gh
+                          failure, 2 on bad config or a refusal.
 EOF
 }
 
@@ -78,6 +85,10 @@ main() {
     --complete-afk)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_afk.py" complete "$@"
+      ;;
+    --complete-hil)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_hil.py" complete "$@"
       ;;
     -h|--help|"")
       usage

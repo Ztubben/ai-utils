@@ -104,7 +104,7 @@
         "Tests pass"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "GitHub issue #7. Depends on #5 (US-005). See ADR-0001, ADR-0003."
     },
     {
