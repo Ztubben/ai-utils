@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ralph - the Ralph Loop CLI (shipped from ai-utils, invoked from a superproject).
+#
+# Subcommands are added as stories land. Today:
+#   ralph --check-config [PATH]   Validate .ralph.yml (default ./.ralph.yml) and exit.
+set -euo pipefail
+
+RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+usage: ralph --check-config [PATH]
+
+  --check-config [PATH]   Validate a .ralph.yml config against the shipped
+                          JSON-schema (default: ./.ralph.yml). Exits 0 on a
+                          valid config, non-zero (reporting the offending
+                          fields) otherwise.
+EOF
+}
+
+main() {
+  case "${1:-}" in
+    --check-config)
+      local config="${2:-.ralph.yml}"
+      exec python3 "$RALPH_HOME/lib/ralph_config.py" "$config"
+      ;;
+    -h|--help|"")
+      usage
+      ;;
+    *)
+      echo "ralph: unknown command: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

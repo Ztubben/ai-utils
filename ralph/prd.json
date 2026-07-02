@@ -1,0 +1,190 @@
+{
+  "project": "ai-utils / Ralph Loop",
+  "branchName": "ralph/ralph-loop",
+  "description": "Ralph Loop — an autonomous, bench-gated coding agent tooling submodule. Reads a label-driven GitHub Issues backlog, runs on a local 3-hour scheduler, builds each story TDD off-target against a fakeable HAL, auto-merges AFK stories to develop and parks HIL stories at awaiting-bench, checkpoints via Handoff instead of compacting, and never touches main. Converted from GitHub issues #2–#12 (parent PRD #1).",
+  "userStories": [
+    {
+      "id": "US-002",
+      "title": "Config: .ralph.yml schema + validation (ralph --check-config)",
+      "description": "As a developer, I want .ralph.yml validated against a shipped JSON-schema before Ralph does anything, so that a malformed or missing config fails loud instead of Ralph guessing defaults.",
+      "acceptanceCriteria": [
+        "Ship a JSON-schema for .ralph.yml in the repo covering: version, ordered named gating steps (name + run), branching (base default develop, branch_pattern, afk_merge), limits (max_attempts default 3, circuit_breaker default 2), notify (GitHub handle)",
+        "A documented sample .ralph.yml validates successfully",
+        "ralph --check-config exits 0 and prints a summary for a valid config",
+        "ralph --check-config exits non-zero and reports the offending field(s) for malformed configs (missing gating, bad afk_merge, wrong types)",
+        "A missing .ralph.yml fails loud rather than assuming defaults",
+        "The canonical state:/type:/prio: label scheme is mandated and not overridable in config",
+        "Tests cover good and malformed config fixtures",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "GitHub issue #2. No dependencies. See ADR-0001."
+    },
+    {
+      "id": "US-003",
+      "title": "Skill: story-formatting skill (specialize to-issues) for canonical Ralph backlog",
+      "description": "As a developer, I want a formatting skill (specializing to-issues) that emits stories in the canonical label + body shape, so that authoring a well-formed backlog Ralph can read is easy.",
+      "acceptanceCriteria": [
+        "The skill emits issues carrying the canonical state:/type:/prio: labels and a Depends on: body line",
+        "Every story gets a ## Acceptance Criteria checklist; HIL stories additionally get a ## Bench Test Procedure section",
+        "Each story is classified AFK or HIL; design-decision-first work is emitted as a Blocker (kept out of state:ready), not a third type",
+        "An advisory sizing checklist is applied and proposes splits for human approval (no hard gate, no token estimator)",
+        "Terminology is standardized on HIL, not HITL",
+        "Example runs produce well-formed issues the selection engine can consume"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "GitHub issue #3. ready-for-human: judgment-heavy LLM behavior, verified by example rather than CI. No dependencies."
+    },
+    {
+      "id": "US-004",
+      "title": "Selection: backlog dry-run (scan, normalize, print next action)",
+      "description": "As Ralph, I want to scan the backlog and print the next action (resume #N / start #N / no-work / halt) without doing any work, driven by a pure selection engine, so that the crown-jewel decision logic is deterministic and unit-testable.",
+      "acceptanceCriteria": [
+        "ralph scans the live backlog via gh (REST/--json) and prints the next action, changing nothing",
+        "Selection is a pure function over a normalized story list (no network, no LLM), unit-tested with fixtures",
+        "Resume any state:in-progress story is chosen before any state:ready scan",
+        "Ordering is prio:N then lowest issue number (FIFO); state:blocked is skipped",
+        "An AFK dependency counts satisfied only when merged; a HIL dependency only when bench-verified (closed)",
+        "A story blocked by an unverified HIL story is never selected",
+        "Empty/all-blocked backlogs yield no-work",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "GitHub issue #4. Depends on #2 (US-002). See ADR-0002."
+    },
+    {
+      "id": "US-005",
+      "title": "Iteration: TDD off-target story implementation to green (agent prompt v1)",
+      "description": "As Ralph, I want a single fresh-context iteration that takes a chosen story and implements it test-first up to a green local gate, committing WIP to the story branch but not merging or closing.",
+      "acceptanceCriteria": [
+        "Given a chosen story, Ralph creates the correct branch off base per branch_pattern (e.g. ralph/<issue#>-slug)",
+        "Failing tests are written from the acceptance criteria before implementation (red → green)",
+        "Logic is tested off-target on the host against a fake/mock HAL",
+        "The configured gating steps run locally and must pass before the story counts",
+        "Gating output is kept low-verbosity",
+        "Work is committed to the story branch; base branch and ai-utils are untouched",
+        "The agent prompt (v1) is checked in and drives the iteration",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "GitHub issue #5. Depends on #4 (US-004). See ADR-0003."
+    },
+    {
+      "id": "US-006",
+      "title": "AFK completion: auto-merge to develop + close",
+      "description": "As Ralph, for an AFK story I want to auto-merge to base once gating is green and then continue, so that fully-autonomous work keeps develop moving and unblocks dependents.",
+      "acceptanceCriteria": [
+        "A green type:afk story is merged to base per the afk_merge policy",
+        "The issue is closed / marked Passing after merge",
+        "main is never touched",
+        "After completion Ralph proceeds to the next eligible story",
+        "A merged AFK story now satisfies dependents' Depends on: edges",
+        "Behavior is covered by tests with a mocked gh/git",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "GitHub issue #6. Depends on #5 (US-005). See ADR-0001."
+    },
+    {
+      "id": "US-007",
+      "title": "HIL completion: PR to develop + awaiting-bench",
+      "description": "As Ralph, for a HIL story I want to open a PR to base, move it to state:awaiting-bench, and stop, so that the human bench-tests one clean diff in isolation.",
+      "acceptanceCriteria": [
+        "A green type:hil story opens a PR to base and moves to state:awaiting-bench",
+        "Ralph never merges a HIL story",
+        "The PR is a clean diff off base so it can be bench-tested in isolation",
+        "A HIL story in state:awaiting-bench is not Passing and does not satisfy dependents' Depends on: edges",
+        "Whatever is host-testable is still covered by tests; only genuinely hardware-coupled behavior is deferred to the ## Bench Test Procedure",
+        "Behavior is covered by tests with a mocked gh/git",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "GitHub issue #7. Depends on #5 (US-005). See ADR-0001, ADR-0003."
+    },
+    {
+      "id": "US-008",
+      "title": "Handoff: no-compaction checkpoint + resume",
+      "description": "As Ralph, I want to never compact context; when context fills I want to write a Handoff and terminate, so that the next iteration resumes the same story with clean context.",
+      "acceptanceCriteria": [
+        "When context fills, the iteration writes a Handoff (issue comment + WIP branch commits) and terminates cleanly",
+        "The next iteration resumes the in-progress story from the Handoff and branch",
+        "Resume state is stored only in the superproject; base branch is untouched",
+        "A context-full checkpoint does not increment the failed-Attempt count",
+        "Context is never compacted",
+        "Resume/checkpoint behavior is covered by tests",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "GitHub issue #8. Depends on #5 (US-005). See ADR-0004."
+    },
+    {
+      "id": "US-009",
+      "title": "Failure handling + circuit breaker + needs-human",
+      "description": "As Ralph, after a configurable number of failed attempts I want to block a story and move on, and when a second story blocks I want to halt and tag a human, so systemic failures get attention fast.",
+      "acceptanceCriteria": [
+        "After limits.max_attempts (default 3) failed Attempts a story moves to state:blocked with one terse comment (a context-full checkpoint is not an Attempt)",
+        "Ralph then continues with other non-blocked eligible work",
+        "A second blocked story trips limits.circuit_breaker (default 2): loop halts, needs-human label applied, configured handle tagged",
+        "A story kicked back to state:ready (failed HIL bench test) is re-attempted with a new failing test on a fresh PR",
+        "Attempt/circuit-breaker counting is covered by tests",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "GitHub issue #9. Depends on #5 (US-005). See ADR-0004."
+    },
+    {
+      "id": "US-010",
+      "title": "Memory: nested AGENTS.md learnings (no progress.txt)",
+      "description": "As a developer, I want two-tier memory: durable learnings in nested AGENTS.md and transient notes on the issue, so memory is cleanly tiered by durability with no progress.txt.",
+      "acceptanceCriteria": [
+        "Ralph reads nearby nested AGENTS.md at the start of a story",
+        "Reusable learnings are promoted to the nearest AGENTS.md before completion",
+        "AGENTS.md files stay lean and module-local (no single growing global file)",
+        "Story-specific notes stay on the issue, not in AGENTS.md",
+        "No progress.txt is created or read",
+        "Tests pass"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "GitHub issue #10. Depends on #5 (US-005). See ADR-0005."
+    },
+    {
+      "id": "US-011",
+      "title": "Orchestration: ralph.sh tick loop (flock, resume-first, session-exit)",
+      "description": "As Ralph, I want a robust unattended tick in ralph.sh that guards with flock, resumes first, works many eligible stories, and ends cleanly on no-work/halt or session-limit exhaustion.",
+      "acceptanceCriteria": [
+        "Only one tick per superproject runs at a time (flock lockfile in .git/); an overlapping tick exits immediately",
+        "A tick resumes an in-progress story before scanning for new state:ready work",
+        "A tick works multiple eligible stories in sequence until no eligible work remains",
+        "Session-limit exhaustion is detected from the claude CLI exit; the current story is checkpointed via Handoff and the tick ends cleanly",
+        "Orchestration is covered by bats tests driving the script against mocked claude and gh on PATH",
+        "Tests pass"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "GitHub issue #11. Depends on #6, #7, #8, #9 (US-006..US-009). See ADR-0002, ADR-0004."
+    },
+    {
+      "id": "US-012",
+      "title": "Scheduler + install docs (sample timer, sample .ralph.yml, README)",
+      "description": "As a developer, I want ai-utils to ship a sample scheduler unit, a sample .ralph.yml, and an install README, so that installing the loop in a new superproject is quick.",
+      "acceptanceCriteria": [
+        "A sample cron entry and/or systemd timer runs a tick every 3 hours",
+        "A documented sample .ralph.yml is shipped",
+        "An install README covers submodule setup, config placement, schedule install, and gh/Claude auth prerequisites",
+        "Following the README from a fresh superproject results in Ralph running on schedule"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "GitHub issue #12. Depends on #11 (US-011). See ADR-0001."
+    }
+  ]
+}

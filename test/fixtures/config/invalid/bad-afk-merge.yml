@@ -1,0 +1,8 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+branching:
+  afk_merge: yolo
+notify:
+  github: octocat

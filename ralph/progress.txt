@@ -1,0 +1,31 @@
+# Ralph Progress Log
+Started: (not yet run)
+---
+
+## Codebase Patterns
+- (Ralph will consolidate reusable learnings here as it works. Read this section before starting each iteration.)
+- This is a CLI / tooling repo (bash `ralph.sh`, a pure story-selection engine, a `.ralph.yml` JSON-schema, `bats` shell tests). There is NO frontend — skip browser verification.
+- The green gate is the TEST SUITE: fixture-driven unit tests for pure logic (selection engine, config validator) and `bats` tests driving `ralph.sh` against mocked `claude`/`gh` on PATH. Add typecheck/lint only if the project later configures them.
+- Design decisions are recorded in `CONTEXT.md` (glossary) and `docs/adr/0001–0005`. Honor that terminology (e.g. HIL, not HITL) and do not contradict an ADR without calling it out.
+- META NOTE: this loop (snarktank-style, prd.json-driven) is being used to BUILD a different, issue/label-driven Ralph. Don't confuse the two. The prd.json here is the build backlog; the thing being built reads GitHub Issues.
+- TOOLING AVAILABLE: jq, python3.10 (+ jsonschema 4.26, PyYAML), node/npm. NO bats, NO pytest, NO shellcheck. Unit tests use stdlib `unittest`; bats tests will need bats installed (or a mock) when US-011 lands.
+- LAYOUT of the tool being built: `bin/ralph` (bash CLI) delegates to `lib/*.py` (pure Python logic), schemas in `schema/`, sample config `.ralph.yml.sample`, tests in `test/` run by `test/run.sh`. See root `AGENTS.md`.
+- TEST-FIRST PATTERN: pure logic lives in a Python module returning a result object (ok/errors/resolved), the bash CLI is a thin wrapper that prints + sets exit codes. Unit tests hit the module directly AND a few subprocess tests assert CLI exit codes.
+- Run the gate with `./test/run.sh` from repo root.
+- Branching: `main` does not exist locally; story branch `ralph/ralph-loop` was created from `master` (which holds CONTEXT.md + ADRs).
+---
+
+## 2026-07-02 - US-002
+- Implemented `.ralph.yml` JSON-schema + validation with `ralph --check-config`.
+- Shipped `schema/ralph.schema.json` (Draft-7): version, ordered named gating steps (name+run), branching (base default develop, branch_pattern, afk_merge enum merge|squash|rebase), limits (max_attempts default 3, circuit_breaker default 2), notify.github. `additionalProperties: false` everywhere so the canonical label scheme stays non-overridable (a `labels:` key errors).
+- `lib/ralph_config.py`: pure validator (`load_and_validate` -> ValidationResult with ok/errors/config), applies schema defaults after validation, formats errors as `<field path>: <msg>`. Fails loud on a missing file.
+- `bin/ralph --check-config [PATH]`: exits 0 + prints summary for valid; exits 1 + lists offending fields for invalid/missing.
+- `.ralph.yml.sample` documented sample (validates, asserted by a test).
+- `test/run.sh` runner (python unittest now; auto-runs bats later when present). `test/unit/test_validate_config.py` + good/malformed fixtures under `test/fixtures/config/`.
+- Files changed: bin/ralph, lib/ralph_config.py, schema/ralph.schema.json, .ralph.yml.sample, test/run.sh, test/unit/test_validate_config.py, test/fixtures/config/**, AGENTS.md, ralph/prd.json, ralph/progress.txt.
+- **Learnings for future iterations:**
+  - jsonschema does NOT fill defaults; apply them manually after validation if the summary/resolved config needs them.
+  - For `additionalProperties: false` at the root, jsonschema's error `absolute_path` is empty; extract the extra key names from `err.instance` to name the offending field.
+  - Merge stderr when subprocess-testing the CLI (validator prints errors to stderr, summary to stdout).
+  - 15 tests green via `./test/run.sh`.
+---

@@ -1,0 +1,8 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+limits:
+  max_attempts: "three"
+notify:
+  github: octocat

@@ -1,0 +1,34 @@
+# Sample .ralph.yml — copy to your superproject root as `.ralph.yml`.
+#
+# Everything project-specific for the Ralph Loop lives here. It is validated at
+# tick start against ai-utils/schema/ralph.schema.json; an invalid or missing
+# config fails loud rather than defaulting (ADR-0001).
+#
+# NOTE: the canonical state:/type:/prio: label scheme is mandated by ai-utils and
+# is NOT configurable here (ADR-0002). Any unknown key (e.g. `labels:`) is an error.
+
+# Config contract version.
+version: 1
+
+# Ordered, named quality checks Ralph runs locally before a story counts as green.
+# Kept low-verbosity to save cost and context. Runs in the order listed.
+gating:
+  - name: build
+    run: make build
+  - name: test
+    run: make test
+
+# Branching strategy. Ralph integrates into `base` and never touches `main`.
+branching:
+  base: develop                     # default: develop
+  branch_pattern: "ralph/{issue}-{slug}"  # {issue} and {slug} are substituted
+  afk_merge: squash                 # one of: merge | squash | rebase (default: squash)
+
+# Failure-handling limits.
+limits:
+  max_attempts: 3      # failed Attempts before a story moves to state:blocked (default: 3)
+  circuit_breaker: 2   # blocked stories that halt the loop and tag a human (default: 2)
+
+# Who to tag when the circuit breaker trips (needs-human).
+notify:
+  github: your-github-handle   # without a leading @

@@ -1,0 +1,15 @@
+version: 1
+gating:
+  - name: build
+    run: make build
+  - name: test
+    run: make test
+branching:
+  base: develop
+  branch_pattern: "ralph/{issue}-{slug}"
+  afk_merge: squash
+limits:
+  max_attempts: 5
+  circuit_breaker: 3
+notify:
+  github: octocat

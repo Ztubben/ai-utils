@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ai-utils/ralph/schema/ralph.schema.json",
+  "title": "Ralph Loop superproject config (.ralph.yml)",
+  "description": "Per-superproject config for the Ralph Loop. Everything project-specific lives here; the canonical state:/type:/prio: label scheme is mandated by ai-utils and is NOT overridable in this config (see ADR-0001, ADR-0002).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "gating", "notify"],
+  "properties": {
+    "version": {
+      "description": "Config contract version.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "gating": {
+      "description": "Ordered, named quality checks Ralph runs locally; a story is not green until all pass.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "run"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "run": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "branching": {
+      "description": "Branching strategy. Ralph integrates into base and never touches main.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "description": "Base branch Ralph integrates into.",
+          "type": "string",
+          "minLength": 1,
+          "default": "develop"
+        },
+        "branch_pattern": {
+          "description": "Story branch naming pattern; {issue} and {slug} are substituted.",
+          "type": "string",
+          "minLength": 1,
+          "default": "ralph/{issue}-{slug}"
+        },
+        "afk_merge": {
+          "description": "Merge method used to auto-merge a green AFK story into base.",
+          "type": "string",
+          "enum": ["merge", "squash", "rebase"],
+          "default": "squash"
+        }
+      }
+    },
+    "limits": {
+      "description": "Failure-handling limits.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "description": "Failed Attempts before a story moves to state:blocked.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
+        },
+        "circuit_breaker": {
+          "description": "Number of blocked stories that halts the loop and tags a human.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 2
+        }
+      }
+    },
+    "notify": {
+      "description": "Who to tag when the circuit breaker trips (needs-human).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["github"],
+      "properties": {
+        "github": {
+          "description": "GitHub handle (without a leading @).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
