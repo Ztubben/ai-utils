@@ -1,0 +1,7 @@
+# ai-utils is a config-driven tooling submodule; superprojects own their specifics
+
+`ai-utils` is mounted as a git submodule and ships only reusable, project-agnostic machinery (the Ralph Loop script, agent prompt, and issue-formatting skill). It never contains project source, issues, or CI, and Ralph only ever modifies the **superproject**, never `ai-utils`.
+
+Anything project-specific is declared by the superproject in a single committed **`.ralph.yml`** at its root, validated at tick start against a JSON-schema shipped in `ai-utils`; an invalid or missing config fails loud rather than defaulting. It carries: a `version` (contract version), ordered named **gating** steps Ralph runs locally, the **branching** strategy (base branch — default `develop` — branch pattern, AFK auto-merge policy; Ralph integrates into the base branch and never touches `main`, and the human-owned `develop → main` promotion and its integration/regression bench testing are out of scope), **limits** (`max_attempts`, `circuit_breaker`), and the `notify` handle. The canonical `state:`/`type:`/`prio:` label scheme (ADR-0002) is **mandated, not overridable** — chosen for simplicity over drop-in flexibility with an existing label vocabulary.
+
+We chose this config-driven split over baking conventions into the tooling because the same tooling must serve many embedded projects with different toolchains and branching rules; the cost is that every superproject must supply a valid config, and the config schema becomes a contract we can't change lightly.
