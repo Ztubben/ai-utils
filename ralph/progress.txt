@@ -16,6 +16,21 @@ Started: (not yet run)
 - STORY SHAPE: a backlog "story" is a GitHub issue in `gh issue view --json number,title,labels,body` shape (labels are `{"name": ...}` objects). Represent story fixtures as that JSON. `lib/ralph_story.py` normalizes labels (accepts objects OR plain strings) and is the canonical story-FORMAT checker (shape of ONE issue). Keep it distinct from the future selection ENGINE (US-004: ordering/dependency-satisfaction over MANY stories). Story fixtures live under `test/fixtures/stories/{valid,invalid}/`.
 - SKILLS the tool ships live in `skills/<name>/SKILL.md`; a skill's `examples/` hold well-formed sample outputs and a unit test asserts every example still validates (drift guard). This is how "verified by example rather than CI" stories still get a green gate.
 - Canonical label scheme (ADR-0002): exactly one `state:` (ready|in-progress|awaiting-bench|blocked), one `type:` (afk|hil), one `prio:N`; body has `## Acceptance Criteria` (>=1 `- [ ]`) + `Depends on:` line; HIL adds `## Bench Test Procedure`. A design-decision Blocker carries `ready-for-human` and is kept OUT of `state:ready` (not a third type).
+- DEPENDENCY SATISFACTION (ADR-0002): a `Depends on: #N` edge is satisfied only when #N is CLOSED (AFK once merged, HIL once bench-verified — both surface as closed). So any backlog scan must request gh's `state` field. TWO "state"s: gh `state` (OPEN/CLOSED) vs the `state:` LABEL (workflow) — keep them distinct. `lib/ralph_select.py` is the pure selection engine (normalize → select_next → Action; kinds resume/start/no-work/halt); ordering is prio asc then lowest issue# (FIFO). Backlog fixtures = JSON arrays of gh-shaped issues under `test/fixtures/backlogs/`.
+---
+
+## 2026-07-02 - US-004
+- Implemented the pure story-selection engine `lib/ralph_select.py` and the `ralph --dry-run [PATH]` CLI (scan backlog, print next action, change nothing).
+- `select_next(normalized) -> Action` with kinds resume/start/no-work/halt. Rules: resume-first (any state:in-progress before any state:ready scan), ordering prio ascending then lowest issue number (FIFO), skip state:blocked and ready-for-human Blockers, `needs-human` anywhere → halt.
+- Dependency satisfaction: a `Depends on: #N` edge is satisfied only when #N is closed (AFK once merged, HIL once bench-verified — both closed). A dep still open (incl. state:awaiting-bench HIL) leaves the dependent ineligible (AC#6). A dep absent from the scan is treated as done.
+- `normalize()` reuses `ralph_story.validate_story(raw).fields` for label/body parsing and adds `closed` (from gh `state` OPEN/CLOSED) + `needs_human`. `next_action(raw)` = select_next(normalize(raw)).
+- CLI: `ralph --dry-run PATH` reads a JSON backlog (or `-` stdin); no PATH → `gh issue list --state all --json number,title,labels,body,state`. Always exits 0 (informational). Prints `start #N` / `resume #N` / `no-work` / `halt`.
+- Files changed: lib/ralph_select.py, bin/ralph, test/unit/test_select_story.py, test/fixtures/backlogs/{ready,empty}.json, AGENTS.md, ralph/prd.json, ralph/progress.txt.
+- **Learnings for future iterations:**
+  - The scan MUST request gh's `state` field — it's how closed/merged/bench-verified deps are detected. Two different "state"s in play: gh `state` (OPEN/CLOSED) vs the `state:` label (workflow). Keep them distinct.
+  - Selection is pure over the NORMALIZED list; the gh call + printing live only in the CLI `main`. Feed a JSON backlog file to `--dry-run` to subprocess-test the CLI offline (same pattern as --check-config/--lint-story); real gh gets covered by bats in US-011.
+  - Reuse `ralph_story` for field extraction only; ordering + dependency logic belong to ralph_select (as the US-003 note predicted).
+  - Suite now 49 tests green via `./test/run.sh` (was 31).
 ---
 
 ## 2026-07-02 - US-002

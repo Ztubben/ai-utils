@@ -4,6 +4,7 @@
 # Subcommands are added as stories land. Today:
 #   ralph --check-config [PATH]   Validate .ralph.yml (default ./.ralph.yml) and exit.
 #   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
+#   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,6 +13,7 @@ usage() {
   cat <<'EOF'
 usage: ralph --check-config [PATH]
        ralph --lint-story PATH
+       ralph --dry-run [PATH]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -21,6 +23,11 @@ usage: ralph --check-config [PATH]
                           - for stdin) against the canonical Ralph backlog
                           format. Exits 0 when canonical, non-zero (reporting
                           the offending fields) otherwise.
+  --dry-run [PATH]        Scan the backlog and print the next action
+                          (resume #N / start #N / no-work / halt) without
+                          changing anything. Reads a JSON backlog from PATH
+                          (or - for stdin); with no PATH, scans the live
+                          backlog via gh.
 EOF
 }
 
@@ -36,6 +43,13 @@ main() {
         exit 2
       fi
       exec python3 "$RALPH_HOME/lib/ralph_story.py" "$2"
+      ;;
+    --dry-run)
+      if [[ -n "${2:-}" ]]; then
+        exec python3 "$RALPH_HOME/lib/ralph_select.py" "$2"
+      else
+        exec python3 "$RALPH_HOME/lib/ralph_select.py"
+      fi
       ;;
     -h|--help|"")
       usage

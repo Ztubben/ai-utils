@@ -1,0 +1,24 @@
+[
+  {
+    "number": 20,
+    "title": "A blocked story that must be skipped",
+    "labels": [
+      { "name": "state:blocked" },
+      { "name": "type:afk" },
+      { "name": "prio:1" }
+    ],
+    "body": "## Acceptance Criteria\n- [ ] something\n\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 10,
+    "title": "The next AFK story to start",
+    "labels": [
+      { "name": "state:ready" },
+      { "name": "type:afk" },
+      { "name": "prio:2" }
+    ],
+    "body": "## Acceptance Criteria\n- [ ] something\n\nDepends on: None\n",
+    "state": "OPEN"
+  }
+]
