@@ -36,3 +36,11 @@ not HITL) and `docs/adr/0001–0005`.
   closed (an AFK dep once merged, a HIL dep once bench-verified — both surface as closed).
   Don't confuse gh's `state` (OPEN/CLOSED) with the `state:` label (ready/in-progress/…).
   Backlog fixtures (JSON arrays of gh-shaped issues) live under `test/fixtures/backlogs/`.
+- `lib/ralph_iterate.py` holds the deterministic seams of one iteration: `branch_name`/
+  `slugify` (pure — story branch from `branch_pattern`, `{issue}`/`{slug}` substituted) and
+  `run_gating` (shells the configured steps in order, fail-fast, captures stdout+stderr,
+  returns a `GatingResult`). `--run-gating` is low-verbosity: passing steps print only a
+  check line, a failing step's output goes to stderr. The judgment-heavy TDD itself lives
+  in the checked-in **agent prompt** `prompts/iterate.v1.md`; a unit test drift-guards its
+  required directives (red/green, off-target HAL, gating, `{issue}`/`{slug}`, never touch
+  base/main, HIL not HITL). Gating-config fixtures live under `test/fixtures/gating/`.

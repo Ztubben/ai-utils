@@ -1,0 +1,10 @@
+version: 1
+gating:
+  # Passing steps still produce output; low-verbosity gating must NOT surface it,
+  # so this marker must never reach the CLI's stdout/stderr on success.
+  - name: build
+    run: echo SHOULD_NOT_APPEAR; true
+  - name: test
+    run: 'true'
+notify:
+  github: octocat

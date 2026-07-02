@@ -1,0 +1,11 @@
+version: 1
+gating:
+  - name: build
+    run: 'true'
+  - name: test
+    run: echo BOOM; exit 3
+  # fail-fast: gating stops at the first failing step, so this must never run.
+  - name: lint
+    run: echo SHOULD_NOT_RUN
+notify:
+  github: octocat
