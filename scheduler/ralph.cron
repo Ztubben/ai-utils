@@ -1,0 +1,20 @@
+# Sample crontab entry: run the Ralph Loop tick every 3 hours.
+#
+# Cron is the low-ceremony alternative to the systemd timer (ralph.service +
+# ralph.timer). Pick ONE, not both.
+#
+# INSTALL:
+#   1. Edit the path below to your superproject (the repo that mounts ai-utils).
+#   2. Append the line to your crontab:  crontab -e
+#
+# PREREQUISITES: `gh auth login` and `claude` must be authenticated for the user
+# whose crontab this is. cron runs with a minimal environment, so we set a sane
+# PATH and cd into the superproject first; adjust PATH if gh/claude/your toolchain
+# live elsewhere.
+#
+# The tick is flock-guarded, so an overlapping fire is a harmless no-op.
+
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# min hour dom mon dow  command
+0 */3 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1

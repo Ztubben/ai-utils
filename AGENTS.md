@@ -116,3 +116,11 @@ not HITL) and `docs/adr/0001–0005`.
   AND `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving
   the script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue
   list` queue that pops one backlog fixture per call to simulate stories completing).
+- `scheduler/` ships the sample schedulers (US-012, ADR-0001): systemd `ralph.service`
+  (`Type=oneshot`, `ExecStart=.../bin/ralph.sh`) + `ralph.timer` (`OnCalendar=*-*-* 00/3:00:00`,
+  i.e. every 3h) and a `ralph.cron` one-liner (`0 */3 * * *`). Both just fire the flock-guarded
+  tick. Green gate is a DRIFT-GUARD (`test/unit/test_scheduler.py`), same idea as the prompt
+  tests: assert the files exist and still carry the 3-hour cadence + `ralph.sh` ExecStart, and
+  that the README's install section covers submodule/config/schedule/`gh auth login`+`claude`
+  auth. GOTCHA: do NOT `assertNotIn("HITL", README)` — the README intentionally says "never
+  *HITL*", so that check false-positives (the substring rule bites again, cf. the prompt note).

@@ -1,0 +1,30 @@
+# Sample systemd service: one Ralph Loop *tick*.
+#
+# A tick is a single, unattended run through the backlog (bin/ralph.sh), guarded
+# by a flock so overlapping ticks are a no-op. This is a `oneshot` unit — it runs
+# to completion and exits; the paired ralph.timer (every 3 hours) starts it on a
+# schedule. Do NOT run it as a long-lived daemon.
+#
+# INSTALL (per-user is simplest — no root, inherits your gh/Claude auth):
+#   mkdir -p ~/.config/systemd/user
+#   cp ai-utils/scheduler/ralph.service ~/.config/systemd/user/
+#   cp ai-utils/scheduler/ralph.timer   ~/.config/systemd/user/
+#   # edit the two paths below to your superproject, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ralph.timer
+#   loginctl enable-linger "$USER"   # so the timer runs while you're logged out
+#
+# PREREQUISITES: `gh auth login` and `claude` must be authenticated for THIS user
+# (a user unit runs as you, so it reuses your ~/.config credentials).
+
+[Unit]
+Description=Ralph Loop tick (one autonomous pass through the backlog)
+Documentation=https://github.com/Ztubben/ai-utils
+
+[Service]
+Type=oneshot
+# EDIT THESE to your superproject (the repo that mounts ai-utils as a submodule):
+WorkingDirectory=/path/to/your/superproject
+ExecStart=/path/to/your/superproject/ai-utils/bin/ralph.sh
+# Keep unattended runs quiet; the tick already logs low-verbosity.
+Nice=10

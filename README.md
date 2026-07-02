@@ -18,6 +18,7 @@ modifies the superproject — never ai-utils itself, and **never `main`**.
 - [How it works (one tick)](#how-it-works-one-tick)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
+- [Installing the scheduler](#installing-the-scheduler)
 - [Configuration (`.ralph.yml`)](#configuration-ralphyml)
 - [Authoring the backlog](#authoring-the-backlog)
 - [The `ralph` CLI](#the-ralph-cli)
@@ -151,6 +152,60 @@ scheduler (every ~3h)
    ```
 
 > Tip: add `ai-utils/bin` to your `PATH` so you can just type `ralph …`.
+
+## Installing the scheduler
+
+Unattended operation is just a **tick every 3 hours**. ai-utils ships sample
+scheduler units under [`scheduler/`](scheduler/) — pick **one**:
+
+- `scheduler/ralph.service` + `scheduler/ralph.timer` — a systemd timer, or
+- `scheduler/ralph.cron` — a single crontab line.
+
+Both run `ai-utils/bin/ralph.sh` (the tick) from your superproject root. The tick
+is flock-guarded, so a scheduled run that overlaps a still-running one is a
+harmless no-op.
+
+### Auth prerequisites (do this first)
+
+A tick runs unattended, so both tools must already be authenticated **as the user
+the schedule runs as** (a systemd *user* unit and a personal crontab both run as
+you and reuse your `~/.config` credentials):
+
+```sh
+gh auth login            # GitHub CLI — Ralph reads the backlog + opens PRs
+claude                   # sign in once so `claude` on PATH is authenticated
+```
+
+Also make sure `git`, `python3` (+ `PyYAML`, `jsonschema`), and whatever your
+gating steps need are on the `PATH` the scheduler uses (cron in particular starts
+with a minimal environment — see the `PATH=` line in `scheduler/ralph.cron`).
+
+### Option A — systemd timer (recommended)
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp ai-utils/scheduler/ralph.service ~/.config/systemd/user/
+cp ai-utils/scheduler/ralph.timer   ~/.config/systemd/user/
+# edit the two paths in ralph.service to point at your superproject, then:
+systemctl --user daemon-reload
+systemctl --user enable --now ralph.timer
+loginctl enable-linger "$USER"    # let the timer run while you're logged out
+systemctl --user list-timers ralph.timer   # confirm the next 3-hour fire
+```
+
+### Option B — cron
+
+```sh
+# edit the superproject path in the entry first:
+crontab -e
+# then append the line from ai-utils/scheduler/ralph.cron:
+#   0 */3 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
+```
+
+Once installed, Ralph wakes every 3 hours, resumes any in-progress story, works
+as many ready stories as the session budget allows, then sleeps until the next
+tick. Run `ai-utils/bin/ralph.sh` by hand once first to confirm the config and
+auth are good before leaving it unattended.
 
 ## Configuration (`.ralph.yml`)
 
@@ -306,6 +361,7 @@ lib/*.py         Pure logic (Python 3, stdlib + jsonschema + PyYAML). No network
 schema/          Shipped JSON-schemas (ralph.schema.json for .ralph.yml).
 prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drift-guarded by tests.
 skills/          Authoring skills shipped with the tool (ralph-story + examples).
+scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 3h.
 docs/adr/        Architecture Decision Records (0001–0005).
 test/            Green gate: test/run.sh, unit tests, fixtures, optional bats.
 .ralph.yml.sample  Documented sample config (a test asserts it validates).

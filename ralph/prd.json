@@ -183,7 +183,7 @@
         "Following the README from a fresh superproject results in Ralph running on schedule"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "GitHub issue #12. Depends on #11 (US-011). See ADR-0001."
     }
   ]

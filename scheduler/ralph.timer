@@ -1,0 +1,19 @@
+# Sample systemd timer: fire the Ralph Loop tick every 3 hours.
+#
+# Pairs with ralph.service (same basename). See ralph.service for install steps.
+# The tick is idempotent and flock-guarded, so a fire that lands while a previous
+# tick is still running simply no-ops.
+
+[Unit]
+Description=Run the Ralph Loop tick every 3 hours
+
+[Timer]
+# Every 3 hours, on the hour (00:00, 03:00, 06:00, ...).
+OnCalendar=*-*-* 00/3:00:00
+# If the machine was asleep/off at a fire time, run once on the next boot.
+Persistent=true
+# Jitter so many superprojects don't all wake at exactly the same instant.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
