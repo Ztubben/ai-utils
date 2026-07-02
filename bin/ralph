@@ -9,6 +9,8 @@
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
 #   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
+#   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
+#   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,6 +24,8 @@ usage: ralph --check-config [PATH]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG]
        ralph --complete-hil STORY [CONFIG]
+       ralph --checkpoint STORY SUMMARY [CONFIG]
+       ralph --resume STORY [CONFIG]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -51,6 +55,16 @@ usage: ralph --check-config [PATH]
                           state:awaiting-bench. Never merges or closes; never
                           touches main. Exits 0 on success, 1 on a git/gh
                           failure, 2 on bad config or a refusal.
+  --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
+       SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
+                          (carrying the handoff marker) with SUMMARY, then stop.
+                          Ralph never compacts context. Never touches base/main.
+                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
+                          config or a refusal.
+  --resume STORY          Resume a checkpointed state:in-progress story: check out
+       [CONFIG]           its branch and surface the latest Handoff. Base branch
+                          untouched. Exits 0 on success, 1 on a git/gh failure,
+                          2 on bad config or a refusal.
 EOF
 }
 
@@ -89,6 +103,14 @@ main() {
     --complete-hil)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_hil.py" complete "$@"
+      ;;
+    --checkpoint)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_handoff.py" checkpoint "$@"
+      ;;
+    --resume)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_handoff.py" resume "$@"
       ;;
     -h|--help|"")
       usage

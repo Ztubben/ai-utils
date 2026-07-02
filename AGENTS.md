@@ -61,3 +61,14 @@ not HITL) and `docs/adr/0001–0005`.
   `gh pr merge` or `gh issue close`: the human bench-verifies and merges the clean diff. The
   issue therefore stays OPEN, so `ralph_select` keeps its dependents ineligible until a human
   closes it (bench-verified) — the inverse of the AFK path, and the key AC for US-007.
+- `lib/ralph_handoff.py` is the checkpoint/resume seam (ADR-0004, Ralph never compacts):
+  same `Plan`/`run_plan`/CLI shape. `handoff_plan` emits `git add -A` → `git commit
+  --allow-empty` → `git push` the story branch → `gh issue comment` carrying
+  `HANDOFF_MARKER` + summary (story stays state:in-progress, so selection resumes it).
+  `resume_plan` refuses a non-`state:in-progress` story and emits `git fetch` +
+  `git checkout <branch>`. Both refuse base/branch == `main`; neither references base,
+  so the base branch is untouched. The comment marker is how a context-full checkpoint
+  stays distinct from a failed Attempt: `non_handoff_comments` filters checkpoints out,
+  and that is what US-009's attempt counter must operate on. The judgment-heavy "when to
+  checkpoint / never compact" discipline lives in the checked-in prompt
+  `prompts/handoff.v1.md` (drift-guarded).
