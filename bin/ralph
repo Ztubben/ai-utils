@@ -7,6 +7,7 @@
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
 #   ralph --branch-name STORY [CONFIG]  Print the story branch name from branch_pattern.
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
+#   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,6 +19,7 @@ usage: ralph --check-config [PATH]
        ralph --dry-run [PATH]
        ralph --branch-name STORY [CONFIG]
        ralph --run-gating [CONFIG]
+       ralph --complete-afk STORY [CONFIG]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -38,6 +40,10 @@ usage: ralph --check-config [PATH]
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
+  --complete-afk STORY    Auto-merge a green AFK story (gh --json shape; - for
+       [CONFIG]           stdin) into base per afk_merge and close its issue.
+                          Never touches main. Exits 0 on success, 1 on a
+                          git/gh failure, 2 on bad config or a refusal.
 EOF
 }
 
@@ -68,6 +74,10 @@ main() {
     --run-gating)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_iterate.py" run-gating "$@"
+      ;;
+    --complete-afk)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_afk.py" complete "$@"
       ;;
     -h|--help|"")
       usage

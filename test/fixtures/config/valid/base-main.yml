@@ -1,0 +1,12 @@
+# Schema-valid config that (mis)configures base as `main`. Ralph must refuse to
+# auto-merge here — it never touches main (ADR-0001) — even though the schema
+# permits any branch name.
+version: 1
+gating:
+  - name: test
+    run: make test
+branching:
+  base: main
+  afk_merge: squash
+notify:
+  github: octocat
