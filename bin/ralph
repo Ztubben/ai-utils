@@ -13,6 +13,8 @@
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
+#   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
+#   ralph --learn-target PATH [ROOT]   Print the nearest AGENTS.md to promote a learning to.
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,6 +32,8 @@ usage: ralph --check-config [PATH]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
        ralph --check-breaker [BACKLOG] [CONFIG]
+       ralph --read-learnings DIR [ROOT]
+       ralph --learn-target PATH [ROOT]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -79,6 +83,14 @@ usage: ralph --check-config [PATH]
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
                           (or - for stdin); with no BACKLOG, scans live via gh. Exits
                           0 on success, 1 on a gh failure, 2 on bad config.
+  --read-learnings DIR    Print the nested AGENTS.md learnings (nearest-first,
+       [ROOT]             from DIR up to ROOT, default DIR) Ralph reads at the
+                          start of a story. Exits 0, or 2 if DIR is missing.
+  --learn-target PATH     Print the nearest AGENTS.md a reusable learning for
+       [ROOT]             PATH should be promoted to (module-local; a new one in
+                          PATH's own directory when none exists up to ROOT,
+                          default cwd). Never a progress.txt. Exits 0, or 2 with
+                          no PATH.
 EOF
 }
 
@@ -133,6 +145,14 @@ main() {
     --check-breaker)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_failure.py" check-breaker "$@"
+      ;;
+    --read-learnings)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_memory.py" read-learnings "$@"
+      ;;
+    --learn-target)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_memory.py" learn-target "$@"
       ;;
     -h|--help|"")
       usage

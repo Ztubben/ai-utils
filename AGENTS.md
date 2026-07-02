@@ -87,3 +87,16 @@ not HITL) and `docs/adr/0001–0005`.
   [CONFIG]`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
   state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
   `prompts/failure.v1.md` (drift-guarded).
+- `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
+  queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
+  (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from
+  `start_dir` up to and including `root`; `promotion_target(changed_path, root)` returns the
+  nearest existing `AGENTS.md` to promote a learning to, and when none exists in the chain it
+  keeps the learning **module-local** by targeting a new `AGENTS.md` in the changed file's own
+  directory (not the root). `is_progress_txt`/`find_progress_txt` guard ADR-0005's "no
+  progress.txt". CLI: `--read-learnings DIR [ROOT]` (exit 2 if DIR missing), `--learn-target
+  PATH [ROOT]`. The judgment-heavy discipline (read nearest-first at start; promote reusable,
+  keep lean/module-local; story-specific notes go on the issue, not AGENTS.md) lives in
+  `prompts/memory.v1.md` (drift-guarded). NOTE: the reference snarktank loop's `progress.txt`
+  is the build harness in `ralph/`, which is deliberately separate from the tool being built —
+  the tool ships no progress.txt.
