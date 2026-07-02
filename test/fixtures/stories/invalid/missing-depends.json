@@ -1,0 +1,10 @@
+{
+  "number": 55,
+  "title": "Story with no Depends on line",
+  "labels": [
+    { "name": "state:ready" },
+    { "name": "type:afk" },
+    { "name": "prio:2" }
+  ],
+  "body": "## What to build\n\nForgot the dependency line entirely.\n\n## Acceptance Criteria\n\n- [ ] Something\n"
+}

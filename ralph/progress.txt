@@ -13,6 +13,9 @@ Started: (not yet run)
 - TEST-FIRST PATTERN: pure logic lives in a Python module returning a result object (ok/errors/resolved), the bash CLI is a thin wrapper that prints + sets exit codes. Unit tests hit the module directly AND a few subprocess tests assert CLI exit codes.
 - Run the gate with `./test/run.sh` from repo root.
 - Branching: `main` does not exist locally; story branch `ralph/ralph-loop` was created from `master` (which holds CONTEXT.md + ADRs).
+- STORY SHAPE: a backlog "story" is a GitHub issue in `gh issue view --json number,title,labels,body` shape (labels are `{"name": ...}` objects). Represent story fixtures as that JSON. `lib/ralph_story.py` normalizes labels (accepts objects OR plain strings) and is the canonical story-FORMAT checker (shape of ONE issue). Keep it distinct from the future selection ENGINE (US-004: ordering/dependency-satisfaction over MANY stories). Story fixtures live under `test/fixtures/stories/{valid,invalid}/`.
+- SKILLS the tool ships live in `skills/<name>/SKILL.md`; a skill's `examples/` hold well-formed sample outputs and a unit test asserts every example still validates (drift guard). This is how "verified by example rather than CI" stories still get a green gate.
+- Canonical label scheme (ADR-0002): exactly one `state:` (ready|in-progress|awaiting-bench|blocked), one `type:` (afk|hil), one `prio:N`; body has `## Acceptance Criteria` (>=1 `- [ ]`) + `Depends on:` line; HIL adds `## Bench Test Procedure`. A design-decision Blocker carries `ready-for-human` and is kept OUT of `state:ready` (not a third type).
 ---
 
 ## 2026-07-02 - US-002
@@ -28,4 +31,19 @@ Started: (not yet run)
   - For `additionalProperties: false` at the root, jsonschema's error `absolute_path` is empty; extract the extra key names from `err.instance` to name the offending field.
   - Merge stderr when subprocess-testing the CLI (validator prints errors to stderr, summary to stdout).
   - 15 tests green via `./test/run.sh`.
+---
+
+## 2026-07-02 - US-003
+- Shipped the `ralph-story` formatting skill (specializes `to-issues`) that emits stories in the canonical Ralph backlog label+body shape, plus a pure story-format validator and a lint CLI as the green gate.
+- `skills/ralph-story/SKILL.md`: pins the mandated `state:`/`type:`/`prio:` label scheme, AFK/HIL classification (HIL not HITL), Blocker handling (`ready-for-human`, kept out of `state:ready`, not a third type), an ADVISORY sizing checklist (proposes splits for human approval; no hard gate, no token estimator), the issue body template, and HIL `## Bench Test Procedure`.
+- `skills/ralph-story/examples/{afk-story,hil-story,blocker}.json`: well-formed example issues shaped like `gh issue view --json`; a test asserts each stays canonical (example-run gate).
+- `lib/ralph_story.py`: `validate_story(story) -> StoryResult(ok, errors, fields)`. Normalizes labels (objects or strings), enforces the canonical shape, parses `Depends on:` issue numbers, classifies AFK/HIL/Blocker. Pure; no network/side effects.
+- `bin/ralph --lint-story PATH` (PATH or `-` for stdin): exits 0 + one-line summary for canonical, non-zero + offending fields otherwise. Lets a human verify skill output before publishing.
+- Tests: `test/unit/test_validate_story.py` (example-canonical + classification + 7 malformed fixtures + string-label shape + 2 CLI exit-code checks). Suite now 31 tests green via `./test/run.sh`.
+- Files changed: skills/ralph-story/SKILL.md, skills/ralph-story/examples/*.json, lib/ralph_story.py, bin/ralph, test/unit/test_validate_story.py, test/fixtures/stories/invalid/*.json, AGENTS.md, ralph/prd.json, ralph/progress.txt.
+- **Learnings for future iterations:**
+  - "Verified by example rather than CI" stories DO get a green gate: ship examples + a validator and assert the examples validate. Don't skip TDD for skill/authoring stories.
+  - Keep the story-FORMAT validator (one issue's shape) separate from the future selection ENGINE (US-004, ordering/deps over many stories). US-004 can import `ralph_story.validate_story`/its field-normalization but owns its own ordering + dependency-satisfaction logic.
+  - Match `gh --json` output shape in fixtures (labels as `{"name": ...}`) so the same fixtures feed US-004's `gh` mock later.
+  - `re.MULTILINE` for both section-heading detection (`^#{1,6}\s+<heading>$`) and the `Depends on:` line keeps the parser tolerant of surrounding whitespace.
 ---

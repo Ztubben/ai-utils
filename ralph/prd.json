@@ -34,7 +34,7 @@
         "Example runs produce well-formed issues the selection engine can consume"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "GitHub issue #3. ready-for-human: judgment-heavy LLM behavior, verified by example rather than CI. No dependencies."
     },
     {

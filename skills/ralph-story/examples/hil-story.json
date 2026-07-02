@@ -1,0 +1,10 @@
+{
+  "number": 43,
+  "title": "Actuator: drive the coolant valve open on over-temp",
+  "labels": [
+    { "name": "state:ready" },
+    { "name": "type:hil" },
+    { "name": "prio:1" }
+  ],
+  "body": "## What to build\n\nWhen the control loop reads a temperature above the configured ceiling, it energizes the coolant-valve GPIO until the reading drops back under the hysteresis band. The decision logic is tested off-target against a fake HAL; the actual GPIO drive and valve movement are verified by a human on the bench.\n\n## Acceptance Criteria\n\n- [ ] Above the ceiling, the valve-open output is asserted (host test against a fake HAL)\n- [ ] Below the hysteresis band, the output is de-asserted\n- [ ] The decision logic is exercised entirely off-target in CI\n\n## Bench Test Procedure\n\n1. Flash the branch to the target and attach the coolant valve.\n2. Heat the sensor past the ceiling; confirm the valve physically opens within 500 ms.\n3. Let it cool; confirm the valve closes once under the hysteresis band.\n4. Confirm no chatter around the threshold.\n\nDepends on: #42\n"
+}

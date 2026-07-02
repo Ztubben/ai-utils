@@ -9,6 +9,9 @@ not HITL) and `docs/adr/0001–0005`.
 - `bin/ralph` — bash CLI entrypoint; dispatches subcommands, delegates logic to `lib/`.
 - `lib/*.py` — pure logic (Python 3, stdlib + `jsonschema` + `PyYAML`). No network, no side effects.
 - `schema/*.json` — shipped JSON-schemas (e.g. `ralph.schema.json` for `.ralph.yml`).
+- `skills/*/SKILL.md` — authoring skills shipped with the tool (e.g. `ralph-story`, which
+  specializes `to-issues` to emit the canonical backlog shape). A skill's `examples/` hold
+  well-formed sample issues that a test asserts stay canonical.
 - `.ralph.yml.sample` — documented sample config that MUST validate (a test asserts it).
 - `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (auto-skipped if bats absent).
 
@@ -22,3 +25,7 @@ not HITL) and `docs/adr/0001–0005`.
   how the mandated label scheme stays non-overridable (unknown keys like `labels:` fail).
 - Schema `default`s are applied by `lib/ralph_config.py` after validation (jsonschema
   does not fill defaults itself).
+- A "story" is a GitHub issue in `gh issue view --json number,title,labels,body` shape
+  (labels as `{"name": ...}` objects); `lib/ralph_story.py` normalizes labels (accepts
+  objects or plain strings) and is the canonical story-format checker the selection engine
+  builds on. Fixtures for story-shaped logic live under `test/fixtures/stories/`.

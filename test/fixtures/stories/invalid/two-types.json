@@ -1,0 +1,11 @@
+{
+  "number": 53,
+  "title": "Story labelled both AFK and HIL",
+  "labels": [
+    { "name": "state:ready" },
+    { "name": "type:afk" },
+    { "name": "type:hil" },
+    { "name": "prio:2" }
+  ],
+  "body": "## What to build\n\nCan't be both fully-CI-verifiable and hardware-coupled at once.\n\n## Acceptance Criteria\n\n- [ ] Something\n\n## Bench Test Procedure\n\n1. Something on the bench.\n\nDepends on: None\n"
+}

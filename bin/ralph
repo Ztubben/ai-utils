@@ -3,6 +3,7 @@
 #
 # Subcommands are added as stories land. Today:
 #   ralph --check-config [PATH]   Validate .ralph.yml (default ./.ralph.yml) and exit.
+#   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,11 +11,16 @@ RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'EOF'
 usage: ralph --check-config [PATH]
+       ralph --lint-story PATH
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
                           valid config, non-zero (reporting the offending
                           fields) otherwise.
+  --lint-story PATH       Validate a story issue (gh --json shape; PATH may be
+                          - for stdin) against the canonical Ralph backlog
+                          format. Exits 0 when canonical, non-zero (reporting
+                          the offending fields) otherwise.
 EOF
 }
 
@@ -23,6 +29,13 @@ main() {
     --check-config)
       local config="${2:-.ralph.yml}"
       exec python3 "$RALPH_HOME/lib/ralph_config.py" "$config"
+      ;;
+    --lint-story)
+      if [[ -z "${2:-}" ]]; then
+        echo "ralph: --lint-story requires a PATH (or - for stdin)" >&2
+        exit 2
+      fi
+      exec python3 "$RALPH_HOME/lib/ralph_story.py" "$2"
       ;;
     -h|--help|"")
       usage
