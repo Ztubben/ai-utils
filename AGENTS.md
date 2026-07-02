@@ -7,6 +7,7 @@ not HITL) and `docs/adr/0001–0005`.
 
 ## Layout
 - `bin/ralph` — bash CLI entrypoint; dispatches subcommands, delegates logic to `lib/`.
+- `bin/ralph.sh` — the unattended **tick** loop (orchestration only; the scheduler runs it).
 - `lib/*.py` — pure logic (Python 3, stdlib + `jsonschema` + `PyYAML`). No network, no side effects.
 - `schema/*.json` — shipped JSON-schemas (e.g. `ralph.schema.json` for `.ralph.yml`).
 - `skills/*/SKILL.md` — authoring skills shipped with the tool (e.g. `ralph-story`, which
@@ -100,3 +101,18 @@ not HITL) and `docs/adr/0001–0005`.
   `prompts/memory.v1.md` (drift-guarded). NOTE: the reference snarktank loop's `progress.txt`
   is the build harness in `ralph/`, which is deliberately separate from the tool being built —
   the tool ships no progress.txt.
+- `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): pure orchestration,
+  no logic — the TDD/gating/completion all happen inside the `claude` iteration it launches
+  (driven by `prompts/iterate.v1.md`). Order: (1) `flock -n` a lockfile under `.git/`
+  (`RALPH_LOCK_DIR`, default `.git`) so only one tick per superproject runs — an overlapping
+  tick logs "already running" and exits 0; (2) `ralph --check-config` (fail loud, ADR-0001);
+  (3) loop calling `ralph --dry-run` (which is already resume-first) and launching one
+  fresh-context `claude --print` iteration per selected story, working stories in sequence
+  until `--dry-run` returns `no-work`/`halt`. Session-limit exhaustion is detected from the
+  claude exit code (`RALPH_SESSION_LIMIT_EXIT`) or an output marker; on it the tick fetches
+  the story via `gh issue view` and checkpoints through `ralph --checkpoint -` (Handoff), then
+  ends cleanly. Every knob is an env var so tests/superprojects override without editing the
+  script. Covered by `test/bats/orchestration.bats` (run by `test/run.sh` when bats is present)
+  AND `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving
+  the script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue
+  list` queue that pops one backlog fixture per call to simulate stories completing).
