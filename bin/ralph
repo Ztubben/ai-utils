@@ -11,6 +11,8 @@
 #   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
+#   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
+#   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
 set -euo pipefail
 
 RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +28,8 @@ usage: ralph --check-config [PATH]
        ralph --complete-hil STORY [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG]
        ralph --resume STORY [CONFIG]
+       ralph --record-attempt STORY REASON [CONFIG]
+       ralph --check-breaker [BACKLOG] [CONFIG]
 
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
@@ -65,6 +69,16 @@ usage: ralph --check-config [PATH]
        [CONFIG]           its branch and surface the latest Handoff. Base branch
                           untouched. Exits 0 on success, 1 on a git/gh failure,
                           2 on bad config or a refusal.
+  --record-attempt STORY  Record a failed Attempt on a story (gh --json shape; -
+       REASON [CONFIG]    for stdin) with a terse REASON. After limits.max_attempts
+                          failed Attempts the story moves to state:blocked. A
+                          context-full checkpoint is not an Attempt. Exits 0 on
+                          success, 1 on a gh failure, 2 on bad config.
+  --check-breaker         Trip the circuit breaker if limits.circuit_breaker stories
+       [BACKLOG] [CONFIG] are state:blocked: apply needs-human and tag the configured
+                          handle, halting the loop. Reads a JSON backlog from BACKLOG
+                          (or - for stdin); with no BACKLOG, scans live via gh. Exits
+                          0 on success, 1 on a gh failure, 2 on bad config.
 EOF
 }
 
@@ -111,6 +125,14 @@ main() {
     --resume)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_handoff.py" resume "$@"
+      ;;
+    --record-attempt)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-attempt "$@"
+      ;;
+    --check-breaker)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" check-breaker "$@"
       ;;
     -h|--help|"")
       usage

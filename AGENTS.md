@@ -72,3 +72,18 @@ not HITL) and `docs/adr/0001–0005`.
   and that is what US-009's attempt counter must operate on. The judgment-heavy "when to
   checkpoint / never compact" discipline lives in the checked-in prompt
   `prompts/handoff.v1.md` (drift-guarded).
+- `lib/ralph_failure.py` is the failure-handling seam (US-009, ADR-0004): same
+  `Plan`/`run_plan`/CLI shape. A failed **Attempt** is recorded as an issue comment
+  carrying `ATTEMPT_MARKER`; `count_attempts` is built on
+  `ralph_handoff.non_handoff_comments` so a checkpoint is never counted. `attempt_plan`
+  posts one terse comment and, when the Attempt reaches `limits.max_attempts`, also
+  emits `gh issue edit --add-label state:blocked --remove-label state:<current>`
+  (`plan.blocked`/`plan.attempt_no` report the outcome). `circuit_breaker_plan`
+  normalizes the backlog via `ralph_select.normalize`, counts open `state:blocked`
+  stories, and when `>= limits.circuit_breaker` applies `needs-human` to the highest-
+  numbered blocked story + tags `notify.github` — which halts the loop because
+  `ralph_select` treats needs-human anywhere as HALT (tie AC "loop halts" back to
+  select). CLI: `--record-attempt STORY REASON [CONFIG]`, `--check-breaker [BACKLOG]
+  [CONFIG]`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
+  state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
+  `prompts/failure.v1.md` (drift-guarded).
