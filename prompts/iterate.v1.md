@@ -47,3 +47,24 @@ Commit all changes to the story branch with a clear message referencing the issu
 The base branch and `ai-utils` stay untouched. If context fills before the story is
 green, write a Handoff (issue comment + WIP commits) and terminate so the next
 iteration resumes with clean context.
+
+## 5. Signal done (green) — required
+
+The orchestrator (`bin/ralph.sh`) cannot see inside your session, so it needs an
+explicit machine-readable signal to know a story is finished and may be promoted
+(AFK auto-merge / HIL awaiting-bench). When — and **only** when — **both** hold:
+
+- `ralph --run-gating` passed (every gating step green, changes committed), and
+- **every** box in the story's `## Acceptance Criteria` is checked,
+
+print the done-signal marker on a line **by itself** as the final line of your
+output:
+
+```
+RALPH-STORY-COMPLETE
+```
+
+Do **not** print it for partial progress, a red gate, or a context-full Handoff —
+in those cases just commit/terminate and the orchestrator resumes the story next
+pass. You still never move labels, open the PR, or merge yourself (step above): the
+marker is the whole of your reporting; the completion stage owns the state change.

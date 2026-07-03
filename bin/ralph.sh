@@ -12,13 +12,21 @@
 #   4. launches a fresh-context `claude` iteration per selected story and works
 #      as many eligible stories in sequence as the session budget allows, until
 #      no eligible work remains (no-work) or the loop halts (needs-human).
-#   5. when `claude` signals session-limit exhaustion, checkpoints the current
+#   5. when an iteration signals the story is green (the done-signal marker),
+#      promotes it: `ralph --complete-afk` (auto-merge → base) for a type:afk
+#      story, `ralph --complete-hil` (open PR → state:awaiting-bench) for HIL.
+#      Without this promotion the still-in-progress story would be re-selected
+#      forever (the engine is resume-first), so a green story must move off the
+#      backlog before the loop advances.
+#   6. when `claude` signals session-limit exhaustion, checkpoints the current
 #      story via a Handoff (`ralph --checkpoint`) and ends the tick cleanly.
 #
 # Ralph only ever modifies the superproject and never touches main. The heavy
-# lifting (TDD, gating, completion) lives in the `claude` iteration driven by
-# prompts/iterate.v1.md; this script is only the orchestration shell, kept thin
-# so it can be driven by tests against mocked `claude`/`gh` on PATH.
+# lifting (TDD, gating) lives in the `claude` iteration driven by
+# prompts/iterate.v1.md, which reports a green story via a done-signal marker;
+# this script is only the orchestration shell -- selecting, promoting green
+# stories, and checkpointing -- kept thin so it can be driven by tests against
+# mocked `claude`/`gh`/`git` on PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,13 +40,20 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
 : "${RALPH_SESSION_LIMIT_EXIT:=91}"         # claude CLI exit signalling session-limit exhaustion
 : "${RALPH_SESSION_LIMIT_MARKER:=usage limit reached}"
+: "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
 
 log() { printf 'ralph: %s\n' "$*"; }
 
-# Launch one fresh-context claude iteration for the selected story. Returns 0
-# normally, or RC_SESSION_LIMIT (10) when claude signalled session-limit
-# exhaustion (by exit code or output marker).
+# Launch one fresh-context claude iteration for the selected story. Returns:
+#   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (by exit
+#                         code or output marker) -- the story gets checkpointed;
+#   RC_STORY_COMPLETE (11) when the iteration emitted the done-signal marker,
+#                         meaning the gate is green and every acceptance criterion
+#                         is checked -- the story gets promoted;
+#   0                     otherwise (partial progress -- resume it next pass).
+# Session-limit takes priority: a truncated run never counts as complete.
 RC_SESSION_LIMIT=10
+RC_STORY_COMPLETE=11
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -60,6 +75,9 @@ run_iteration() {
      || printf '%s' "$out" | grep -qiF "$RALPH_SESSION_LIMIT_MARKER"; then
     return "$RC_SESSION_LIMIT"
   fi
+  if printf '%s' "$out" | grep -qF "$RALPH_STORY_COMPLETE_MARKER"; then
+    return "$RC_STORY_COMPLETE"
+  fi
   return 0
 }
 
@@ -71,6 +89,28 @@ checkpoint_story() {
   gh issue view "$issue" \
      --json number,title,labels,body,comments,state \
    | "$RALPH_BIN" --checkpoint - "Session limit reached; resume next tick." "$RALPH_CONFIG"
+}
+
+# Promote a green story off the backlog. Reads the story's type:* label and
+# dispatches to the completion CLI that owns the label move / PR / merge:
+# type:afk -> --complete-afk (auto-merge into base, close), type:hil ->
+# --complete-hil (open PR, move to state:awaiting-bench). The completion tools
+# refuse to touch main and re-validate the type, so this stays a thin dispatch.
+# The story is fetched fresh so completion has the full record. Returns non-zero
+# on a git/gh/dispatch failure; the caller logs and moves on.
+complete_story() {
+  local issue="$1" story_json
+  story_json="$(gh issue view "$issue" --json number,title,labels,body,state)"
+  if grep -q '"type:afk"' <<<"$story_json"; then
+    log "green #$issue is type:afk; auto-merging (--complete-afk)"
+    "$RALPH_BIN" --complete-afk - "$RALPH_CONFIG" <<<"$story_json"
+  elif grep -q '"type:hil"' <<<"$story_json"; then
+    log "green #$issue is type:hil; opening PR (--complete-hil)"
+    "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" <<<"$story_json"
+  else
+    log "cannot promote #$issue: no type:afk/type:hil label"
+    return 2
+  fi
 }
 
 tick() {
@@ -105,13 +145,27 @@ tick() {
       resume|start)
         issue="${action_line##*#}"
         log "$kind #$issue"
-        if run_iteration "$kind" "$issue"; then
-          n=$(( n + 1 ))
-          continue
-        else
-          checkpoint_story "$issue"
-          return 0
-        fi
+        local rc=0
+        run_iteration "$kind" "$issue" || rc=$?
+        case "$rc" in
+          0)  # partial progress: resume the same story on the next pass
+            ;;
+          "$RC_STORY_COMPLETE")  # green: promote it off the backlog
+            complete_story "$issue" \
+              || log "promotion of #$issue failed (see above); leaving it in-progress"
+            ;;
+          "$RC_SESSION_LIMIT")
+            checkpoint_story "$issue"
+            return 0
+            ;;
+          *)
+            log "run_iteration returned unexpected code $rc for #$issue; checkpointing"
+            checkpoint_story "$issue"
+            return 0
+            ;;
+        esac
+        n=$(( n + 1 ))
+        continue
         ;;
       *)
         log "unrecognized action from --dry-run: $action_line"

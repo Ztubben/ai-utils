@@ -26,6 +26,7 @@ RALPH_SH = os.path.join(REPO_ROOT, "bin", "ralph.sh")
 FULL_CONFIG = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid", "full.yml")
 
 SESSION_LIMIT_EXIT = "91"
+STORY_COMPLETE_MARKER = "RALPH-STORY-COMPLETE"
 
 
 def story(number, state, type_="afk", prio=1, needs_human=False):
@@ -89,6 +90,7 @@ class TickHarness:
             #!/usr/bin/env bash
             cat > /dev/null
             echo "claude action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
+            [[ -n "${RALPH_CLAUDE_EMIT:-}" ]] && printf '%s\\n' "$RALPH_CLAUDE_EMIT"
             exit "${RALPH_CLAUDE_EXIT:-0}"
             """))
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
@@ -97,17 +99,19 @@ class TickHarness:
             exit 0
             """))
 
-    def env(self, claude_exit="0"):
+    def env(self, claude_exit="0", claude_emit=""):
         e = dict(os.environ)
         e["PATH"] = os.path.join(self.tmp, "mockbin") + os.pathsep + e["PATH"]
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = SESSION_LIMIT_EXIT
         e["RALPH_CLAUDE_EXIT"] = claude_exit
+        e["RALPH_CLAUDE_EMIT"] = claude_emit
         return e
 
-    def run(self, claude_exit="0"):
-        return subprocess.run([RALPH_SH], cwd=self.tmp, env=self.env(claude_exit),
+    def run(self, claude_exit="0", claude_emit=""):
+        return subprocess.run([RALPH_SH], cwd=self.tmp,
+                              env=self.env(claude_exit, claude_emit),
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     def log_lines(self):
@@ -194,6 +198,48 @@ class OrchestrationTest(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertFalse(any("claude" in ln for ln in h.log_lines()), h.log_lines())
+
+    def test_green_afk_story_is_auto_merged_and_closed(self):
+        # AC: an iteration that emits the done-signal on a type:afk story is
+        # promoted via --complete-afk (auto-merge into base + close), not
+        # re-selected forever (the bug: green story never leaves the backlog).
+        h = self.harness()
+        h.set_backlogs([story(7, "ready", "afk")], [])  # then no-work -> stop
+        h.set_view_story(story(7, "ready", "afk"))
+        proc = h.run(claude_emit=STORY_COMPLETE_MARKER)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        claude_calls = [ln for ln in log if ln.startswith("claude ")]
+        self.assertEqual(len(claude_calls), 1, log)  # promoted, not re-run
+        self.assertTrue(any("pr merge" in ln for ln in log), log)
+        self.assertTrue(any("issue close 7" in ln for ln in log), log)
+
+    def test_green_hil_story_opens_pr_to_awaiting_bench(self):
+        # AC: a green type:hil story is promoted via --complete-hil (open PR +
+        # move to state:awaiting-bench); it is never merged or closed.
+        h = self.harness()
+        h.set_backlogs([story(5, "in-progress", "hil")], [])
+        h.set_view_story(story(5, "in-progress", "hil"))
+        proc = h.run(claude_emit=STORY_COMPLETE_MARKER)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("pr create" in ln for ln in log), log)
+        self.assertTrue(any("state:awaiting-bench" in ln for ln in log), log)
+        self.assertFalse(any("pr merge" in ln for ln in log), log)
+        self.assertFalse(any("issue close" in ln for ln in log), log)
+
+    def test_partial_iteration_is_not_promoted(self):
+        # AC: an iteration WITHOUT the done-signal made only partial progress and
+        # must not be promoted (no completion CLI runs); the story is left for a
+        # later pass. Here the backlog empties out so the tick then stops.
+        h = self.harness()
+        h.set_backlogs([story(7, "ready", "afk")], [])
+        h.set_view_story(story(7, "ready", "afk"))
+        proc = h.run()  # no marker emitted
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any(ln.startswith("claude ") for ln in log), log)
+        self.assertFalse(any("pr merge" in ln or "pr create" in ln for ln in log), log)
 
 
 if __name__ == "__main__":
