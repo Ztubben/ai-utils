@@ -102,6 +102,17 @@ class AfkCompletePlan(unittest.TestCase):
             afk_story(number=9), base="develop", branch_pattern="wip/{issue}/{slug}")
         self.assertIn("wip/9/add-spi-driver", _flat(plan.commands))
 
+    def test_push_uses_head_so_local_branch_name_need_not_match(self):
+        # Promotion must not depend on the iteration's local branch carrying the
+        # exact canonical name: push the current HEAD to the canonical remote
+        # branch, while the PR head/merge still reference that canonical name.
+        plan = ralph_afk.afk_complete_plan(afk_story(number=6), base="develop")
+        push = next(c for c in plan.commands if c[:2] == ["git", "push"])
+        self.assertIn("HEAD:ralph/6-add-spi-driver", push)
+        self.assertNotIn("ralph/6-add-spi-driver", push)  # bare name is not the src refspec
+        create = next(c for c in plan.commands if c[:3] == ["gh", "pr", "create"])
+        self.assertIn("ralph/6-add-spi-driver", create)
+
 
 class RunPlan(unittest.TestCase):
     def test_all_ok(self):

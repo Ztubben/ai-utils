@@ -16,10 +16,22 @@ to a green local gate. Honor the terminology in `CONTEXT.md` — this is a **HIL
 
 ## 1. Branch
 
-Create the story branch off the configured **base** branch using the config's
-`branch_pattern` (`{issue}` and `{slug}` are substituted — default
-`ralph/{issue}-{slug}`). If the branch already exists (a resume), check it out and
-continue from the prior Handoff instead of recreating it.
+Get the **canonical** branch name from the shipped CLI and use it **verbatim** —
+do not hand-slugify the title yourself:
+
+```sh
+gh issue view <issue> --json number,title,labels,body,state \
+  | ralph --branch-name - .ralph.yml
+```
+
+The name is deterministic (the config's `branch_pattern` with `{issue}`/`{slug}`
+substituted, slug lowercased and **truncated to 50 chars** — default
+`ralph/{issue}-{slug}`). Every later stage (Handoff, resume, and completion)
+recomputes this *same* name, so a branch named any other way will not be found:
+the checkpoint push fails, resume cannot check it out, and the green story can
+never be promoted. Create that exact branch off the configured **base** branch.
+If it already exists (a resume), check it out and continue from the prior Handoff
+instead of recreating it.
 
 ## 2. Red → Green (test-first)
 

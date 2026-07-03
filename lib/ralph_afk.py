@@ -66,7 +66,11 @@ def afk_complete_plan(story, base=DEFAULT_BASE,
     branch = ralph_iterate.branch_name(story, branch_pattern)
     title = story.get("title") or ("Story #%s" % number)
     commands = [
-        ["git", "push", "-u", "origin", branch],
+        # Push the iteration's current HEAD to the canonical remote branch. Using
+        # HEAD: (not a bare local branch name) means promotion does not depend on
+        # the local branch carrying the exact canonical name -- the iteration may
+        # have named its checkout differently; whatever it committed to is HEAD.
+        ["git", "push", "-u", "origin", "HEAD:" + branch],
         ["gh", "pr", "create", "--base", base, "--head", branch,
          "--title", title, "--body", "Closes #%s" % number],
         ["gh", "pr", "merge", branch, MERGE_FLAG[afk_merge], "--delete-branch"],

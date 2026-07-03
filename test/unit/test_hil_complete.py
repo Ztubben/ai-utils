@@ -118,6 +118,17 @@ class HilCompletePlan(unittest.TestCase):
             hil_story(number=9), base="develop", branch_pattern="wip/{issue}/{slug}")
         self.assertIn("wip/9/blink-status-led", _flat(plan.commands))
 
+    def test_push_uses_head_so_local_branch_name_need_not_match(self):
+        # Promotion must not depend on the iteration's local branch carrying the
+        # exact canonical name: push the current HEAD to the canonical remote
+        # branch, while the PR head still references that canonical name.
+        plan = ralph_hil.hil_complete_plan(hil_story(number=7), base="develop")
+        push = next(c for c in plan.commands if c[:2] == ["git", "push"])
+        self.assertIn("HEAD:ralph/7-blink-status-led", push)
+        self.assertNotIn("ralph/7-blink-status-led", push)  # bare name is not the src refspec
+        create = next(c for c in plan.commands if c[:3] == ["gh", "pr", "create"])
+        self.assertIn("ralph/7-blink-status-led", create)
+
 
 class RunPlan(unittest.TestCase):
     def test_all_ok(self):
