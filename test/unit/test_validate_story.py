@@ -91,8 +91,9 @@ class MalformedStoriesAreRejected(unittest.TestCase):
     def test_two_type_labels_are_rejected(self):
         self._assert_invalid_mentioning("two-types.json", "type")
 
-    def test_missing_prio_is_rejected(self):
-        self._assert_invalid_mentioning("missing-prio.json", "prio")
+    def test_two_prio_labels_are_rejected(self):
+        # prio is optional, but at most one: two prio:N labels are ambiguous.
+        self._assert_invalid_mentioning("two-prios.json", "prio")
 
     def test_missing_depends_on_is_rejected(self):
         self._assert_invalid_mentioning("missing-depends.json", "Depends on")
@@ -112,6 +113,28 @@ class LabelShapeIsFlexible(unittest.TestCase):
         result = ralph_story.validate_story(story)
         self.assertTrue(result.ok, result.errors)
         self.assertEqual(result.fields["prio"], 3)
+
+
+class PrioIsOptional(unittest.TestCase):
+    def _story(self, labels):
+        return {
+            "number": 1, "title": "s", "labels": labels,
+            "body": "## Acceptance Criteria\n- [ ] ok\n\nDepends on: None\n",
+        }
+
+    def test_no_prio_label_is_valid_with_none_prio(self):
+        # A story may omit prio:N; it validates and carries prio=None.
+        result = ralph_story.validate_story(
+            self._story([{"name": "state:ready"}, {"name": "type:afk"}]))
+        self.assertTrue(result.ok, result.errors)
+        self.assertIsNone(result.fields["prio"])
+
+    def test_non_numeric_prio_is_rejected(self):
+        result = ralph_story.validate_story(
+            self._story([{"name": "state:ready"}, {"name": "type:afk"},
+                         {"name": "prio:high"}]))
+        self.assertFalse(result.ok)
+        self.assertTrue(any("prio" in e for e in result.errors))
 
 
 class CliLintStory(unittest.TestCase):

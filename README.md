@@ -70,7 +70,7 @@ configurable**:
 
 - **State** (exactly one): `state:ready` → `state:in-progress` → `state:awaiting-bench` → *closed* (= Done).
 - **Type** (exactly one): `type:afk` or `type:hil`.
-- **Priority** (exactly one): `prio:N`, lower = higher priority. Ties break by lowest issue number (FIFO).
+- **Priority** (optional, at most one): `prio:N`, lower = higher priority. A story with no `prio:N` sorts as lowest priority; ties (and prio-less stories) break by lowest issue number (FIFO). Add `prio:N` only to jump the queue.
 - **Dependencies**: a `Depends on: #12, #34` line in the body. A story is
   ineligible until every dependency is *Passing* (closed) — for a HIL dependency
   that means bench-verified.
@@ -130,21 +130,29 @@ scheduler (every ~5h)
    ai-utils/bin/ralph --check-config
    ```
 
-4. **Author some stories** as GitHub issues in the canonical shape (see
+4. **Initialize the repo** — create the canonical labels and the base branch
+   (idempotent; safe to re-run). Do this once per superproject, before authoring
+   stories, or `gh issue edit --add-label state:…` will fail with `not found`:
+
+   ```sh
+   ai-utils/bin/ralph --init
+   ```
+
+5. **Author some stories** as GitHub issues in the canonical shape (see
    [Authoring the backlog](#authoring-the-backlog)), and lint them:
 
    ```sh
    gh issue view 42 --json number,title,labels,body | ai-utils/bin/ralph --lint-story -
    ```
 
-5. **Dry-run the selector** to see what Ralph would pick up next — this changes
+6. **Dry-run the selector** to see what Ralph would pick up next — this changes
    nothing:
 
    ```sh
    ai-utils/bin/ralph --dry-run
    ```
 
-6. **Run a tick** manually to try the full loop, or wire `ai-utils/bin/ralph.sh`
+7. **Run a tick** manually to try the full loop, or wire `ai-utils/bin/ralph.sh`
    into a scheduler (e.g. cron every 5 hours) for unattended operation:
 
    ```sh
@@ -252,7 +260,7 @@ the `to-issues` workflow to emit exactly this shape — use it when planning wor
 
 Every story needs:
 
-- exactly one `state:`, one `type:` (except Blockers), and one `prio:` label,
+- exactly one `state:` and one `type:` label (except Blockers), and at most one (optional) `prio:` label,
 - a `## Acceptance Criteria` heading with at least one `- [ ]` checklist item,
 - a `Depends on:` line (`None`, or `#`-prefixed issue numbers),
 - for HIL stories, an additional `## Bench Test Procedure` section.
@@ -293,6 +301,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 
 | Command | What it does |
 | --- | --- |
+| `ralph --init [CONFIG]` | Bootstrap the superproject: idempotently create the canonical labels and, if missing, the base branch (off the default branch). Run once per repo before authoring stories. |
 | `ralph --check-config [PATH]` | Validate `.ralph.yml` (default `./.ralph.yml`) against the schema. |
 | `ralph --lint-story PATH` | Validate a story issue (gh JSON shape; `-` for stdin) against the canonical format. |
 | `ralph --dry-run [PATH]` | Scan the backlog and print the next action (`resume #N` / `start #N` / `no-work` / `halt`), changing nothing. Reads a JSON backlog from `PATH`, or scans live via `gh`. |

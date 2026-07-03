@@ -1,9 +1,0 @@
-{
-  "number": 54,
-  "title": "Story with no priority label",
-  "labels": [
-    { "name": "state:ready" },
-    { "name": "type:afk" }
-  ],
-  "body": "## What to build\n\nHas no prio:N label, so the FIFO ordering can't place it.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nDepends on: None\n"
-}

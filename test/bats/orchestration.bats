@@ -100,6 +100,22 @@ story() {
   ! grep -q claude "$RALPH_LOG" 2>/dev/null
 }
 
+@test "start moves a ready story to state:in-progress before iterating" {
+  echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  grep -q 'gh issue edit 7 --add-label state:in-progress --remove-label state:ready' "$RALPH_LOG"
+}
+
+@test "resume does not re-label an already in-progress story" {
+  echo "[$(story 5 in-progress afk)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  ! grep -q 'gh issue edit' "$RALPH_LOG"
+}
+
 @test "a green AFK story is auto-merged and closed (not re-selected)" {
   echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"

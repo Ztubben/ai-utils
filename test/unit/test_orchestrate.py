@@ -199,6 +199,28 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertFalse(any("claude" in ln for ln in h.log_lines()), h.log_lines())
 
+    def test_start_moves_ready_story_to_in_progress(self):
+        # AC: a `start` action transitions the story state:ready -> state:in-progress
+        # before its first iteration, so checkpoint/partial/completion see the
+        # expected state (and the story resumes rather than re-starts next pass).
+        h = self.harness()
+        h.set_backlogs([story(7, "ready", "afk")], [])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(
+            any("issue edit 7" in ln and "state:in-progress" in ln
+                and "state:ready" in ln for ln in log), log)
+
+    def test_resume_does_not_relabel_the_story(self):
+        # AC: `resume` is already state:in-progress; the tick must not re-label it.
+        h = self.harness()
+        h.set_backlogs([story(5, "in-progress", "afk")], [])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertFalse(any("issue edit" in ln for ln in h.log_lines()),
+                         h.log_lines())
+
     def test_green_afk_story_is_auto_merged_and_closed(self):
         # AC: an iteration that emits the done-signal on a type:afk story is
         # promoted via --complete-afk (auto-merge into base + close), not

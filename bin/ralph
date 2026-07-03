@@ -2,6 +2,7 @@
 # ralph - the Ralph Loop CLI (shipped from ai-utils, invoked from a superproject).
 #
 # Subcommands are added as stories land. Today:
+#   ralph --init [CONFIG]         Bootstrap the superproject: create the canonical labels + base branch.
 #   ralph --check-config [PATH]   Validate .ralph.yml (default ./.ralph.yml) and exit.
 #   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
@@ -21,7 +22,8 @@ RALPH_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
   cat <<'EOF'
-usage: ralph --check-config [PATH]
+usage: ralph --init [CONFIG]
+       ralph --check-config [PATH]
        ralph --lint-story PATH
        ralph --dry-run [PATH]
        ralph --branch-name STORY [CONFIG]
@@ -35,6 +37,13 @@ usage: ralph --check-config [PATH]
        ralph --read-learnings DIR [ROOT]
        ralph --learn-target PATH [ROOT]
 
+  --init [CONFIG]         Bootstrap the superproject for the Ralph Loop:
+                          idempotently create the canonical state:/type:/prio:/
+                          needs-human/ready-for-human GitHub labels and, if the
+                          configured base branch is missing, create it off the
+                          repo's default branch. Reads the base from CONFIG
+                          (default .ralph.yml). Safe to re-run. Exits 0 on
+                          success, 1 on a git/gh failure, 2 on bad config.
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml). Exits 0 on a
                           valid config, non-zero (reporting the offending
@@ -96,6 +105,10 @@ EOF
 
 main() {
   case "${1:-}" in
+    --init)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_init.py" init "$@"
+      ;;
     --check-config)
       local config="${2:-.ralph.yml}"
       exec python3 "$RALPH_HOME/lib/ralph_config.py" "$config"
