@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ralph.sh - the Ralph Loop unattended tick (US-011, ADR-0002/0004).
 #
-# One tick is a single scheduled run (the scheduler fires it every 3 hours,
+# One tick is a single scheduled run (the scheduler fires it every 5 hours,
 # US-012). A tick:
 #   1. guards with flock so only one tick per superproject runs at a time; an
 #      overlapping tick exits immediately (lockfile in .git/, ADR: Tick).

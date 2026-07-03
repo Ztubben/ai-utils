@@ -56,7 +56,7 @@ human must verify on the bench.
 | **AFK story** (`type:afk`) | *Away-From-Keyboard.* Fully verifiable by CI alone (logic, parsing, refactors, build config). Done as soon as the gate is green — Ralph auto-merges it. |
 | **HIL story** (`type:hil`) | *Human-In-the-Loop.* Needs a human to confirm real behavior on the physical bench (GPIO, timing, sensors). Green CI is necessary but **not** sufficient; Ralph opens a PR and waits for bench verification. |
 | **Blocker** | A story needing a human *design decision before coding.* Kept out of `state:ready` (labelled `ready-for-human`) so Ralph never picks it up. |
-| **Tick** | One scheduled run of the loop (every ~3 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. Only one tick per superproject runs at a time (guarded by a `flock`). |
+| **Tick** | One scheduled run of the loop (every ~5 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. Only one tick per superproject runs at a time (guarded by a `flock`). |
 | **Iteration** | A single fresh-context agent process inside a tick. Ralph **never compacts context** — when it fills, the iteration writes a *Handoff* and the next iteration resumes with clean context. |
 | **Handoff** | The checkpoint an iteration leaves so a story can resume: a summary as an issue comment + WIP commits on the story branch. |
 | **Gating steps** | The build/test/lint checks Ralph must pass before a story counts. You declare them in `.ralph.yml`. |
@@ -78,7 +78,7 @@ configurable**:
 ## How it works (one tick)
 
 ```
-scheduler (every ~3h)
+scheduler (every ~5h)
         │
         ▼
    bin/ralph.sh  ──► flock (one tick at a time)
@@ -145,7 +145,7 @@ scheduler (every ~3h)
    ```
 
 6. **Run a tick** manually to try the full loop, or wire `ai-utils/bin/ralph.sh`
-   into a scheduler (e.g. cron every 3 hours) for unattended operation:
+   into a scheduler (e.g. cron every 5 hours) for unattended operation:
 
    ```sh
    ai-utils/bin/ralph.sh
@@ -155,7 +155,7 @@ scheduler (every ~3h)
 
 ## Installing the scheduler
 
-Unattended operation is just a **tick every 3 hours**. ai-utils ships sample
+Unattended operation is just a **tick every 5 hours**. ai-utils ships sample
 scheduler units under [`scheduler/`](scheduler/) — pick **one**:
 
 - `scheduler/ralph.service` + `scheduler/ralph.timer` — a systemd timer, or
@@ -190,7 +190,7 @@ cp ai-utils/scheduler/ralph.timer   ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ralph.timer
 loginctl enable-linger "$USER"    # let the timer run while you're logged out
-systemctl --user list-timers ralph.timer   # confirm the next 3-hour fire
+systemctl --user list-timers ralph.timer   # confirm the next 5-hour fire
 ```
 
 ### Option B — cron
@@ -199,10 +199,10 @@ systemctl --user list-timers ralph.timer   # confirm the next 3-hour fire
 # edit the superproject path in the entry first:
 crontab -e
 # then append the line from ai-utils/scheduler/ralph.cron:
-#   0 */3 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
+#   0 */5 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
 ```
 
-Once installed, Ralph wakes every 3 hours, resumes any in-progress story, works
+Once installed, Ralph wakes every 5 hours, resumes any in-progress story, works
 as many ready stories as the session budget allows, then sleeps until the next
 tick. Run `ai-utils/bin/ralph.sh` by hand once first to confirm the config and
 auth are good before leaving it unattended.
@@ -361,7 +361,7 @@ lib/*.py         Pure logic (Python 3, stdlib + jsonschema + PyYAML). No network
 schema/          Shipped JSON-schemas (ralph.schema.json for .ralph.yml).
 prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drift-guarded by tests.
 skills/          Authoring skills shipped with the tool (ralph-story + examples).
-scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 3h.
+scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
 docs/adr/        Architecture Decision Records (0001–0005).
 test/            Green gate: test/run.sh, unit tests, fixtures, optional bats.
 .ralph.yml.sample  Documented sample config (a test asserts it validates).

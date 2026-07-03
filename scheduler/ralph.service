@@ -2,7 +2,7 @@
 #
 # A tick is a single, unattended run through the backlog (bin/ralph.sh), guarded
 # by a flock so overlapping ticks are a no-op. This is a `oneshot` unit — it runs
-# to completion and exits; the paired ralph.timer (every 3 hours) starts it on a
+# to completion and exits; the paired ralph.timer (every 5 hours) starts it on a
 # schedule. Do NOT run it as a long-lived daemon.
 #
 # INSTALL (per-user is simplest — no root, inherits your gh/Claude auth):

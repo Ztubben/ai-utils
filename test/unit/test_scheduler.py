@@ -5,12 +5,12 @@ and stay well-formed:
 
   * a documented sample `.ralph.yml` (also asserted by test_validate_config),
   * sample scheduler units — a systemd .service + .timer and a cron entry — that
-    run a tick (bin/ralph.sh) every 3 hours,
+    run a tick (bin/ralph.sh) every 5 hours,
   * an install README covering submodule setup, config placement, schedule
     install, and the gh/Claude auth prerequisites.
 
 These are drift-guards, mirroring how the checked-in agent prompts are tested:
-if someone breaks the 3-hour cadence, drops an ExecStart, or removes the install
+if someone breaks the 5-hour cadence, drops an ExecStart, or removes the install
 instructions, the gate goes red.
 """
 import os
@@ -59,13 +59,13 @@ class SystemdSamples(unittest.TestCase):
         # A tick is a single run, not a long-lived daemon.
         self.assertIn("oneshot", self.service.lower())
 
-    def test_timer_fires_every_three_hours(self):
+    def test_timer_fires_every_five_hours(self):
         self.assertIn("[Timer]", self.timer)
         self.assertIn("[Install]", self.timer)
-        # systemd every-3-hours cadence: OnCalendar=*-*-* 00/3:00:00
+        # systemd every-5-hours cadence: OnCalendar=*-*-* 00/5:00:00
         self.assertIn("OnCalendar", self.timer)
-        self.assertIn("00/3", self.timer,
-                      "the timer must fire every 3 hours (OnCalendar 00/3)")
+        self.assertIn("00/5", self.timer,
+                      "the timer must fire every 5 hours (OnCalendar 00/5)")
         self.assertIn("timers.target", self.timer)
 
 
@@ -76,9 +76,9 @@ class CronSample(unittest.TestCase):
                         "a sample cron entry must ship under scheduler/")
         self.cron = _read(self.cron_path)
 
-    def test_cron_runs_a_tick_every_three_hours(self):
-        # A crontab hour field of */3 = every 3 hours.
-        self.assertIn("*/3", self.cron, "the cron entry must run every 3 hours")
+    def test_cron_runs_a_tick_every_five_hours(self):
+        # A crontab hour field of */5 = every 5 hours.
+        self.assertIn("*/5", self.cron, "the cron entry must run every 5 hours")
         self.assertIn("ralph.sh", self.cron)
 
 
@@ -110,8 +110,8 @@ class InstallReadme(unittest.TestCase):
         self.assertIn("cron", self.low)
         self.assertIn("scheduler/ralph.timer", self.text)
         self.assertIn("scheduler/ralph.cron", self.text)
-        # And states the 3-hour cadence.
-        self.assertIn("3 hours", self.low)
+        # And states the 5-hour cadence.
+        self.assertIn("5 hours", self.low)
 
     def test_covers_auth_prerequisites(self):
         # gh and Claude must both be authenticated for an unattended tick.

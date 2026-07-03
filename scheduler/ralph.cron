@@ -1,4 +1,4 @@
-# Sample crontab entry: run the Ralph Loop tick every 3 hours.
+# Sample crontab entry: run the Ralph Loop tick every 5 hours.
 #
 # Cron is the low-ceremony alternative to the systemd timer (ralph.service +
 # ralph.timer). Pick ONE, not both.
@@ -17,4 +17,4 @@
 PATH=/usr/local/bin:/usr/bin:/bin
 
 # min hour dom mon dow  command
-0 */3 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
+0 */5 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1

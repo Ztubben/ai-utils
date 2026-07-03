@@ -1,7 +1,7 @@
 {
   "project": "ai-utils / Ralph Loop",
   "branchName": "ralph/ralph-loop",
-  "description": "Ralph Loop — an autonomous, bench-gated coding agent tooling submodule. Reads a label-driven GitHub Issues backlog, runs on a local 3-hour scheduler, builds each story TDD off-target against a fakeable HAL, auto-merges AFK stories to develop and parks HIL stories at awaiting-bench, checkpoints via Handoff instead of compacting, and never touches main. Converted from GitHub issues #2–#12 (parent PRD #1).",
+  "description": "Ralph Loop — an autonomous, bench-gated coding agent tooling submodule. Reads a label-driven GitHub Issues backlog, runs on a local 5-hour scheduler, builds each story TDD off-target against a fakeable HAL, auto-merges AFK stories to develop and parks HIL stories at awaiting-bench, checkpoints via Handoff instead of compacting, and never touches main. Converted from GitHub issues #2–#12 (parent PRD #1).",
   "userStories": [
     {
       "id": "US-002",
@@ -177,7 +177,7 @@
       "title": "Scheduler + install docs (sample timer, sample .ralph.yml, README)",
       "description": "As a developer, I want ai-utils to ship a sample scheduler unit, a sample .ralph.yml, and an install README, so that installing the loop in a new superproject is quick.",
       "acceptanceCriteria": [
-        "A sample cron entry and/or systemd timer runs a tick every 3 hours",
+        "A sample cron entry and/or systemd timer runs a tick every 5 hours",
         "A documented sample .ralph.yml is shipped",
         "An install README covers submodule setup, config placement, schedule install, and gh/Claude auth prerequisites",
         "Following the README from a fresh superproject results in Ralph running on schedule"
