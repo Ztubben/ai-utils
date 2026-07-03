@@ -31,9 +31,10 @@ mandated and not overridable (it is fixed in the config schema, ADR-0002).
     refactors, build config). Passing as soon as CI is green.
   - `type:hil` — acceptance requires human verification on the physical bench (GPIO, timing,
     sensors, actuators). Passing only when CI is green **and** a human bench-verifies it.
-- **Priority** (exactly one): `prio:N`, lower = higher priority. Ties break by lowest issue
+- **Priority** (optional, at most one): `prio:N`, lower = higher priority. A story with no
+  `prio:N` sorts as lowest priority; ties (and prio-less stories) break by lowest issue
   number (FIFO). Priority is explicit labels, not issue-number ordering, so stories can be
-  reprioritized without renumbering.
+  reprioritized without renumbering — add `prio:N` only to jump the queue.
 
 ### Body
 
@@ -89,7 +90,7 @@ Depends on: #12, #34      ← or `Depends on: None`
 
 Rules the template encodes (verify with `ralph --lint-story`, below):
 
-- Exactly one `state:`, one `type:` (except Blockers), and one `prio:` label.
+- Exactly one `state:` and one `type:` label (except Blockers); at most one (optional) `prio:` label.
 - A `## Acceptance Criteria` heading with at least one `- [ ]` checklist item.
 - HIL stories additionally carry a `## Bench Test Procedure` section.
 - A `Depends on:` line (either `None` or `#`-prefixed issue numbers). A story is ineligible

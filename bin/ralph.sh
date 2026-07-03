@@ -91,6 +91,21 @@ checkpoint_story() {
    | "$RALPH_BIN" --checkpoint - "Session limit reached; resume next tick." "$RALPH_CONFIG"
 }
 
+# Move a freshly-selected story from state:ready to state:in-progress before its
+# first iteration. This is the `start` edge of the state machine that the rest of
+# the loop assumes exists: a mid-iteration checkpoint then resumes it (resume-first
+# needs state:in-progress), a partial pass is re-selected as `resume` not `start`,
+# and HIL/AFK completion's `--remove-label state:in-progress` has a label to move.
+# Best-effort: a failure here almost always means the labels were never created,
+# so point at `ralph --init` and continue (the iteration can still do work).
+begin_story() {
+  local issue="$1"
+  log "moving #$issue to state:in-progress"
+  gh issue edit "$issue" \
+     --add-label state:in-progress --remove-label state:ready \
+   || log "could not label #$issue state:in-progress (are the Ralph labels created? run 'ralph --init'); continuing"
+}
+
 # Promote a green story off the backlog. Reads the story's type:* label and
 # dispatches to the completion CLI that owns the label move / PR / merge:
 # type:afk -> --complete-afk (auto-merge into base, close), type:hil ->
@@ -145,6 +160,12 @@ tick() {
       resume|start)
         issue="${action_line##*#}"
         log "$kind #$issue"
+        # `start` moves a state:ready story into state:in-progress up front, so a
+        # checkpoint/partial pass/completion all see the expected state. `resume`
+        # is already in-progress (a prior tick moved it), so it is left alone.
+        if [[ "$kind" == "start" ]]; then
+          begin_story "$issue"
+        fi
         local rc=0
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in

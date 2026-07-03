@@ -85,6 +85,22 @@ class Ordering(unittest.TestCase):
         )
         self.assertEqual(act.number, 4)
 
+    def test_story_without_prio_sorts_behind_prioritized_ones(self):
+        # prio is optional: a no-prio story (prio=None -> +inf) loses to any
+        # story that carries a prio:N, regardless of issue number.
+        act = action_for(
+            story(1, state="ready", type_="afk", prio=None),  # lower number...
+            story(9, state="ready", type_="afk", prio=5),      # ...but this wins
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 9))
+
+    def test_prioless_stories_fall_back_to_fifo_among_themselves(self):
+        act = action_for(
+            story(7, state="ready", type_="afk", prio=None),
+            story(4, state="ready", type_="afk", prio=None),
+        )
+        self.assertEqual(act.number, 4)
+
     def test_blocked_state_is_skipped(self):
         act = action_for(
             story(1, state="blocked", type_="afk", prio=1),

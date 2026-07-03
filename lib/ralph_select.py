@@ -11,6 +11,8 @@ Rules (ADR-0002, CONTEXT.md):
   - Resume-first: any state:in-progress story is chosen before any state:ready
     scan (a prior iteration checkpointed it via Handoff).
   - Ordering: prio:N ascending, ties broken by lowest issue number (pure FIFO).
+    prio is optional (ADR-0002): a story with no prio:N sorts as lowest priority
+    (prio = +inf), i.e. it falls back to pure FIFO behind every prioritized story.
   - state:blocked stories and design-decision Blockers (ready-for-human, kept
     out of state:ready) are skipped.
   - Dependencies: a `Depends on: #N` edge is satisfied only when #N is Passing,

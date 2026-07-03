@@ -78,8 +78,14 @@ def validate_story(story):
     is_blocker = BLOCKER_LABEL in names
 
     # --- rules common to every story --------------------------------------
-    if len(prios) != 1 or not prios[0].isdigit():
-        errors.append("labels: exactly one prio:N label is required (lower = higher priority)")
+    # prio is optional: a story may carry zero or one prio:N label. With none,
+    # prio is None and the selection engine sorts it as lowest priority -- it
+    # falls back to FIFO by issue number. Authors add prio:N only to jump the
+    # queue (ADR-0002). More than one, or a non-numeric prio:, is still an error.
+    if len(prios) > 1:
+        errors.append("labels: at most one prio:N label is allowed (lower = higher priority)")
+    elif prios and not prios[0].isdigit():
+        errors.append("labels: a prio: label must be numeric (prio:N, lower = higher priority)")
     prio = int(prios[0]) if len(prios) == 1 and prios[0].isdigit() else None
 
     if "HITL" in body or "HITL" in (story.get("title") or ""):

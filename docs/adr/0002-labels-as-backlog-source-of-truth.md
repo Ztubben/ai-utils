@@ -5,7 +5,9 @@ Ralph reads the superproject's backlog from GitHub Issues. The authoritative, ma
 Encoding:
 - **State** (mutually exclusive): `state:ready` → `state:in-progress` → `state:awaiting-bench` → closed (= Done).
 - **Type**: `type:afk` / `type:hil`.
-- **Priority**: explicit `prio:N` labels (lower = higher priority). Not issue-number ordering, so stories can be reprioritized without renumbering. Ties within a `prio:N` break by **lowest issue number (pure FIFO)** — deterministic and predictable, deliberately avoiding fan-out/AFK-first heuristics so Ralph never second-guesses the encoded priority.
+- **Priority**: an **optional** `prio:N` label (lower = higher priority), at most one per story. Not issue-number ordering, so stories can be reprioritized without renumbering. Ties within a `prio:N` break by **lowest issue number (pure FIFO)** — deterministic and predictable, deliberately avoiding fan-out/AFK-first heuristics so Ralph never second-guesses the encoded priority. A story that carries **no** `prio:N` sorts as lowest priority (behind every prioritized story) and falls back to pure FIFO among other prio-less stories — so priority is a deliberate override you add only when a story must jump the queue, not a tax on every issue.
+
+  > **Amendment (was: "exactly one `prio:N` required").** Priority was originally mandatory. It is now optional: the common case is FIFO-by-issue-number, and forcing an arbitrary `prio:N` on every story added noise without meaning. The ordering key is unchanged (`(prio, issue#)` ascending, `prio` absent = `+inf`); only the requirement was dropped.
 - **Dependencies**: a `Depends on: #12, #34` line in the body; a story is ineligible until every referenced issue is Passing (closed). A HIL dependency counts as satisfied only once bench-verified.
 - **Acceptance criteria**: a `## Acceptance Criteria` checklist. HIL stories also carry a `## Bench Test Procedure` section.
 

@@ -1,0 +1,11 @@
+{
+  "number": 55,
+  "title": "Story with two priority labels",
+  "labels": [
+    { "name": "state:ready" },
+    { "name": "type:afk" },
+    { "name": "prio:1" },
+    { "name": "prio:3" }
+  ],
+  "body": "## What to build\n\nHas two prio:N labels, which is ambiguous.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nDepends on: None\n"
+}

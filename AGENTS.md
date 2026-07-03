@@ -31,8 +31,9 @@ not HITL) and `docs/adr/0001–0005`.
   objects or plain strings) and is the canonical story-format checker the selection engine
   builds on. Fixtures for story-shaped logic live under `test/fixtures/stories/`.
 - `lib/ralph_select.py` is the pure selection engine (`normalize` → `select_next` →
-  `Action`). It reuses `ralph_story`'s field extraction but owns ordering (prio ascending,
-  ties by lowest issue number, FIFO) and dependency satisfaction. The scan must request the
+  `Action`). It reuses `ralph_story`'s field extraction but owns ordering (optional prio
+  ascending — absent prio sorts last — ties by lowest issue number, FIFO) and dependency
+  satisfaction. The scan must request the
   gh `state` field: a `Depends on:` edge is satisfied only when the referenced issue is
   closed (an AFK dep once merged, a HIL dep once bench-verified — both surface as closed).
   Don't confuse gh's `state` (OPEN/CLOSED) with the `state:` label (ready/in-progress/…).
@@ -101,21 +102,33 @@ not HITL) and `docs/adr/0001–0005`.
   `prompts/memory.v1.md` (drift-guarded). NOTE: the reference snarktank loop's `progress.txt`
   is the build harness in `ralph/`, which is deliberately separate from the tool being built —
   the tool ships no progress.txt.
-- `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): pure orchestration,
-  no logic — the TDD/gating/completion all happen inside the `claude` iteration it launches
-  (driven by `prompts/iterate.v1.md`). Order: (1) `flock -n` a lockfile under `.git/`
-  (`RALPH_LOCK_DIR`, default `.git`) so only one tick per superproject runs — an overlapping
-  tick logs "already running" and exits 0; (2) `ralph --check-config` (fail loud, ADR-0001);
-  (3) loop calling `ralph --dry-run` (which is already resume-first) and launching one
-  fresh-context `claude --print` iteration per selected story, working stories in sequence
-  until `--dry-run` returns `no-work`/`halt`. Session-limit exhaustion is detected from the
-  claude exit code (`RALPH_SESSION_LIMIT_EXIT`) or an output marker; on it the tick fetches
-  the story via `gh issue view` and checkpoints through `ralph --checkpoint -` (Handoff), then
-  ends cleanly. Every knob is an env var so tests/superprojects override without editing the
-  script. Covered by `test/bats/orchestration.bats` (run by `test/run.sh` when bats is present)
-  AND `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving
-  the script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue
-  list` queue that pops one backlog fixture per call to simulate stories completing).
+- `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
+  the TDD/gating happen inside the `claude` iteration it launches (driven by
+  `prompts/iterate.v1.md`), but the tick owns the state transitions around it. Order: (1)
+  `flock -n` a lockfile under `.git/` (`RALPH_LOCK_DIR`, default `.git`) so only one tick per
+  superproject runs — an overlapping tick logs "already running" and exits 0; (2)
+  `ralph --check-config` (fail loud, ADR-0001); (3) loop calling `ralph --dry-run` (already
+  resume-first) and launching one fresh-context `claude --print` iteration per selected story,
+  working stories in sequence until `--dry-run` returns `no-work`/`halt`. A `start` action
+  first moves the story `state:ready`→`state:in-progress` (`begin_story`, the state-machine
+  `start` edge every later stage assumes); `resume` is left as-is. `run_iteration` returns
+  three outcomes: session-limit (checkpoint via `ralph --checkpoint -` and end), the story
+  done-signal marker `RALPH_STORY_COMPLETE_MARKER` (**promote**: `complete_story` reads the
+  `type:` label and dispatches to `ralph --complete-afk`/`--complete-hil`), or partial progress
+  (loop back; the now-in-progress story is `resume`d next pass). Every knob is an env var so
+  tests/superprojects override without editing the script. Covered by
+  `test/bats/orchestration.bats` (run by `test/run.sh` when bats is present) AND
+  `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving the
+  script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
+  queue that pops one backlog fixture per call to simulate stories completing).
+- `lib/ralph_init.py` is the one-shot bootstrap seam (`ralph --init`): same pure-`Plan`/
+  `run_plan`/CLI shape as the completion stages. `init_plan(base, base_exists, default_branch,
+  prio_max)` returns the ordered gh/git commands to `gh label create --force` the canonical
+  vocabulary (`FIXED_LABELS` — the exact `state:`/`type:`/`needs-human`/`ready-for-human`
+  labels `ralph_story`/`ralph_select` consume — plus a `prio:0..N` starter range) and, when
+  `base` is missing, create it off the default branch (refusing to fabricate `main`, ADR-0001).
+  The CLI detects live state (`_remote_has_branch`, `_default_branch`) then runs the plan.
+  Idempotent by construction (`--force`, skip-if-present). Covered by `test/unit/test_init.py`.
 - `scheduler/` ships the sample schedulers (US-012, ADR-0001): systemd `ralph.service`
   (`Type=oneshot`, `ExecStart=.../bin/ralph.sh`) + `ralph.timer` (`OnCalendar=*-*-* 00/5:00:00`,
   i.e. every 5h) and a `ralph.cron` one-liner (`0 */5 * * *`). Both just fire the flock-guarded
