@@ -35,6 +35,7 @@ EOF
 #!/usr/bin/env bash
 cat > /dev/null
 echo "claude action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
+[[ -n "${RALPH_CLAUDE_EMIT:-}" ]] && printf '%s\n' "$RALPH_CLAUDE_EMIT"
 exit "${RALPH_CLAUDE_EXIT:-0}"
 EOF
   cat >"$MB/git" <<'EOF'
@@ -97,4 +98,38 @@ story() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"halt"* ]]
   ! grep -q claude "$RALPH_LOG" 2>/dev/null
+}
+
+@test "a green AFK story is auto-merged and closed (not re-selected)" {
+  echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  story 7 ready afk > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  grep -q 'gh pr merge' "$RALPH_LOG"
+  grep -q 'gh issue close 7' "$RALPH_LOG"
+}
+
+@test "a green HIL story opens a PR and moves to awaiting-bench" {
+  echo "[$(story 5 in-progress hil)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  story 5 in-progress hil > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  grep -q 'gh pr create' "$RALPH_LOG"
+  grep -q 'state:awaiting-bench' "$RALPH_LOG"
+  ! grep -q 'gh pr merge' "$RALPH_LOG"
+  ! grep -q 'gh issue close' "$RALPH_LOG"
+}
+
+@test "a partial iteration (no done-signal) is not promoted" {
+  echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  story 7 ready afk > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  grep -q '^claude ' "$RALPH_LOG"
+  ! grep -q 'gh pr merge' "$RALPH_LOG"
+  ! grep -q 'gh pr create' "$RALPH_LOG"
 }
