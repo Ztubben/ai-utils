@@ -1,0 +1,8 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+branching:
+  feature_pattern: "feature/no-issue-placeholder"
+notify:
+  github: octocat

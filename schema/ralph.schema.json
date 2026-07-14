@@ -43,6 +43,20 @@
           "minLength": 1,
           "default": "ralph/{issue}-{slug}"
         },
+        "feature_pattern": {
+          "description": "Feature integration branch naming pattern; {issue} and {slug} substitute from the PRD issue.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\{issue\\}",
+          "default": "feature/{issue}-{slug}"
+        },
+        "rescue_pattern": {
+          "description": "Rescue branch naming pattern; {issue} and {slug} substitute from the story issue.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\{issue\\}",
+          "default": "rescue/{issue}-{slug}"
+        },
         "afk_merge": {
           "description": "Merge method used to auto-merge a green AFK story into base.",
           "type": "string",

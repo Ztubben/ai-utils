@@ -22,6 +22,8 @@ gating:
 branching:
   base: develop                     # default: develop
   branch_pattern: "ralph/{issue}-{slug}"  # {issue} and {slug} are substituted
+  feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue (default shown)
+  rescue_pattern: "rescue/{issue}-{slug}"    # {issue}/{slug} from the story issue (default shown)
   afk_merge: squash                 # one of: merge | squash | rebase (default: squash)
 
 # Failure-handling limits.

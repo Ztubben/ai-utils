@@ -41,6 +41,8 @@ class ValidationResult:
         branching = c.get("branching", {})
         lines.append("base branch: %s" % branching.get("base"))
         lines.append("branch pattern: %s" % branching.get("branch_pattern"))
+        lines.append("feature pattern: %s" % branching.get("feature_pattern"))
+        lines.append("rescue pattern: %s" % branching.get("rescue_pattern"))
         lines.append("afk merge: %s" % branching.get("afk_merge"))
         limits = c.get("limits", {})
         lines.append("max attempts: %s" % limits.get("max_attempts"))
