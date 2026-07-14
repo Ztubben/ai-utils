@@ -38,7 +38,7 @@ def story(number, state=None, type_=None, prio=1, depends=None, closed=False,
     if bench:
         body += "\n## Bench Test Procedure\n1. flash and observe\n"
     dep_str = ", ".join("#%d" % d for d in depends) if depends else "None"
-    body += "\nDepends on: %s\n" % dep_str
+    body += "\nParent: None\nDepends on: %s\n" % dep_str
     return {
         "number": number,
         "title": "S%d" % number,

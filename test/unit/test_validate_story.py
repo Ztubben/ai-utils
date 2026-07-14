@@ -69,6 +69,20 @@ class ExampleStoriesAreCanonical(unittest.TestCase):
         self.assertTrue(result.fields["is_blocker"])
         self.assertNotEqual(result.fields["state"], "ready")
 
+    def test_feature_story_examples_carry_their_prd_as_parent(self):
+        for name in ("afk-story.json", "hil-story.json"):
+            result = ralph_story.validate_story(example(name))
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(result.fields["parent"], 41, name)
+
+    def test_prd_example_is_exempt_and_surfaces_depends_on(self):
+        # A PRD is not a story: no state:/type: labels, no acceptance
+        # criteria, but its own Depends on: list for cross-Feature ordering.
+        result = ralph_story.validate_story(example("prd.json"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertTrue(result.fields["is_prd"])
+        self.assertEqual(result.fields["depends_on"], [40])
+
 
 class MalformedStoriesAreRejected(unittest.TestCase):
     def _assert_invalid_mentioning(self, fixture, needle):
@@ -101,6 +115,10 @@ class MalformedStoriesAreRejected(unittest.TestCase):
     def test_blocker_in_ready_is_rejected(self):
         self._assert_invalid_mentioning("blocker-ready.json", "state:ready")
 
+    def test_missing_parent_is_rejected(self):
+        # Every story links to its Feature's PRD (or opts out explicitly).
+        self._assert_invalid_mentioning("missing-parent.json", "Parent:")
+
 
 class LabelShapeIsFlexible(unittest.TestCase):
     def test_plain_string_labels_are_accepted(self):
@@ -108,18 +126,62 @@ class LabelShapeIsFlexible(unittest.TestCase):
             "number": 1,
             "title": "String labels",
             "labels": ["state:ready", "type:afk", "prio:3"],
-            "body": "## Acceptance Criteria\n- [ ] ok\n\nDepends on: None\n",
+            "body": "## Acceptance Criteria\n- [ ] ok\n\nParent: None\nDepends on: None\n",
         }
         result = ralph_story.validate_story(story)
         self.assertTrue(result.ok, result.errors)
         self.assertEqual(result.fields["prio"], 3)
 
 
+class ParentLinksStoryToItsFeature(unittest.TestCase):
+    def _story(self, body):
+        return {
+            "number": 1, "title": "s",
+            "labels": [{"name": "state:ready"}, {"name": "type:afk"}],
+            "body": body,
+        }
+
+    def test_parent_issue_number_is_parsed(self):
+        result = ralph_story.validate_story(self._story(
+            "## Acceptance Criteria\n- [ ] ok\n\nParent: #18\nDepends on: None\n"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.fields["parent"], 18)
+
+    def test_parent_none_is_an_orphan_story(self):
+        result = ralph_story.validate_story(self._story(
+            "## Acceptance Criteria\n- [ ] ok\n\nParent: None\nDepends on: None\n"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertIsNone(result.fields["parent"])
+
+
+class PrdIssuesAreExemptFromStoryShape(unittest.TestCase):
+    def test_prd_validates_without_state_type_or_acceptance(self):
+        prd = {
+            "number": 18, "title": "PRD: Feature branches",
+            "labels": [{"name": "prd"}],
+            "body": "## Summary\n\nOne Feature.\n\nDepends on: #2, #5\n",
+        }
+        result = ralph_story.validate_story(prd)
+        self.assertTrue(result.ok, result.errors)
+        self.assertTrue(result.fields["is_prd"])
+        self.assertEqual(result.fields["depends_on"], [2, 5])
+
+    def test_regular_story_is_not_a_prd(self):
+        story = {
+            "number": 1, "title": "s",
+            "labels": [{"name": "state:ready"}, {"name": "type:afk"}],
+            "body": "## Acceptance Criteria\n- [ ] ok\n\nParent: None\nDepends on: None\n",
+        }
+        result = ralph_story.validate_story(story)
+        self.assertTrue(result.ok, result.errors)
+        self.assertFalse(result.fields["is_prd"])
+
+
 class PrioIsOptional(unittest.TestCase):
     def _story(self, labels):
         return {
             "number": 1, "title": "s", "labels": labels,
-            "body": "## Acceptance Criteria\n- [ ] ok\n\nDepends on: None\n",
+            "body": "## Acceptance Criteria\n- [ ] ok\n\nParent: None\nDepends on: None\n",
         }
 
     def test_no_prio_label_is_valid_with_none_prio(self):

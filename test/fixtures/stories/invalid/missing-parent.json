@@ -1,0 +1,10 @@
+{
+  "number": 56,
+  "title": "Story with no Parent line",
+  "labels": [
+    { "name": "state:ready" },
+    { "name": "type:afk" },
+    { "name": "prio:2" }
+  ],
+  "body": "## What to build\n\nForgot the Parent line linking the story to its Feature's PRD.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nDepends on: None\n"
+}

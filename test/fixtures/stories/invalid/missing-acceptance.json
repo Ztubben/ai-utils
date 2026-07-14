@@ -6,5 +6,5 @@
     { "name": "type:afk" },
     { "name": "prio:2" }
   ],
-  "body": "## What to build\n\nDoes a thing, but forgot to spell out how we know it works.\n\nDepends on: None\n"
+  "body": "## What to build\n\nDoes a thing, but forgot to spell out how we know it works.\n\nParent: None\nDepends on: None\n"
 }

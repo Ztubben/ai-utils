@@ -7,5 +7,5 @@
     { "name": "prio:1" },
     { "name": "prio:3" }
   ],
-  "body": "## What to build\n\nHas two prio:N labels, which is ambiguous.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nDepends on: None\n"
+  "body": "## What to build\n\nHas two prio:N labels, which is ambiguous.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nParent: None\nDepends on: None\n"
 }

@@ -6,5 +6,5 @@
     { "name": "type:hil" },
     { "name": "prio:1" }
   ],
-  "body": "## What to build\n\nDrives a GPIO but never says how a human verifies it on the bench.\n\n## Acceptance Criteria\n\n- [ ] The output is asserted above the ceiling (host test against a fake HAL)\n\nDepends on: None\n"
+  "body": "## What to build\n\nDrives a GPIO but never says how a human verifies it on the bench.\n\n## Acceptance Criteria\n\n- [ ] The output is asserted above the ceiling (host test against a fake HAL)\n\nParent: None\nDepends on: None\n"
 }

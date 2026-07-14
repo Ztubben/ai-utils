@@ -9,6 +9,11 @@
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   RALPH_SH="$REPO_ROOT/bin/ralph.sh"
+  # bats < 1.4 does not provide BATS_TEST_TMPDIR; make our own and clean it up.
+  if [[ -z "${BATS_TEST_TMPDIR:-}" ]]; then
+    BATS_TEST_TMPDIR="$(mktemp -d)"
+    RALPH_OWN_TMPDIR="$BATS_TEST_TMPDIR"
+  fi
   SP="$BATS_TEST_TMPDIR/sp"
   MB="$SP/mockbin"
   mkdir -p "$SP/.git" "$SP/ghq" "$MB"
@@ -46,10 +51,16 @@ EOF
   chmod +x "$MB/gh" "$MB/claude" "$MB/git"
 }
 
+teardown() {
+  if [[ -n "${RALPH_OWN_TMPDIR:-}" ]]; then
+    rm -rf "$RALPH_OWN_TMPDIR"
+  fi
+}
+
 # A story issue in `gh --json` shape. $1=number $2=state $3=type(default afk).
 story() {
   local n="$1" state="$2" type="${3:-afk}"
-  printf '{"number":%d,"title":"Story %d","labels":[{"name":"type:%s"},{"name":"prio:1"},{"name":"state:%s"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nDepends on: None\\n","state":"OPEN"}' \
+  printf '{"number":%d,"title":"Story %d","labels":[{"name":"type:%s"},{"name":"prio:1"},{"name":"state:%s"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"}' \
     "$n" "$n" "$type" "$state"
 }
 
@@ -93,7 +104,7 @@ story() {
 }
 
 @test "halt on needs-human without launching an iteration" {
-  printf '[{"number":9,"title":"S","labels":[{"name":"type:afk"},{"name":"prio:1"},{"name":"state:ready"},{"name":"needs-human"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nDepends on: None\\n","state":"OPEN"}]' > "$SP/ghq/0.json"
+  printf '[{"number":9,"title":"S","labels":[{"name":"type:afk"},{"name":"prio:1"},{"name":"state:ready"},{"name":"needs-human"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"}]' > "$SP/ghq/0.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"halt"* ]]

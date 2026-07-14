@@ -6,5 +6,5 @@
     { "name": "state:ready" },
     { "name": "prio:1" }
   ],
-  "body": "## What to build\n\nA design-decision Blocker must be kept out of state:ready, but this one still carries it, so the selection engine would wrongly pick it up.\n\n## Open Question\n\nWhat should the value be?\n\nDepends on: None\n"
+  "body": "## What to build\n\nA design-decision Blocker must be kept out of state:ready, but this one still carries it, so the selection engine would wrongly pick it up.\n\n## Open Question\n\nWhat should the value be?\n\nParent: None\nDepends on: None\n"
 }

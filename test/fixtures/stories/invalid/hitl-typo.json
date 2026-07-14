@@ -6,5 +6,5 @@
     { "name": "type:hil" },
     { "name": "prio:2" }
   ],
-  "body": "## What to build\n\nThis is a HITL story that needs a human on the bench.\n\n## Acceptance Criteria\n\n- [ ] Something observable happens\n\n## Bench Test Procedure\n\n1. Do the thing on the bench.\n\nDepends on: None\n"
+  "body": "## What to build\n\nThis is a HITL story that needs a human on the bench.\n\n## Acceptance Criteria\n\n- [ ] Something observable happens\n\n## Bench Test Procedure\n\n1. Do the thing on the bench.\n\nParent: None\nDepends on: None\n"
 }

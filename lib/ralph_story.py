@@ -10,7 +10,12 @@ engine (US-004) will consume. No network, no side effects.
 Canonical shape (ADR-0002, CONTEXT.md):
   - exactly one prio:N label (lower = higher priority)
   - a `Depends on:` body line (`None` or `#12, #34`)
+  - a `Parent:` body line linking the story to its Feature's PRD issue
+    (`Parent: #N`), or `Parent: None` for an Orphan Story
   - terminology standardized on HIL, never HITL
+A PRD issue (carries the `prd` label) is not a story: it is exempt from the
+state/type/acceptance/Parent rules and never selected for implementation,
+but its own `Depends on:` list is surfaced for cross-Feature ordering.
 A design-decision Blocker (carries `ready-for-human`) is not a third story
 type: it is kept out of `state:ready` so the loop never picks it up, and is
 exempt from the state/type/acceptance rules until a human reclassifies it.
@@ -27,6 +32,7 @@ import sys
 STATES = ("ready", "in-progress", "awaiting-bench", "blocked")
 TYPES = ("afk", "hil")
 BLOCKER_LABEL = "ready-for-human"
+PRD_LABEL = "prd"
 
 
 class StoryResult:
@@ -67,6 +73,19 @@ def _parse_depends_on(body):
     return True, [int(n) for n in re.findall(r"#(\d+)", match.group(1))]
 
 
+def _parse_parent(body):
+    """Return (found, parent issue number or None) from a `Parent:` line.
+
+    `Parent: #N` links a story to its Feature's PRD issue; `Parent: None`
+    marks an Orphan Story (ADR-0002).
+    """
+    match = re.search(r"^\s*Parent:\s*(.*)$", body, re.MULTILINE | re.IGNORECASE)
+    if not match:
+        return False, None
+    number = re.search(r"#(\d+)", match.group(1))
+    return True, int(number.group(1)) if number else None
+
+
 def validate_story(story):
     errors = []
     names = _label_names(story)
@@ -76,6 +95,7 @@ def validate_story(story):
     types = _prefixed(names, "type:")
     prios = _prefixed(names, "prio:")
     is_blocker = BLOCKER_LABEL in names
+    is_prd = PRD_LABEL in names
 
     # --- rules common to every story --------------------------------------
     # prio is optional: a story may carry zero or one prio:N label. With none,
@@ -95,9 +115,20 @@ def validate_story(story):
     if not depends_found:
         errors.append("body: a `Depends on:` line is required (use `Depends on: None`)")
 
+    parent_found, parent = _parse_parent(body)
+    if not is_prd and not parent_found:
+        errors.append(
+            "body: a `Parent:` line is required (use `Parent: #N` for the Feature's "
+            "PRD issue, or `Parent: None` for an Orphan Story)")
+
     state = states[0] if len(states) == 1 else None
 
-    if is_blocker:
+    if is_prd:
+        # A PRD issue is not a story (ADR-0002): it is exempt from the
+        # state/type/acceptance rules and never selected for implementation.
+        # Its `Depends on:` list still matters for cross-Feature ordering.
+        pass
+    elif is_blocker:
         # A design-decision Blocker is kept out of state:ready so the loop
         # never selects it; it is exempt from the type/acceptance rules.
         if "ready" in states:
@@ -126,7 +157,9 @@ def validate_story(story):
         "type": types[0] if len(types) == 1 else None,
         "prio": prio,
         "depends_on": depends_on,
+        "parent": parent,
         "is_blocker": is_blocker,
+        "is_prd": is_prd,
         "has_bench": _has_section(body, "Bench Test Procedure"),
     }
     return StoryResult(not errors, errors, fields)
@@ -153,7 +186,12 @@ def main(argv):
     ident = "#%s" % label if label else argv[0]
     if result.ok:
         f = result.fields
-        kind = "blocker" if f["is_blocker"] else (f["type"] or "?")
+        if f["is_prd"]:
+            kind = "prd"
+        elif f["is_blocker"]:
+            kind = "blocker"
+        else:
+            kind = f["type"] or "?"
         print("OK: %s [%s] prio:%s depends_on:%s"
               % (ident, kind, f["prio"], f["depends_on"] or "none"))
         return 0

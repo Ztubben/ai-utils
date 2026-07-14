@@ -39,7 +39,7 @@ def story(number=8, title="Wire up the ADC", type_="afk", state="in-progress"):
         "title": title,
         "labels": [{"name": "type:" + type_}, {"name": "prio:1"},
                    {"name": "state:" + state}],
-        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nDepends on: None\n",
+        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nParent: None\nDepends on: None\n",
         "state": "OPEN",
     }
 
