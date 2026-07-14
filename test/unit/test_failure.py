@@ -40,7 +40,7 @@ def story(number=9, title="Add SPI driver", type_="afk", state="in-progress",
         "title": title,
         "labels": [{"name": "type:" + type_}, {"name": "prio:1"},
                    {"name": "state:" + state}],
-        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nDepends on: None\n"
+        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nParent: None\nDepends on: None\n"
                 + ("\n## Bench Test Procedure\n- poke it\n" if type_ == "hil" else ""),
         "state": "OPEN",
     }

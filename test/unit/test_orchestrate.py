@@ -34,7 +34,7 @@ def story(number, state, type_="afk", prio=1, needs_human=False):
               {"name": "state:" + state}]
     if needs_human:
         labels.append({"name": "needs-human"})
-    body = "## Acceptance Criteria\n- [ ] does the thing\n\nDepends on: None\n"
+    body = "## Acceptance Criteria\n- [ ] does the thing\n\nParent: None\nDepends on: None\n"
     if type_ == "hil":
         body += "\n## Bench Test Procedure\n- poke it\n"
     return {"number": number, "title": "Story %d" % number, "labels": labels,

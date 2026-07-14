@@ -6,5 +6,5 @@
     { "name": "type:afk" },
     { "name": "prio:2" }
   ],
-  "body": "## What to build\n\nForgot the dependency line entirely.\n\n## Acceptance Criteria\n\n- [ ] Something\n"
+  "body": "## What to build\n\nForgot the dependency line entirely.\n\n## Acceptance Criteria\n\n- [ ] Something\n\nParent: None\n"
 }

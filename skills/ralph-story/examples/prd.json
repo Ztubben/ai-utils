@@ -1,0 +1,8 @@
+{
+  "number": 41,
+  "title": "PRD: Thermal management for the coolant loop",
+  "labels": [
+    { "name": "prd" }
+  ],
+  "body": "## Summary\n\nThe controller keeps the coolant loop inside its thermal envelope: it decodes sensor frames, drives the coolant valve on over-temp, and surfaces faults. This PRD is the parent issue of the Feature's stories (#42, #43, #44); it is not a story itself and is never selected for implementation. It gains `state:ready` only once the story breakdown is complete.\n\n## Stories\n\n- #42 Parser: reject malformed sensor frames with a typed error\n- #43 Actuator: drive the coolant valve open on over-temp\n- #44 Decide the over-temp ceiling + hysteresis values\n\nDepends on: #40\n"
+}

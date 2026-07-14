@@ -30,7 +30,7 @@ def afk_story(number=6, title="Add SPI driver", type_="afk"):
         "title": title,
         "labels": [{"name": "type:" + type_}, {"name": "prio:1"},
                    {"name": "state:in-progress"}],
-        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nDepends on: None\n"
+        "body": "## Acceptance Criteria\n- [ ] does the thing\n\nParent: None\nDepends on: None\n"
                 + ("\n## Bench Test Procedure\n- poke it\n" if type_ == "hil" else ""),
         "state": "OPEN",
     }
@@ -200,7 +200,7 @@ class DependentsUnblockedWhenClosed(unittest.TestCase):
             "number": number, "title": "dep",
             "labels": [{"name": "type:afk"}, {"name": "prio:1"},
                        {"name": "state:blocked"}],
-            "body": "## Acceptance Criteria\n- [ ] x\n\nDepends on: None\n",
+            "body": "## Acceptance Criteria\n- [ ] x\n\nParent: None\nDepends on: None\n",
             "state": "CLOSED" if closed else "OPEN",
         }
 
@@ -209,7 +209,7 @@ class DependentsUnblockedWhenClosed(unittest.TestCase):
             "number": 20, "title": "dependent",
             "labels": [{"name": "type:afk"}, {"name": "prio:1"},
                        {"name": "state:ready"}],
-            "body": "## Acceptance Criteria\n- [ ] x\n\nDepends on: #10\n",
+            "body": "## Acceptance Criteria\n- [ ] x\n\nParent: None\nDepends on: #10\n",
             "state": "OPEN",
         }
 

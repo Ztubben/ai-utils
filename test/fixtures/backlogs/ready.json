@@ -7,7 +7,7 @@
       { "name": "type:afk" },
       { "name": "prio:1" }
     ],
-    "body": "## Acceptance Criteria\n- [ ] something\n\nDepends on: None\n",
+    "body": "## Acceptance Criteria\n- [ ] something\n\nParent: None\nDepends on: None\n",
     "state": "OPEN"
   },
   {
@@ -18,7 +18,7 @@
       { "name": "type:afk" },
       { "name": "prio:2" }
     ],
-    "body": "## Acceptance Criteria\n- [ ] something\n\nDepends on: None\n",
+    "body": "## Acceptance Criteria\n- [ ] something\n\nParent: None\nDepends on: None\n",
     "state": "OPEN"
   }
 ]

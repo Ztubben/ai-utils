@@ -6,5 +6,5 @@
     { "name": "type:afk" },
     { "name": "prio:2" }
   ],
-  "body": "## What to build\n\nWhen the frame decoder receives a payload whose checksum does not match, it returns a typed `FrameError` instead of raising or silently dropping the frame, so callers can distinguish a corrupt frame from an empty read. Pure software: exercised entirely off-target against captured byte buffers.\n\n## Acceptance Criteria\n\n- [ ] A frame with a bad checksum yields a `FrameError` carrying the offending offset\n- [ ] A well-formed frame still decodes to the expected struct\n- [ ] The decoder never raises on malformed input\n- [ ] Behavior is covered by fixture-driven host tests\n\nDepends on: None\n"
+  "body": "## What to build\n\nWhen the frame decoder receives a payload whose checksum does not match, it returns a typed `FrameError` instead of raising or silently dropping the frame, so callers can distinguish a corrupt frame from an empty read. Pure software: exercised entirely off-target against captured byte buffers.\n\n## Acceptance Criteria\n\n- [ ] A frame with a bad checksum yields a `FrameError` carrying the offending offset\n- [ ] A well-formed frame still decodes to the expected struct\n- [ ] The decoder never raises on malformed input\n- [ ] Behavior is covered by fixture-driven host tests\n\nParent: #41\nDepends on: None\n"
 }
