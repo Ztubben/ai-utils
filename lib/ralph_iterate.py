@@ -8,8 +8,11 @@ The judgment-heavy TDD is driven by the checked-in agent prompt (prompts/
 iterate.v1.md); this module holds the deterministic, host-testable seams the
 orchestrator reuses:
 
-  - `branch_name` -- compute the story branch from `branch_pattern` ({issue}/
-    {slug}), so the iteration checks out `ralph/<issue#>-slug` off base.
+  - `branch_name` -- compute a branch from a pattern ({issue}/{slug}).
+  - `resolve_branch` -- resolve the working branch per story kind (ADR-0006):
+    an Orphan Story gets its own story branch via `branch_pattern`; a Feature
+    story gets its Feature's integration branch via `feature_pattern`, named
+    from the PRD issue.
   - `run_gating` -- run the configured gating steps locally, fail-fast, and keep
     output low-verbosity (only a failed step's output is surfaced).
 
@@ -26,8 +29,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_story  # noqa: E402
 
 DEFAULT_BRANCH_PATTERN = "ralph/{issue}-{slug}"
+DEFAULT_FEATURE_PATTERN = "feature/{issue}-{slug}"
 SLUG_MAX = 50
 
 
@@ -47,6 +52,33 @@ def branch_name(story, pattern=DEFAULT_BRANCH_PATTERN):
     return pattern.replace("{issue}", str(story["number"])).replace(
         "{slug}", slugify(story.get("title", ""))
     )
+
+
+def resolve_branch(story, prd=None, branch_pattern=DEFAULT_BRANCH_PATTERN,
+                   feature_pattern=DEFAULT_FEATURE_PATTERN):
+    """Resolve the branch an iteration works on, per story kind (ADR-0006).
+
+    An Orphan Story (`Parent: None`) works on its own story branch, named from
+    `branch_pattern`. A Feature story (`Parent: #N`) works directly on its
+    Feature's integration branch, named from `feature_pattern` with {issue}/
+    {slug} substituted from the **PRD issue** (same slug rules). Deterministic:
+    recomputable identically at every stage from the backlog alone.
+
+    Raises ValueError when a Feature story is given without its PRD context,
+    or when the supplied PRD does not match the story's `Parent:` line.
+    """
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is None:
+        return branch_name(story, branch_pattern)
+    if prd is None:
+        raise ValueError(
+            "story #%s is a Feature story (Parent: #%d); its PRD issue is "
+            "required to resolve the feature branch" % (story.get("number"), parent))
+    if prd.get("number") != parent:
+        raise ValueError(
+            "PRD #%s does not match story #%s's Parent: #%d"
+            % (prd.get("number"), story.get("number"), parent))
+    return branch_name(prd, feature_pattern)
 
 
 class StepResult:
@@ -96,8 +128,10 @@ def _cmd_branch_name(rest):
         return 2
     story_path = rest[0]
     config_path = rest[1] if len(rest) > 1 and rest[1] else None
+    prd_path = rest[2] if len(rest) > 2 and rest[2] else None
 
-    pattern = DEFAULT_BRANCH_PATTERN
+    branch_pattern = DEFAULT_BRANCH_PATTERN
+    feature_pattern = DEFAULT_FEATURE_PATTERN
     if config_path:
         result = ralph_config.load_and_validate(config_path)
         if not result.ok:
@@ -105,15 +139,22 @@ def _cmd_branch_name(rest):
             for err in result.errors:
                 sys.stderr.write("  - %s\n" % err)
             return 2
-        pattern = result.config["branching"]["branch_pattern"]
+        branch_pattern = result.config["branching"]["branch_pattern"]
+        feature_pattern = result.config["branching"]["feature_pattern"]
 
     try:
         story = _load_story(story_path)
+        prd = _load_story(prd_path) if prd_path else None
     except (OSError, ValueError) as exc:
         sys.stderr.write("ralph: could not read story: %s\n" % exc)
         return 2
 
-    print(branch_name(story, pattern))
+    try:
+        print(resolve_branch(story, prd=prd, branch_pattern=branch_pattern,
+                             feature_pattern=feature_pattern))
+    except ValueError as exc:
+        sys.stderr.write("ralph: %s\n" % exc)
+        return 2
     return 0
 
 

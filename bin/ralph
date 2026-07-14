@@ -7,7 +7,7 @@
 #   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
-#   ralph --branch-name STORY [CONFIG]  Print the story branch name from branch_pattern.
+#   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
 #   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
@@ -28,7 +28,7 @@ usage: ralph --init [CONFIG]
        ralph --lint-story PATH
        ralph --dry-run [PATH]
        ralph --ready-features [PATH]
-       ralph --branch-name STORY [CONFIG]
+       ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG]
        ralph --complete-hil STORY [CONFIG]
@@ -65,9 +65,15 @@ usage: ralph --init [CONFIG]
                           story naming it Parent:, all such stories closed.
                           Reads a JSON backlog from PATH (or - for stdin);
                           with no PATH, scans the live backlog via gh.
-  --branch-name STORY     Print the story branch name (STORY is a gh --json
-       [CONFIG]           story; - for stdin) from the config's branch_pattern
-                          (default ralph/{issue}-{slug}). CONFIG is optional.
+  --branch-name STORY     Print the working branch for a story (gh --json; -
+       [CONFIG] [PRD]     for stdin), per story kind (ADR-0006). An Orphan
+                          Story (Parent: None) resolves via branch_pattern
+                          (default ralph/{issue}-{slug}); a Feature story
+                          (Parent: #N) resolves via feature_pattern (default
+                          feature/{issue}-{slug}) from its PRD issue, given
+                          as PRD (gh --json path). CONFIG is optional (pass
+                          "" to skip). Exits 2 when a Feature story is given
+                          without its PRD context.
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
