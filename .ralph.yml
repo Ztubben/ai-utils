@@ -1,0 +1,15 @@
+# Ralph Loop superproject config (schema/ralph.schema.json, ADR-0001).
+# Here the superproject is ai-utils itself: the loop dogfoods its own tooling.
+version: 1
+
+branching:
+  # Ralph integrates into develop; promoting develop -> master (squash) is
+  # human-owned. Ralph never touches the default branch directly.
+  base: develop
+
+gating:
+  - name: test
+    run: test/run.sh
+
+notify:
+  github: Ztubben
