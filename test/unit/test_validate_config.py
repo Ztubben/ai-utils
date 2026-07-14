@@ -47,6 +47,14 @@ class ValidConfigTests(unittest.TestCase):
         self.assertEqual(result.config["limits"]["max_attempts"], 3)
         self.assertEqual(result.config["limits"]["circuit_breaker"], 2)
 
+    def test_feature_and_rescue_pattern_defaults_when_omitted(self):
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.config["branching"]["feature_pattern"],
+                         "feature/{issue}-{slug}")
+        self.assertEqual(result.config["branching"]["rescue_pattern"],
+                         "rescue/{issue}-{slug}")
+
     def test_explicit_values_override_defaults(self):
         result = ralph_config.load_and_validate(valid("full.yml"))
         self.assertEqual(result.config["limits"]["max_attempts"], 5)
@@ -58,6 +66,12 @@ class ValidConfigTests(unittest.TestCase):
         self.assertIn("develop", summary)
         self.assertIn("build", summary)
         self.assertIn("test", summary)
+
+    def test_summary_includes_feature_and_rescue_patterns(self):
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        summary = result.summary()
+        self.assertIn("feature/{issue}-{slug}", summary)
+        self.assertIn("rescue/{issue}-{slug}", summary)
 
 
 class InvalidConfigTests(unittest.TestCase):
@@ -74,6 +88,12 @@ class InvalidConfigTests(unittest.TestCase):
 
     def test_bad_afk_merge_is_rejected(self):
         self._assert_invalid_mentioning("bad-afk-merge.yml", "afk_merge")
+
+    def test_feature_pattern_missing_issue_placeholder_is_rejected(self):
+        self._assert_invalid_mentioning("bad-feature-pattern.yml", "feature_pattern")
+
+    def test_rescue_pattern_missing_issue_placeholder_is_rejected(self):
+        self._assert_invalid_mentioning("bad-rescue-pattern.yml", "rescue_pattern")
 
     def test_wrong_types_are_rejected(self):
         self._assert_invalid_mentioning("wrong-types.yml", "max_attempts")

@@ -1,0 +1,8 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+branching:
+  rescue_pattern: "rescue/{slug}-only"
+notify:
+  github: octocat
