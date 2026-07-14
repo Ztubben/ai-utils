@@ -10,9 +10,11 @@ does the live gh scan and the printing.
 Rules (ADR-0002, CONTEXT.md):
   - Resume-first: any state:in-progress story is chosen before any state:ready
     scan (a prior iteration checkpointed it via Handoff).
-  - Ordering: prio:N ascending, ties broken by lowest issue number (pure FIFO).
-    prio is optional (ADR-0002): a story with no prio:N sorts as lowest priority
-    (prio = +inf), i.e. it falls back to pure FIFO behind every prioritized story.
+  - Ordering: key is (prio, afk-before-hil, issue#) ascending. Within the same
+    prio:N -- and among prio-less stories -- type:afk sorts ahead of type:hil,
+    with lowest issue number (FIFO) as the final tiebreak. An explicit prio:N
+    still wins absolutely over any type ranking. prio is optional (ADR-0002):
+    a story with no prio:N sorts as lowest priority (prio = +inf).
   - state:blocked stories and design-decision Blockers (ready-for-human, kept
     out of state:ready) are skipped.
   - Dependencies: a `Depends on: #N` edge is satisfied only when #N is Passing,
@@ -71,8 +73,9 @@ def normalize(raw_issues):
 
 def _order_key(story):
     prio = story["prio"] if story["prio"] is not None else float("inf")
+    type_rank = 0 if story["type"] == "afk" else 1
     number = story["number"] if story["number"] is not None else float("inf")
-    return (prio, number)
+    return (prio, type_rank, number)
 
 
 def _deps_satisfied(story, by_number):

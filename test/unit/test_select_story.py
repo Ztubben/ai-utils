@@ -85,6 +85,38 @@ class Ordering(unittest.TestCase):
         )
         self.assertEqual(act.number, 4)
 
+    def test_afk_beats_hil_on_priority_tie_despite_higher_number(self):
+        # Amended ADR-0002: within the same prio:N the ordering key ranks
+        # type:afk before type:hil, then falls back to issue-number FIFO.
+        act = action_for(
+            story(3, state="ready", type_="hil", prio=1, bench=True),
+            story(8, state="ready", type_="afk", prio=1),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 8))
+
+    def test_afk_beats_hil_among_prioless_stories(self):
+        act = action_for(
+            story(3, state="ready", type_="hil", prio=None, bench=True),
+            story(8, state="ready", type_="afk", prio=None),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 8))
+
+    def test_explicit_prio_still_dominates_type_rank(self):
+        # A prio:1 HIL story beats a prio-less AFK story: the type rank only
+        # breaks exact priority ties, it never overrides an encoded prio:N.
+        act = action_for(
+            story(1, state="ready", type_="afk", prio=None),
+            story(2, state="ready", type_="hil", prio=1, bench=True),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 2))
+
+    def test_fifo_preserved_within_same_prio_and_type(self):
+        act = action_for(
+            story(9, state="ready", type_="hil", prio=1, bench=True),
+            story(5, state="ready", type_="hil", prio=1, bench=True),
+        )
+        self.assertEqual(act.number, 5)
+
     def test_story_without_prio_sorts_behind_prioritized_ones(self):
         # prio is optional: a no-prio story (prio=None -> +inf) loses to any
         # story that carries a prio:N, regardless of issue number.
