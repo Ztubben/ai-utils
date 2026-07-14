@@ -9,7 +9,7 @@
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
-#   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
+#   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
 #   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
@@ -30,7 +30,7 @@ usage: ralph --init [CONFIG]
        ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
-       ralph --complete-afk STORY [CONFIG]
+       ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG]
        ralph --resume STORY [CONFIG]
@@ -77,10 +77,15 @@ usage: ralph --init [CONFIG]
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
-  --complete-afk STORY    Auto-merge a green AFK story (gh --json shape; - for
-       [CONFIG]           stdin) into base per afk_merge and close its issue.
-                          Never touches main. Exits 0 on success, 1 on a
-                          git/gh failure, 2 on bad config or a refusal.
+  --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
+       [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
+                          auto-merged into base per afk_merge and closed; a
+                          Feature story (Parent: #N) is pushed to its feature
+                          branch (resolved from its PRD issue, given as PRD)
+                          and closed -- no PR, no merge. Never touches main.
+                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
+                          config or a refusal (incl. a Feature story without
+                          its PRD context).
   --complete-hil STORY    Open a PR to base for a green HIL story (gh --json
        [CONFIG]           shape; - for stdin) and move it to
                           state:awaiting-bench. Never merges or closes; never

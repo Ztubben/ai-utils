@@ -36,6 +36,23 @@ def afk_story(number=6, title="Add SPI driver", type_="afk"):
     }
 
 
+def feature_story(number=25, parent=18, title="AFK completion for Feature stories",
+                  type_="afk"):
+    story = afk_story(number=number, title=title, type_=type_)
+    story["body"] = story["body"].replace("Parent: None", "Parent: #%d" % parent)
+    return story
+
+
+def prd_issue(number=18, title="Per-Feature integration branches"):
+    return {
+        "number": number,
+        "title": title,
+        "labels": [{"name": "prd"}, {"name": "state:ready"}],
+        "body": "The Feature PRD.",
+        "state": "OPEN",
+    }
+
+
 def _flat(commands):
     return [tok for cmd in commands for tok in cmd]
 
@@ -114,6 +131,72 @@ class AfkCompletePlan(unittest.TestCase):
         self.assertIn("ralph/6-add-spi-driver", create)
 
 
+class AfkCompletePlanFeatureStory(unittest.TestCase):
+    """ADR-0006: a green AFK Feature story is push + close -- no PR, no merge."""
+
+    def _plan(self, **kwargs):
+        kwargs.setdefault("base", "develop")
+        kwargs.setdefault("prd", prd_issue())
+        return ralph_afk.afk_complete_plan(feature_story(), **kwargs)
+
+    def test_pushes_head_to_feature_branch(self):
+        plan = self._plan()
+        self.assertTrue(plan.ok, plan.errors)
+        push = next(c for c in plan.commands if c[:2] == ["git", "push"])
+        self.assertIn("HEAD:feature/18-per-feature-integration-branches", push)
+
+    def test_closes_issue_with_completion_comment(self):
+        plan = self._plan()
+        close = next(c for c in plan.commands if c[:3] == ["gh", "issue", "close"])
+        self.assertIn("25", close)
+
+    def test_no_pr_create_and_no_merge(self):
+        plan = self._plan()
+        self.assertFalse(any(c[:3] == ["gh", "pr", "create"] for c in plan.commands))
+        self.assertFalse(any(c[:3] == ["gh", "pr", "merge"] for c in plan.commands))
+
+    def test_close_comes_after_push(self):
+        plan = self._plan()
+        push_i = next(i for i, c in enumerate(plan.commands) if c[:2] == ["git", "push"])
+        close_i = next(i for i, c in enumerate(plan.commands)
+                       if c[:3] == ["gh", "issue", "close"])
+        self.assertLess(push_i, close_i)
+
+    def test_honors_custom_feature_pattern(self):
+        plan = self._plan(feature_pattern="feat/{issue}/{slug}")
+        self.assertIn("HEAD:feat/18/per-feature-integration-branches",
+                      _flat(plan.commands))
+
+    def test_never_touches_main(self):
+        plan = self._plan()
+        self.assertNotIn("main", _flat(plan.commands))
+
+    def test_refuses_main_base(self):
+        plan = self._plan(base="main")
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("main" in e for e in plan.errors))
+
+    def test_refuses_non_afk_feature_story(self):
+        plan = ralph_afk.afk_complete_plan(
+            feature_story(type_="hil"), base="develop", prd=prd_issue())
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("afk" in e.lower() for e in plan.errors))
+
+    def test_refuses_feature_story_without_prd(self):
+        plan = ralph_afk.afk_complete_plan(feature_story(), base="develop")
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("PRD" in e for e in plan.errors))
+
+    def test_refuses_mismatched_prd(self):
+        plan = ralph_afk.afk_complete_plan(
+            feature_story(parent=18), base="develop", prd=prd_issue(number=99))
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+
+
 class RunPlan(unittest.TestCase):
     def test_all_ok(self):
         res = ralph_afk.run_plan([["true"], ["true"]])
@@ -146,12 +229,17 @@ class CliCompleteAfk(unittest.TestCase):
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP)
         return log
 
-    def _run(self, story, config, tmp, log):
+    def _run(self, story, config, tmp, log, prd=None):
         env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=log)
+        argv = [RALPH, "--complete-afk", "-", config]
+        if prd is not None:
+            prd_path = os.path.join(tmp, "prd.json")
+            with open(prd_path, "w") as fh:
+                json.dump(prd, fh)
+            argv.append(prd_path)
         return subprocess.run(
-            [RALPH, "--complete-afk", "-", config],
-            cwd=REPO_ROOT, input=json.dumps(story), env=env,
+            argv, cwd=REPO_ROOT, input=json.dumps(story), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
 
@@ -182,6 +270,28 @@ class CliCompleteAfk(unittest.TestCase):
             config = os.path.join(FIXTURES, "config", "valid", "full.yml")
             proc = self._run(afk_story(), config, tmp, log)
             self.assertEqual(proc.returncode, 1)
+
+    def test_feature_story_pushes_and_closes_without_pr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(feature_story(number=25), config, tmp, log,
+                             prd=prd_issue())
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log) as fh:
+                calls = fh.read()
+            self.assertIn("push", calls)
+            self.assertIn("issue close 25", calls)
+            self.assertNotIn("pr create", calls)
+            self.assertNotIn("pr merge", calls)
+
+    def test_feature_story_without_prd_refuses_exit_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(feature_story(), config, tmp, log)
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertFalse(os.path.exists(log))  # nothing executed
 
     def test_bad_config_exits_two(self):
         with tempfile.TemporaryDirectory() as tmp:
