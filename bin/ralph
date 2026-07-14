@@ -6,6 +6,7 @@
 #   ralph --check-config [PATH]   Validate .ralph.yml (default ./.ralph.yml) and exit.
 #   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
+#   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG]  Print the story branch name from branch_pattern.
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
@@ -26,6 +27,7 @@ usage: ralph --init [CONFIG]
        ralph --check-config [PATH]
        ralph --lint-story PATH
        ralph --dry-run [PATH]
+       ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG]
@@ -57,6 +59,12 @@ usage: ralph --init [CONFIG]
                           changing anything. Reads a JSON backlog from PATH
                           (or - for stdin); with no PATH, scans the live
                           backlog via gh.
+  --ready-features [PATH] Scan the backlog and print, one per line, the PRD
+                          numbers eligible for the Feature completion pass
+                          (ADR-0006): open, prd + state:ready, at least one
+                          story naming it Parent:, all such stories closed.
+                          Reads a JSON backlog from PATH (or - for stdin);
+                          with no PATH, scans the live backlog via gh.
   --branch-name STORY     Print the story branch name (STORY is a gh --json
        [CONFIG]           story; - for stdin) from the config's branch_pattern
                           (default ralph/{issue}-{slug}). CONFIG is optional.
@@ -126,6 +134,10 @@ main() {
       else
         exec python3 "$RALPH_HOME/lib/ralph_select.py"
       fi
+      ;;
+    --ready-features)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_select.py" ready-features "$@"
       ;;
     --branch-name)
       shift

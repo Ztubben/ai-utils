@@ -166,6 +166,28 @@ def next_action(raw_issues):
     return select_next(normalize(raw_issues))
 
 
+def ready_features(raw_issues):
+    """PRD numbers eligible for the Feature completion pass (ADR-0006).
+
+    A Feature is eligible when its PRD issue is open, carries `prd` and
+    `state:ready` (breakdown finished), at least one story names it as
+    `Parent:`, and every such story is closed. Pure; returns ascending
+    issue numbers.
+    """
+    stories = normalize(raw_issues)
+    eligible = []
+    for prd in stories:
+        if not prd.get("is_prd") or prd.get("closed"):
+            continue
+        if prd.get("state") != "ready":
+            continue
+        children = [s for s in stories
+                    if not s.get("is_prd") and s.get("parent") == prd["number"]]
+        if children and all(s.get("closed") for s in children):
+            eligible.append(prd["number"])
+    return sorted(eligible)
+
+
 def _scan_gh():
     out = subprocess.run(
         ["gh", "issue", "list", "--state", "all", "--limit", "1000",
@@ -182,10 +204,15 @@ def _load_backlog(path):
 
 
 def main(argv):
+    mode = "dry-run"
+    if argv and argv[0] == "ready-features":
+        mode = "ready-features"
+        argv = argv[1:]
     path = None
     if argv:
         if argv[0] in ("-h", "--help"):
-            sys.stderr.write("usage: ralph_select.py [BACKLOG_JSON | -]\n")
+            sys.stderr.write(
+                "usage: ralph_select.py [ready-features] [BACKLOG_JSON | -]\n")
             return 2
         path = argv[0]
     try:
@@ -196,6 +223,11 @@ def main(argv):
     except subprocess.CalledProcessError as exc:
         sys.stderr.write("ralph: gh scan failed: %s\n" % exc)
         return 2
+
+    if mode == "ready-features":
+        for number in ready_features(raw):
+            print(number)
+        return 0
 
     action = next_action(raw)
     if action.number is not None:

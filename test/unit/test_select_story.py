@@ -278,6 +278,89 @@ class DependencyReachability(unittest.TestCase):
         self.assertEqual(act.kind, ralph_select.NO_WORK)
 
 
+class FeatureCompletionScan(unittest.TestCase):
+    """PRDs eligible for the Feature completion pass (ADR-0006): the issue
+    carries `prd` and `state:ready`, at least one story names it as Parent:,
+    and every such story is closed."""
+
+    def scan(self, *stories):
+        return ralph_select.ready_features(list(stories))
+
+    def test_ready_prd_with_all_stories_closed_is_reported(self):
+        eligible = self.scan(
+            story(10, state="ready", prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+            story(12, state="ready", type_="hil", prio=1, parent=10, closed=True, bench=True),
+        )
+        self.assertEqual(eligible, [10])
+
+    def test_prd_lacking_state_ready_is_never_reported(self):
+        # Story breakdown not finished: even with every story closed, a PRD
+        # without state:ready must not enter the completion pass.
+        eligible = self.scan(
+            story(10, state="in-progress", prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+        )
+        self.assertEqual(eligible, [])
+
+    def test_prd_without_any_state_label_is_never_reported(self):
+        eligible = self.scan(
+            story(10, prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+        )
+        self.assertEqual(eligible, [])
+
+    def test_prd_with_zero_stories_is_never_reported(self):
+        eligible = self.scan(story(10, state="ready", prio=None, prd=True))
+        self.assertEqual(eligible, [])
+
+    def test_prd_with_an_open_story_is_never_reported(self):
+        eligible = self.scan(
+            story(10, state="ready", prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+            story(12, state="ready", type_="afk", prio=1, parent=10),
+        )
+        self.assertEqual(eligible, [])
+
+    def test_closed_prd_is_never_reported(self):
+        # A closed PRD means the Feature already merged into base
+        # (CONTEXT.md): the completion pass must not pick it up again.
+        eligible = self.scan(
+            story(10, state="ready", prio=None, prd=True, closed=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+        )
+        self.assertEqual(eligible, [])
+
+    def test_multiple_eligible_prds_are_reported_ascending(self):
+        eligible = self.scan(
+            story(20, state="ready", prio=None, prd=True),
+            story(21, state="ready", type_="afk", prio=1, parent=20, closed=True),
+            story(10, state="ready", prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10, closed=True),
+        )
+        self.assertEqual(eligible, [10, 20])
+
+
+class CliReadyFeatures(unittest.TestCase):
+    def _run(self, path):
+        return subprocess.run(
+            [RALPH, "--ready-features", path],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+    def test_prints_eligible_prd_numbers_one_per_line(self):
+        proc = self._run(os.path.join(BACKLOGS, "features.json"))
+        self.assertEqual(proc.returncode, 0, proc.stdout.decode())
+        self.assertEqual(proc.stdout.decode().split(), ["10"])
+
+    def test_prints_nothing_for_a_backlog_with_no_eligible_feature(self):
+        proc = self._run(os.path.join(BACKLOGS, "empty.json"))
+        self.assertEqual(proc.returncode, 0, proc.stdout.decode())
+        self.assertEqual(proc.stdout.decode().strip(), "")
+
+
 class NoWorkAndHalt(unittest.TestCase):
     def test_empty_backlog_is_no_work(self):
         self.assertEqual(action_for().kind, ralph_select.NO_WORK)
