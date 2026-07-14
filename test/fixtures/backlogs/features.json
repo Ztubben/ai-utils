@@ -1,0 +1,63 @@
+[
+  {
+    "number": 10,
+    "title": "PRD: eligible Feature (state:ready, all stories closed)",
+    "labels": [{ "name": "prd" }, { "name": "state:ready" }],
+    "body": "## What to build\nA feature.\n\nParent: None\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 11,
+    "title": "Closed story of Feature #10",
+    "labels": [
+      { "name": "state:ready" },
+      { "name": "type:afk" },
+      { "name": "prio:1" }
+    ],
+    "body": "## Acceptance Criteria\n- [x] done\n\nParent: #10\nDepends on: None\n",
+    "state": "CLOSED"
+  },
+  {
+    "number": 20,
+    "title": "PRD: ineligible Feature (a story is still open)",
+    "labels": [{ "name": "prd" }, { "name": "state:ready" }],
+    "body": "## What to build\nAnother feature.\n\nParent: None\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 21,
+    "title": "Open story of Feature #20",
+    "labels": [
+      { "name": "state:ready" },
+      { "name": "type:afk" },
+      { "name": "prio:1" }
+    ],
+    "body": "## Acceptance Criteria\n- [ ] something\n\nParent: #20\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 30,
+    "title": "PRD: ineligible Feature (zero stories)",
+    "labels": [{ "name": "prd" }, { "name": "state:ready" }],
+    "body": "## What to build\nA storyless feature.\n\nParent: None\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 40,
+    "title": "PRD: ineligible Feature (breakdown not state:ready)",
+    "labels": [{ "name": "prd" }],
+    "body": "## What to build\nAn unready feature.\n\nParent: None\nDepends on: None\n",
+    "state": "OPEN"
+  },
+  {
+    "number": 41,
+    "title": "Closed story of Feature #40",
+    "labels": [
+      { "name": "state:ready" },
+      { "name": "type:afk" },
+      { "name": "prio:1" }
+    ],
+    "body": "## Acceptance Criteria\n- [x] done\n\nParent: #40\nDepends on: None\n",
+    "state": "CLOSED"
+  }
+]
