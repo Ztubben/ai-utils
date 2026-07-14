@@ -21,7 +21,7 @@ import ralph_select  # noqa: E402
 
 
 def story(number, state=None, type_=None, prio=1, depends=None, closed=False,
-          blocker=False, needs_human=False, bench=False):
+          blocker=False, needs_human=False, bench=False, parent=None, prd=False):
     """Build a story in `gh issue --json number,title,labels,body,state` shape."""
     labels = []
     if state:
@@ -34,11 +34,14 @@ def story(number, state=None, type_=None, prio=1, depends=None, closed=False,
         labels.append("ready-for-human")
     if needs_human:
         labels.append("needs-human")
+    if prd:
+        labels.append("prd")
     body = "## Acceptance Criteria\n- [ ] do the thing\n"
     if bench:
         body += "\n## Bench Test Procedure\n1. flash and observe\n"
     dep_str = ", ".join("#%d" % d for d in depends) if depends else "None"
-    body += "\nParent: None\nDepends on: %s\n" % dep_str
+    parent_str = "#%d" % parent if parent is not None else "None"
+    body += "\nParent: %s\nDepends on: %s\n" % (parent_str, dep_str)
     return {
         "number": number,
         "title": "S%d" % number,
@@ -185,6 +188,96 @@ class Dependencies(unittest.TestCase):
         self.assertEqual((act.kind, act.number), (ralph_select.START, 2))
 
 
+class PrdNeverSelected(unittest.TestCase):
+    def test_ready_prd_is_never_started(self):
+        # A prd-labeled issue is not a story (ADR-0002): even carrying
+        # state:ready it must never come back as a start action.
+        act = action_for(story(10, state="ready", prio=1, prd=True))
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_in_progress_prd_is_never_resumed(self):
+        act = action_for(
+            story(10, state="in-progress", prio=1, prd=True),
+            story(2, state="ready", type_="afk", prio=2),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 2))
+
+    def test_ready_prd_does_not_shadow_a_ready_story(self):
+        act = action_for(
+            story(10, state="ready", prio=1, prd=True),
+            story(2, state="ready", type_="afk", prio=2),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 2))
+
+
+class InheritedPrdDependencies(unittest.TestCase):
+    def test_feature_story_ineligible_while_its_prd_dep_is_open(self):
+        # PRD #10 depends on PRD #5 (cross-Feature ordering); story #11 of
+        # Feature #10 inherits that unsatisfied edge and stays ineligible.
+        act = action_for(
+            story(5, prio=None, prd=True),
+            story(10, prio=None, prd=True, depends=[5]),
+            story(11, state="ready", type_="afk", prio=1, parent=10),
+        )
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_feature_story_eligible_once_prd_dep_closes(self):
+        act = action_for(
+            story(5, prio=None, prd=True, closed=True),
+            story(10, prio=None, prd=True, depends=[5]),
+            story(11, state="ready", type_="afk", prio=1, parent=10),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 11))
+
+
+class DependencyReachability(unittest.TestCase):
+    def test_closed_same_feature_dep_is_satisfied(self):
+        act = action_for(
+            story(12, state="ready", type_="afk", prio=9, parent=10, closed=True),
+            story(13, state="ready", type_="afk", prio=1, parent=10, depends=[12]),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 13))
+
+    def test_closed_dep_on_another_features_story_is_never_satisfied(self):
+        # #12 is closed on Feature #10's unmerged feature branch: its code is
+        # unreachable from Feature #20, so the edge is never satisfied.
+        act = action_for(
+            story(12, state="ready", type_="afk", prio=9, parent=10, closed=True),
+            story(21, state="ready", type_="afk", prio=1, parent=20, depends=[12]),
+        )
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_orphan_depending_on_a_feature_story_is_never_satisfied(self):
+        act = action_for(
+            story(12, state="ready", type_="afk", prio=9, parent=10, closed=True),
+            story(3, state="ready", type_="afk", prio=1, depends=[12]),
+        )
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_orphan_depending_on_a_closed_orphan_is_satisfied(self):
+        act = action_for(
+            story(4, state="ready", type_="afk", prio=9, closed=True),
+            story(3, state="ready", type_="afk", prio=1, depends=[4]),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 3))
+
+    def test_dep_on_a_closed_prd_is_satisfied(self):
+        # A closed PRD means the whole Feature merged into the base branch
+        # (CONTEXT.md), so any story may depend on it closed-means-satisfied.
+        act = action_for(
+            story(10, prio=None, prd=True, closed=True),
+            story(3, state="ready", type_="afk", prio=1, depends=[10]),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 3))
+
+    def test_dep_on_an_open_prd_is_not_satisfied(self):
+        act = action_for(
+            story(10, prio=None, prd=True),
+            story(3, state="ready", type_="afk", prio=1, depends=[10]),
+        )
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+
 class NoWorkAndHalt(unittest.TestCase):
     def test_empty_backlog_is_no_work(self):
         self.assertEqual(action_for().kind, ralph_select.NO_WORK)
@@ -222,6 +315,18 @@ class PureOverNormalizedList(unittest.TestCase):
         self.assertFalse(normalized[1]["closed"])
         act = ralph_select.select_next(normalized)
         self.assertEqual((act.kind, act.number), (ralph_select.RESUME, 2))
+
+    def test_normalize_carries_parent_and_is_prd(self):
+        raw = [
+            story(10, state="ready", prio=None, prd=True),
+            story(11, state="ready", type_="afk", prio=1, parent=10),
+            story(3, state="ready", type_="afk", prio=1),
+        ]
+        normalized = ralph_select.normalize(raw)
+        self.assertTrue(normalized[0]["is_prd"])
+        self.assertEqual(normalized[1]["parent"], 10)
+        self.assertFalse(normalized[1]["is_prd"])
+        self.assertIsNone(normalized[2]["parent"])
 
 
 class CliDryRun(unittest.TestCase):
