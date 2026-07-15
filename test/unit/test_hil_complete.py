@@ -39,6 +39,26 @@ def hil_story(number=7, title="Blink status LED", type_="hil"):
     }
 
 
+def feature_story(number=26, parent=18, title="HIL completion for Feature stories",
+                  type_="hil"):
+    story = hil_story(number=number, title=title, type_=type_)
+    story["body"] = story["body"].replace("Parent: None", "Parent: #%d" % parent)
+    return story
+
+
+def prd_issue(number=18, title="Per-Feature integration branches"):
+    return {
+        "number": number,
+        "title": title,
+        "labels": [{"name": "prd"}, {"name": "state:ready"}],
+        "body": "The Feature PRD.",
+        "state": "OPEN",
+    }
+
+
+SHA = "0123abc0123abc0123abc0123abc0123abc01234"
+
+
 def _flat(commands):
     return [tok for cmd in commands for tok in cmd]
 
@@ -130,6 +150,114 @@ class HilCompletePlan(unittest.TestCase):
         self.assertIn("ralph/7-blink-status-led", create)
 
 
+class HilCompletePlanFeatureStory(unittest.TestCase):
+    """ADR-0006: a green HIL Feature story is push + bench-anchor comment +
+    state:awaiting-bench -- no PR. The human verifies at the recorded commit,
+    never at the moving feature-branch tip."""
+
+    def _plan(self, story=None, **kwargs):
+        kwargs.setdefault("base", "develop")
+        kwargs.setdefault("prd", prd_issue())
+        kwargs.setdefault("head_sha", SHA)
+        return ralph_hil.hil_complete_plan(story or feature_story(), **kwargs)
+
+    def test_pushes_head_to_feature_branch(self):
+        plan = self._plan()
+        self.assertTrue(plan.ok, plan.errors)
+        push = next(c for c in plan.commands if c[:2] == ["git", "push"])
+        self.assertIn("HEAD:feature/18-per-feature-integration-branches", push)
+
+    def test_no_pr_created(self):
+        plan = self._plan()
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertFalse(any(cmd[:3] == ["gh", "pr", "create"] for cmd in plan.commands))
+
+    def test_records_bench_anchor_comment_with_the_completion_sha(self):
+        plan = self._plan()
+        comment = next(c for c in plan.commands if c[:3] == ["gh", "issue", "comment"])
+        self.assertIn("26", comment)
+        self.assertTrue(any(SHA in tok for tok in comment),
+                        "anchor comment must carry the completion commit SHA")
+
+    def test_flips_in_progress_to_awaiting_bench(self):
+        plan = self._plan()
+        edit = next(c for c in plan.commands if c[:3] == ["gh", "issue", "edit"])
+        i = edit.index("state:awaiting-bench")
+        self.assertEqual(edit[i - 1], "--add-label")
+        j = edit.index("state:in-progress")
+        self.assertEqual(edit[j - 1], "--remove-label")
+
+    def test_push_then_anchor_then_label_flip(self):
+        plan = self._plan()
+        push_i = next(i for i, c in enumerate(plan.commands) if c[:2] == ["git", "push"])
+        comment_i = next(i for i, c in enumerate(plan.commands)
+                         if c[:3] == ["gh", "issue", "comment"])
+        edit_i = next(i for i, c in enumerate(plan.commands)
+                      if c[:3] == ["gh", "issue", "edit"])
+        self.assertLess(push_i, comment_i)
+        self.assertLess(comment_i, edit_i)
+
+    def test_never_merges_never_closes(self):
+        plan = self._plan()
+        self.assertFalse(any(cmd[:3] == ["gh", "pr", "merge"] for cmd in plan.commands))
+        self.assertFalse(any(cmd[:3] == ["gh", "issue", "close"] for cmd in plan.commands))
+        self.assertNotIn("Closes #26", _flat(plan.commands))
+
+    def test_never_touches_main(self):
+        plan = self._plan()
+        self.assertNotIn("main", _flat(plan.commands))
+
+    def test_recompletion_appends_a_new_anchor_never_edits(self):
+        """Re-completion after bench-fail rework records a new anchor comment
+        superseding the old -- each plan comments (append-only); none edits."""
+        new_sha = "feedfeedfeedfeedfeedfeedfeedfeedfeedfeed"
+        first = self._plan()
+        second = self._plan(head_sha=new_sha)
+        for plan in (first, second):
+            comments = [c for c in plan.commands if c[:3] == ["gh", "issue", "comment"]]
+            self.assertEqual(len(comments), 1)
+            self.assertNotIn("--edit-last", comments[0])
+        self.assertTrue(any(new_sha in tok for tok in _flat(second.commands)))
+        self.assertFalse(any(SHA in tok for tok in _flat(second.commands)))
+
+    def test_honors_custom_feature_pattern(self):
+        plan = self._plan(feature_pattern="feat/{issue}/{slug}")
+        self.assertIn("HEAD:feat/18/per-feature-integration-branches",
+                      _flat(plan.commands))
+
+    def test_refuses_feature_story_without_prd(self):
+        plan = ralph_hil.hil_complete_plan(feature_story(), base="develop",
+                                           head_sha=SHA)
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("PRD" in e for e in plan.errors))
+
+    def test_refuses_mismatched_prd(self):
+        plan = ralph_hil.hil_complete_plan(
+            feature_story(parent=18), base="develop", prd=prd_issue(number=99),
+            head_sha=SHA)
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+
+    def test_refuses_without_completion_sha(self):
+        plan = ralph_hil.hil_complete_plan(feature_story(), base="develop",
+                                           prd=prd_issue())
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("sha" in e.lower() for e in plan.errors))
+
+    def test_refuses_main_base(self):
+        plan = self._plan(base="main")
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+
+    def test_refuses_non_hil_feature_story(self):
+        plan = self._plan(story=feature_story(type_="afk"))
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(any("hil" in e.lower() for e in plan.errors))
+
+
 class RunPlan(unittest.TestCase):
     def test_all_ok(self):
         res = ralph_hil.run_plan([["true"], ["true"]])
@@ -154,18 +282,26 @@ class CliCompleteHil(unittest.TestCase):
         for name, code in (("git", git_exit), ("gh", gh_exit)):
             path = os.path.join(tmp, name)
             with open(path, "w") as fh:
+                # The git mock answers rev-parse (the CLI resolves the bench
+                # anchor SHA from it) and logs everything else like gh does.
                 fh.write('#!/usr/bin/env bash\n'
                          'echo "%s $*" >> "$RALPH_LOG"\n'
-                         'exit %d\n' % (name, code))
+                         '[ "%s" = git ] && [ "$1" = rev-parse ] && echo "%s"\n'
+                         'exit %d\n' % (name, name, SHA, code))
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP)
         return log
 
-    def _run(self, story, config, tmp, log):
+    def _run(self, story, config, tmp, log, prd=None):
         env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=log)
+        argv = [RALPH, "--complete-hil", "-", config]
+        if prd is not None:
+            prd_path = os.path.join(tmp, "prd.json")
+            with open(prd_path, "w") as fh:
+                json.dump(prd, fh)
+            argv.append(prd_path)
         return subprocess.run(
-            [RALPH, "--complete-hil", "-", config],
-            cwd=REPO_ROOT, input=json.dumps(story), env=env,
+            argv, cwd=REPO_ROOT, input=json.dumps(story), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
 
@@ -214,6 +350,31 @@ class CliCompleteHil(unittest.TestCase):
             proc = self._run(hil_story(type_="afk"), config, tmp, log)
             self.assertEqual(proc.returncode, 2)
             self.assertFalse(os.path.exists(log))
+
+    def test_feature_story_pushes_anchors_and_parks_without_pr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(feature_story(number=26), config, tmp, log,
+                             prd=prd_issue())
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log) as fh:
+                calls = fh.read()
+            self.assertIn("HEAD:feature/18-per-feature-integration-branches", calls)
+            self.assertIn("issue comment 26", calls)
+            self.assertIn(SHA, calls)  # the anchor comment carries the SHA
+            self.assertIn("state:awaiting-bench", calls)
+            self.assertNotIn("pr create", calls)
+            self.assertNotIn("pr merge", calls)
+            self.assertNotIn("issue close", calls)
+
+    def test_feature_story_without_prd_refuses_exit_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(feature_story(), config, tmp, log)
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn("PRD", proc.stderr)
 
 
 class AwaitingBenchDoesNotSatisfyDependents(unittest.TestCase):

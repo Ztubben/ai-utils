@@ -13,8 +13,9 @@
 #      as many eligible stories in sequence as the session budget allows, until
 #      no eligible work remains (no-work) or the loop halts (needs-human).
 #   5. when an iteration signals the story is green (the done-signal marker),
-#      promotes it: `ralph --complete-afk` (auto-merge → base) for a type:afk
-#      story, `ralph --complete-hil` (open PR → state:awaiting-bench) for HIL.
+#      promotes it: `ralph --complete-afk` for a type:afk story,
+#      `ralph --complete-hil` (park at state:awaiting-bench) for HIL; both
+#      branch on Feature membership per ADR-0006.
 #      Without this promotion the still-in-progress story would be re-selected
 #      forever (the engine is resume-first), so a green story must move off the
 #      backlog before the loop advances.
@@ -108,8 +109,9 @@ begin_story() {
 
 # Promote a green story off the backlog. Reads the story's type:* label and
 # dispatches to the completion CLI that owns the label move / PR / merge:
-# type:afk -> --complete-afk (auto-merge into base, close), type:hil ->
-# --complete-hil (open PR, move to state:awaiting-bench). The completion tools
+# type:afk -> --complete-afk (close as Passing), type:hil -> --complete-hil
+# (park at state:awaiting-bench); each branches on Feature membership per
+# ADR-0006 (Feature stories push to the feature branch, no PR). The tools
 # refuse to touch main and re-validate the type, so this stays a thin dispatch.
 # The story is fetched fresh so completion has the full record. A Feature story
 # (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
@@ -139,8 +141,6 @@ complete_story() {
     fi
   elif grep -q '"type:hil"' <<<"$story_json"; then
     log "green #$issue is type:hil; completing (--complete-hil)"
-    # The PRD is passed for Feature HIL stories too; today's --complete-hil
-    # ignores the extra argument until Feature-HIL completion (#26) lands.
     "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
       <<<"$story_json" || rc=$?
   else

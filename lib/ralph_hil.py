@@ -1,12 +1,17 @@
-"""HIL completion for the Ralph Loop (US-007, ADR-0001, ADR-0003).
+"""HIL completion for the Ralph Loop (US-007, ADR-0001, ADR-0003, ADR-0006).
 
-For a green `type:hil` story Ralph opens a PR to base and moves the issue to
-`state:awaiting-bench`, then STOPS -- it never merges a HIL story and never
-closes the issue, so the human bench-tests one clean diff off base in isolation.
-A HIL story parked at `state:awaiting-bench` is not Passing (the issue stays
-open), so it does not satisfy dependents' `Depends on:` edges (ADR-0002); only a
-human bench-verifying and closing it does. Ralph integrates into base and
-**never touches main** (ADR-0001).
+For a green `type:hil` story Ralph parks the issue at `state:awaiting-bench`
+and STOPS -- it never merges a HIL story and never closes the issue; only a
+human bench-verifying and closing it marks it Passing, so until then it does
+not satisfy dependents' `Depends on:` edges (ADR-0002). How it parks branches
+on Feature membership (ADR-0006): an Orphan Story (`Parent: None`) is pushed
+to its story branch and PR'd to base so the human bench-tests one clean diff
+in isolation; a Feature story (`Parent: #N`) is pushed to its Feature's
+integration branch with the completion commit SHA recorded as a *bench anchor*
+comment on the issue -- no PR -- so the human verifies at that exact commit
+while sibling stories keep landing on the branch tip. Re-completion after
+bench-fail rework appends a new anchor comment superseding the old (comments
+are never edited). Ralph **never touches main** (ADR-0001).
 
 The deterministic, host-testable seam mirrors AFK completion: a pure command
 *plan* (`hil_complete_plan`) returns the ordered git/gh commands (as argv lists)
@@ -31,23 +36,34 @@ DEFAULT_BASE = "develop"
 
 
 class Plan:
-    def __init__(self, ok, errors, commands, base=None, branch=None):
+    def __init__(self, ok, errors, commands, base=None, branch=None, anchor=None):
         self.ok = ok
         self.errors = errors
         self.commands = commands
         self.base = base
         self.branch = branch
+        self.anchor = anchor
 
 
 def hil_complete_plan(story, base=DEFAULT_BASE,
-                      branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN):
-    """Build the ordered command plan to open a PR for a green HIL story and
-    move it to state:awaiting-bench.
+                      branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
+                      prd=None,
+                      feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
+                      head_sha=None):
+    """Build the ordered command plan to park a green HIL story at
+    state:awaiting-bench.
 
-    Pure: computes commands, runs nothing. Refuses (ok=False, no commands) when
-    base is `main` (never touches main) or the story is not `type:hil` (AFK
-    auto-merge is US-006's job). Never emits a merge or a close: the human
-    bench-verifies and merges the clean diff.
+    Pure: computes commands, runs nothing. The plan branches on Feature
+    membership (ADR-0006): an Orphan Story (`Parent: None`) is pushed to its
+    story branch and PR'd to base; a Feature story (`Parent: #N`) is pushed to
+    its Feature's integration branch and `head_sha` -- the completion commit
+    the caller resolved from HEAD -- is recorded as a bench anchor comment on
+    the issue, with no PR. Each completion appends a fresh anchor comment, so
+    re-completion after bench-fail rework supersedes the old anchor without
+    editing history. Refuses (ok=False, no commands) when base is `main`
+    (never touches main), the story is not `type:hil` (AFK auto-merge is
+    US-006's job), a Feature story lacks its PRD context, or a Feature story
+    lacks `head_sha`. Never emits a merge or a close: the human bench-verifies.
     """
     errors = []
     if (base or "").strip().lower() == PROTECTED_BRANCH:
@@ -59,11 +75,44 @@ def hil_complete_plan(story, base=DEFAULT_BASE,
             "type: --complete-hil only handles type:hil stories (got %s)"
             % (fields.get("type") or "none"))
 
+    branch = None
+    try:
+        branch = ralph_iterate.resolve_branch(
+            story, prd=prd, branch_pattern=branch_pattern,
+            feature_pattern=feature_pattern)
+    except ValueError as exc:
+        errors.append("branch: %s" % exc)
+
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is not None and not head_sha:
+        errors.append(
+            "head_sha: the completion commit SHA is required to record the "
+            "bench anchor for a Feature story")
+
     if errors:
         return Plan(False, errors, [], base=base)
 
     number = story["number"]
-    branch = ralph_iterate.branch_name(story, branch_pattern)
+    if parent is not None:
+        # Feature story: push HEAD to the feature branch, record the bench
+        # anchor, park at awaiting-bench. No PR -- the Feature's only PR is
+        # feature/* -> base, opened by the completion pass. The human verifies
+        # at the anchored commit, never at the moving branch tip.
+        anchor_body = (
+            "Bench anchor: %s\n\nBench-verify #%s at this exact commit "
+            "(`git checkout %s`), not the branch tip -- sibling stories may "
+            "land after it. Supersedes any earlier bench anchor on this "
+            "story. See the story's ## Bench Test Procedure."
+            % (head_sha, number, head_sha))
+        commands = [
+            ["git", "push", "-u", "origin", "HEAD:" + branch],
+            ["gh", "issue", "comment", str(number), "--body", anchor_body],
+            ["gh", "issue", "edit", str(number),
+             "--add-label", AWAITING_BENCH_LABEL,
+             "--remove-label", IN_PROGRESS_LABEL],
+        ]
+        return Plan(True, [], commands, base=base, branch=branch, anchor=head_sha)
+
     title = story.get("title") or ("Story #%s" % number)
     body = ("Refs #%s -- HIL story awaiting bench verification. "
             "See the story's ## Bench Test Procedure. Do not auto-close on merge."
@@ -129,6 +178,7 @@ def _cmd_complete(rest):
         return 2
     story_path = rest[0]
     config_path = rest[1] if len(rest) > 1 and rest[1] else ".ralph.yml"
+    prd_path = rest[2] if len(rest) > 2 and rest[2] else None
 
     result = ralph_config.load_and_validate(config_path)
     if not result.ok:
@@ -140,13 +190,32 @@ def _cmd_complete(rest):
 
     try:
         story = _load_story(story_path)
+        prd = _load_story(prd_path) if prd_path else None
     except (OSError, ValueError) as exc:
         sys.stderr.write("ralph: could not read story: %s\n" % exc)
         return 2
 
+    # A Feature story's bench anchor is the commit being completed: resolve
+    # HEAD before the plan runs (the plan's push sends this same HEAD).
+    head_sha = None
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is not None:
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=os.getcwd(),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True)
+        if proc.returncode != 0:
+            sys.stderr.write("FAILED: hil completion: git rev-parse HEAD "
+                             "(exit %d)\n" % proc.returncode)
+            if proc.stdout.strip():
+                sys.stderr.write(proc.stdout.rstrip() + "\n")
+            return 1
+        head_sha = proc.stdout.strip()
+
     plan = hil_complete_plan(
         story, base=branching["base"],
-        branch_pattern=branching["branch_pattern"])
+        branch_pattern=branching["branch_pattern"],
+        prd=prd, feature_pattern=branching["feature_pattern"],
+        head_sha=head_sha)
     if not plan.ok:
         sys.stderr.write("REFUSED: hil completion\n")
         for err in plan.errors:
@@ -155,8 +224,14 @@ def _cmd_complete(rest):
 
     run = run_plan(plan.commands, cwd=os.getcwd())
     if run.ok:
-        print("OK: opened PR for #%s to %s; moved to %s (awaiting bench)"
-              % (story["number"], plan.base, AWAITING_BENCH_LABEL))
+        if plan.anchor is not None:
+            print("OK: pushed #%s to %s; bench anchor %s; moved to %s "
+                  "(awaiting bench)"
+                  % (story["number"], plan.branch, plan.anchor,
+                     AWAITING_BENCH_LABEL))
+        else:
+            print("OK: opened PR for #%s to %s; moved to %s (awaiting bench)"
+                  % (story["number"], plan.base, AWAITING_BENCH_LABEL))
         return 0
     sys.stderr.write("FAILED: hil completion (exit %d): %s\n"
                      % (run.failed.returncode, " ".join(run.failed.args)))

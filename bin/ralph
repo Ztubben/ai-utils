@@ -10,7 +10,7 @@
 #   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
-#   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
+#   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -31,7 +31,7 @@ usage: ralph --init [CONFIG]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG] [PRD]
-       ralph --complete-hil STORY [CONFIG]
+       ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --checkpoint STORY SUMMARY [CONFIG]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
@@ -86,11 +86,17 @@ usage: ralph --init [CONFIG]
                           Exits 0 on success, 1 on a git/gh failure, 2 on bad
                           config or a refusal (incl. a Feature story without
                           its PRD context).
-  --complete-hil STORY    Open a PR to base for a green HIL story (gh --json
-       [CONFIG]           shape; - for stdin) and move it to
-                          state:awaiting-bench. Never merges or closes; never
-                          touches main. Exits 0 on success, 1 on a git/gh
-                          failure, 2 on bad config or a refusal.
+  --complete-hil STORY    Park a green HIL story (gh --json shape; - for
+       [CONFIG] [PRD]     stdin) at state:awaiting-bench per story kind
+                          (ADR-0006). An Orphan Story is pushed to its story
+                          branch and PR'd to base; a Feature story (Parent:
+                          #N) is pushed to its feature branch (resolved from
+                          its PRD issue, given as PRD) with the completion
+                          commit SHA recorded as a bench anchor comment -- no
+                          PR. Never merges or closes; never touches main.
+                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
+                          config or a refusal (incl. a Feature story without
+                          its PRD context).
   --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
        SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
                           (carrying the handoff marker) with SUMMARY, then stop.
