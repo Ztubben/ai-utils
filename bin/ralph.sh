@@ -45,6 +45,31 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 
 log() { printf 'ralph: %s\n' "$*"; }
 
+# Read the configured base branch from .ralph.yml (default 'develop').
+# Called once per tick after config validation; cached in BASE_BRANCH.
+read_base_branch() {
+  python3 -c "
+import sys; sys.path.insert(0, '$(dirname "$RALPH_BIN")/../lib')
+import ralph_config
+r = ralph_config.load_and_validate('$RALPH_CONFIG')
+print(r.config['branching']['base'] if r.ok else 'develop')
+"
+}
+
+# Freshness merge (ADR-0006): when a Feature story has out-of-Feature deps
+# (closed Orphan Stories or PRDs whose code landed in the base branch after
+# the feature branch forked), merge the base branch into the feature branch
+# before the iteration. A merge, never a rebase, so bench anchors survive.
+freshness_merge() {
+  local issue="$1" base="$2" answer
+  answer="$("$RALPH_BIN" --needs-freshness "$issue")" || return 0
+  if [[ "$answer" == "yes" ]]; then
+    log "freshness merge: merging $base into feature branch for #$issue"
+    git merge "$base" --no-edit \
+      || { log "freshness merge failed for #$issue; continuing"; return 0; }
+  fi
+}
+
 # Hard-sync the working branch from origin before an iteration starts, so that
 # human history rewrites (allowed on feature branches) never collide with a
 # stale local checkout (ADR-0006, US-029).
@@ -192,6 +217,10 @@ tick() {
     return 2
   fi
 
+  # --- read the base branch once (for freshness merges) ---
+  local base_branch
+  base_branch="$(read_base_branch)"
+
   # --- work eligible stories in sequence (resume-first via the engine) ---
   # promo_failed bounds promotion retries: a green story whose promotion fails
   # stays in-progress, so resume-first would re-select it forever within this
@@ -225,6 +254,7 @@ tick() {
           begin_story "$issue"
         fi
         sync_branch
+        freshness_merge "$issue" "$base_branch"
         local rc=0
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in

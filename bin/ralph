@@ -18,6 +18,7 @@
 #   ralph --record-boundary STORY [CONFIG] [PRD] SHA  Record the feature-branch boundary SHA at story start.
 #   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Quarantine a blocked Feature story on a rescue branch.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
+#   ralph --needs-freshness ISSUE# [BACKLOG]  Print yes/no: does this Feature story need a base merge?
 #   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
 #   ralph --learn-target PATH [ROOT]   Print the nearest AGENTS.md to promote a learning to.
 set -euo pipefail
@@ -42,6 +43,7 @@ usage: ralph --init [CONFIG]
        ralph --record-boundary STORY [CONFIG] [PRD] SHA
        ralph --reset-on-block STORY REASON [CONFIG] [PRD]
        ralph --check-breaker [BACKLOG] [CONFIG]
+       ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
        ralph --learn-target PATH [ROOT]
 
@@ -149,6 +151,13 @@ usage: ralph --init [CONFIG]
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
                           (or - for stdin); with no BACKLOG, scans live via gh. Exits
                           0 on success, 1 on a gh failure, 2 on bad config.
+  --needs-freshness       Print "yes" or "no": whether a Feature story with
+       ISSUE# [BACKLOG]  out-of-Feature dependencies needs a base merge into
+                          its feature branch before the iteration starts
+                          (ADR-0006). Reads a JSON backlog from BACKLOG (or -
+                          for stdin); with no BACKLOG, scans live via gh. An
+                          Orphan Story or a story with no out-of-Feature deps
+                          always prints "no". Exits 0, or 2 on bad input.
   --read-learnings DIR    Print the nested AGENTS.md learnings (nearest-first,
        [ROOT]             from DIR up to ROOT, default DIR) Ralph reads at the
                           start of a story. Exits 0, or 2 if DIR is missing.
@@ -187,6 +196,10 @@ main() {
     --ready-features)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" ready-features "$@"
+      ;;
+    --needs-freshness)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_select.py" needs-freshness "$@"
       ;;
     --branch-name)
       shift

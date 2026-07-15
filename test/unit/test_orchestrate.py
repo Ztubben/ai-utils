@@ -154,11 +154,16 @@ class OrchestrationTest(unittest.TestCase):
 
     def test_works_multiple_stories_in_sequence(self):
         # AC: a tick works multiple eligible stories in sequence until none remain.
+        # Queue slots: dry-run -> freshness -> dry-run -> freshness -> dry-run(no-work) -> ready-features
+        bl1 = [story(7, "ready"), story(8, "ready", prio=2)]
+        bl2 = [story(8, "ready", prio=2)]
         h = self.harness()
         h.set_backlogs(
-            [story(7, "ready"), story(8, "ready", prio=2)],  # -> start #7
-            [story(8, "ready", prio=2)],                     # #7 done -> start #8
-            [],                                              # -> no-work, stop
+            bl1,   # dry-run -> start #7
+            bl1,   # --needs-freshness #7
+            bl2,   # dry-run -> start #8
+            bl2,   # --needs-freshness #8
+            [],    # dry-run -> no-work, stop
         )
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)

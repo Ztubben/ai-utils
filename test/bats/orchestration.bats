@@ -85,9 +85,12 @@ story() {
 }
 
 @test "works multiple eligible stories in sequence" {
+  # Queue: dry-run -> freshness -> dry-run -> freshness -> dry-run(no-work)
   echo "[$(story 7 ready),$(story 8 ready)]" > "$SP/ghq/0.json"
-  echo "[$(story 8 ready)]" > "$SP/ghq/1.json"
-  echo "[]" > "$SP/ghq/2.json"
+  echo "[$(story 7 ready),$(story 8 ready)]" > "$SP/ghq/1.json"
+  echo "[$(story 8 ready)]" > "$SP/ghq/2.json"
+  echo "[$(story 8 ready)]" > "$SP/ghq/3.json"
+  echo "[]" > "$SP/ghq/4.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 2 ]

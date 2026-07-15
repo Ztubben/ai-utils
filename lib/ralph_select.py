@@ -135,6 +135,36 @@ def _deps_satisfied(story, by_number):
     return True
 
 
+def needs_freshness_merge(story, stories):
+    """True when a Feature story has a closed out-of-Feature dependency.
+
+    Out-of-Feature means the dependency target is a closed Orphan Story or a
+    closed PRD (its code landed in the base branch after the feature branch may
+    have forked). Same-Feature siblings live on the feature branch already, so
+    they don't trigger a freshness merge. Non-Feature (Orphan) stories never
+    need a freshness merge — they branch off base directly. A dependency absent
+    from the backlog is conservatively skipped (we don't know its kind).
+
+    Pure: no network, no side effects. Called by the orchestrator to decide
+    whether to `git merge <base>` before an iteration (ADR-0006).
+    """
+    if not _is_feature_story(story):
+        return False
+    by_number = {s["number"]: s for s in stories if s["number"] is not None}
+    for dep in _effective_deps(story, by_number):
+        target = by_number.get(dep)
+        if target is None:
+            continue
+        if not target.get("closed"):
+            continue
+        # Same-Feature sibling: code already on the feature branch.
+        if _is_feature_story(target) and target.get("parent") == story.get("parent"):
+            continue
+        # Closed Orphan Story or closed PRD: code is in base, needs merge.
+        return True
+    return False
+
+
 def select_next(stories):
     """Pure selection over a normalized story list. Returns an Action."""
     open_stories = [s for s in stories if not s.get("closed")]
@@ -208,13 +238,30 @@ def main(argv):
     if argv and argv[0] == "ready-features":
         mode = "ready-features"
         argv = argv[1:]
+    elif argv and argv[0] == "needs-freshness":
+        mode = "needs-freshness"
+        argv = argv[1:]
     path = None
-    if argv:
-        if argv[0] in ("-h", "--help"):
+    issue_number = None
+    if mode == "needs-freshness":
+        if len(argv) < 1:
             sys.stderr.write(
-                "usage: ralph_select.py [ready-features] [BACKLOG_JSON | -]\n")
+                "usage: ralph_select.py needs-freshness ISSUE# [BACKLOG_JSON | -]\n")
             return 2
-        path = argv[0]
+        try:
+            issue_number = int(argv[0])
+        except ValueError:
+            sys.stderr.write("ralph: ISSUE# must be numeric\n")
+            return 2
+        if len(argv) > 1:
+            path = argv[1]
+    else:
+        if argv:
+            if argv[0] in ("-h", "--help"):
+                sys.stderr.write(
+                    "usage: ralph_select.py [ready-features|needs-freshness ISSUE#] [BACKLOG_JSON | -]\n")
+                return 2
+            path = argv[0]
     try:
         raw = _load_backlog(path) if path is not None else _scan_gh()
     except (OSError, ValueError) as exc:
@@ -227,6 +274,15 @@ def main(argv):
     if mode == "ready-features":
         for number in ready_features(raw):
             print(number)
+        return 0
+
+    if mode == "needs-freshness":
+        stories = normalize(raw)
+        target = next((s for s in stories if s["number"] == issue_number), None)
+        if target is None:
+            sys.stderr.write("ralph: issue #%d not found in backlog\n" % issue_number)
+            return 2
+        print("yes" if needs_freshness_merge(target, stories) else "no")
         return 0
 
     action = next_action(raw)
