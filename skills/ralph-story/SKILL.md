@@ -85,7 +85,8 @@ implementation. Avoid file paths and code snippets; they go stale.
 
 1. Numbered steps a human runs on the physical bench to verify the hardware-coupled behavior.
 
-Depends on: #12, #34      ← or `Depends on: None`
+Parent: #41              ← PRD issue number for Feature stories, or `Parent: None` for Orphan Stories
+Depends on: #12, #34    ← or `Depends on: None`
 ```
 
 Rules the template encodes (verify with `ralph --lint-story`, below):
@@ -93,9 +94,17 @@ Rules the template encodes (verify with `ralph --lint-story`, below):
 - Exactly one `state:` and one `type:` label (except Blockers); at most one (optional) `prio:` label.
 - A `## Acceptance Criteria` heading with at least one `- [ ]` checklist item.
 - HIL stories additionally carry a `## Bench Test Procedure` section.
+- A `Parent:` line linking the story to its Feature's PRD issue (`Parent: #N`), or
+  `Parent: None` for an Orphan Story (one that belongs to no Feature). The `Parent:` line is
+  required on every story (ADR-0002).
 - A `Depends on:` line (either `None` or `#`-prefixed issue numbers). A story is ineligible
   until every dependency is Passing; an AFK dependency counts as satisfied only when merged, a
   HIL dependency only when bench-verified (closed).
+- **cross-Feature dependency prohibition**: a Feature story's `Depends on:` must reference only
+  same-Feature stories, Orphan Stories, or PRDs — never a story from another Feature (its code
+  lives on a different branch and is unreachable). Cross-Feature ordering is expressed as a
+  `Depends on:` line between PRD issues; every Feature story inherits its PRD's unsatisfied
+  dependencies (ADR-0006).
 - HIL, never HITL.
 
 ## Verify the output

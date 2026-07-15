@@ -15,7 +15,7 @@ The issue tracker and triage label vocabulary should have been provided to you �
 
 Check with the user that these seams match their expectations.
 
-3. Write the PRD using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the PRD using the template below, then publish it to the project issue tracker. Apply the `prd` label — this marks the issue as a PRD (not a story) so the validator exempts it from story-shape rules and the selection engine never picks it up for implementation (ADR-0002). Do **not** apply `state:ready` — that label is added only when the story breakdown is complete (see `to-issues`).
 
 <prd-template>
 
@@ -71,4 +71,15 @@ A description of the things that are out of scope for this PRD.
 
 Any further notes about the feature.
 
+Depends on: #N, #M        ← PRD issues this Feature depends on, or `Depends on: None`
+
 </prd-template>
+
+### cross-Feature ordering
+
+A Feature's stories may **not** depend on stories from another Feature (cross-Feature story
+dependencies are never satisfied because the code lives on a different branch). Cross-Feature
+ordering is expressed as a `Depends on:` line on the PRD itself: every Feature story inherits
+its PRD's unsatisfied dependencies, so Feature B's first story starts only after Feature A has
+merged into the base branch. When authoring a PRD, list any PRD issues this Feature depends on
+in the `Depends on:` line (ADR-0006).
