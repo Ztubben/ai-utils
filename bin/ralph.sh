@@ -45,6 +45,16 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 
 log() { printf 'ralph: %s\n' "$*"; }
 
+# Hard-sync the working branch from origin before an iteration starts, so that
+# human history rewrites (allowed on feature branches) never collide with a
+# stale local checkout (ADR-0006, US-029).
+sync_branch() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
+  git fetch origin || return 0
+  git reset --hard "origin/$branch" 2>/dev/null || true
+}
+
 # Launch one fresh-context claude iteration for the selected story. Returns:
 #   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (by exit
 #                         code or output marker) -- the story gets checkpointed;
@@ -151,6 +161,22 @@ complete_story() {
   return "$rc"
 }
 
+# Run the Feature completion pass for a single eligible PRD (ADR-0006, US-029).
+# Fetches the PRD issue, then delegates to `ralph --complete-feature`.
+complete_feature() {
+  local prd_number="$1" prd_file rc=0
+  prd_file="$(mktemp)"
+  if ! gh issue view "$prd_number" --json number,title,labels,body,state >"$prd_file"; then
+    log "cannot fetch PRD #$prd_number for completion pass"
+    rm -f "$prd_file"
+    return 1
+  fi
+  log "eligible PRD #$prd_number; running completion pass (--complete-feature)"
+  "$RALPH_BIN" --complete-feature "$prd_file" "$RALPH_CONFIG" || rc=$?
+  rm -f "$prd_file"
+  return "$rc"
+}
+
 tick() {
   # --- flock: one tick per superproject, overlapping ticks exit immediately ---
   local lock_file="$RALPH_LOCK_DIR/ralph-tick.lock"
@@ -179,7 +205,7 @@ tick() {
     case "$kind" in
       no-work)
         log "no eligible work; tick complete"
-        return 0
+        break
         ;;
       halt)
         log "loop halted (needs-human); tick complete"
@@ -198,6 +224,7 @@ tick() {
         if [[ "$kind" == "start" ]]; then
           begin_story "$issue"
         fi
+        sync_branch
         local rc=0
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
@@ -228,7 +255,17 @@ tick() {
     esac
   done
 
-  log "reached max iterations ($RALPH_MAX_ITERATIONS) this tick; stopping"
+  # --- completion pass: scan for Features ready to integrate (ADR-0006, US-029) ---
+  # Each tick scans for eligible PRDs (all stories closed, PRD open + state:ready)
+  # and runs the completion pass for each. This fires even when the final story
+  # close was a human bench act between ticks.
+  local prd_number
+  while IFS= read -r prd_number; do
+    [[ -z "$prd_number" ]] && continue
+    complete_feature "$prd_number" \
+      || log "completion pass for PRD #$prd_number failed (see above); continuing"
+  done < <("$RALPH_BIN" --ready-features 2>/dev/null)
+
   return 0
 }
 

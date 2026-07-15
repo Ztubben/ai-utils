@@ -150,6 +150,64 @@ story() {
   ! grep -q 'gh issue close' "$RALPH_LOG"
 }
 
+# -- Completion pass (ADR-0006, US-029) --
+
+# A PRD issue in `gh --json` shape. $1=number, $2=title-slug.
+prd() {
+  local n="$1" slug="${2:-eligible-feature}"
+  printf '{"number":%d,"title":"PRD: %s","labels":[{"name":"prd"},{"name":"state:ready"}],"body":"## What to build\\nA feature.\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"}' \
+    "$n" "$slug"
+}
+
+@test "tick with an eligible PRD runs the completion pass end-to-end" {
+  # Queue 0: no stories (dry-run → no-work)
+  echo "[]" > "$SP/ghq/0.json"
+  # Queue 1: backlog with eligible PRD #10 (ready-features scan)
+  echo "[$(prd 10),$(story 11 ready afk | sed 's/"state":"OPEN"/"state":"CLOSED"/;s/Parent: None/Parent: #10/')]" \
+    > "$SP/ghq/1.json"
+  # issue view returns the PRD for --complete-feature
+  prd 10 > "$SP/ghq/story.json"
+  # Mock make for gating steps
+  cat >"$MB/make" <<'MKEOF'
+#!/usr/bin/env bash
+echo "make $*" >> "$RALPH_LOG"
+exit 0
+MKEOF
+  chmod +x "$MB/make"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no eligible work"* ]]
+  [[ "$output" == *"completion pass"* ]]
+  # The completion pass should invoke gh pr create + gh pr merge + gh issue close
+  grep -q 'gh pr create' "$RALPH_LOG"
+  grep -q 'gh pr merge' "$RALPH_LOG"
+  grep -q 'gh issue close 10' "$RALPH_LOG"
+}
+
+@test "tick with no eligible PRD behaves exactly as today" {
+  # Queue 0: no stories (dry-run → no-work)
+  echo "[]" > "$SP/ghq/0.json"
+  # Queue 1: no eligible PRDs (ready-features scan returns empty)
+  echo "[]" > "$SP/ghq/1.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no eligible work"* ]]
+  ! grep -q 'gh pr create' "$RALPH_LOG" 2>/dev/null
+  ! grep -q 'complete-feature' "$RALPH_LOG" 2>/dev/null
+}
+
+@test "the working branch is synced hard from origin at iteration start" {
+  echo "[$(story 7 ready)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  # Queue 2: empty for ready-features scan
+  echo "[]" > "$SP/ghq/2.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  # The tick must fetch + reset --hard before running the iteration
+  grep -q 'git fetch origin' "$RALPH_LOG"
+  grep -q 'git reset --hard' "$RALPH_LOG"
+}
+
 @test "a partial iteration (no done-signal) is not promoted" {
   echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
