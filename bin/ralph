@@ -14,6 +14,7 @@
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
+#   ralph --complete-feature PRD [CONFIG]  Integrate a complete Feature into base (ADR-0006).
 #   ralph --record-boundary STORY [CONFIG] [PRD] SHA  Record the feature-branch boundary SHA at story start.
 #   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Quarantine a blocked Feature story on a rescue branch.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
@@ -34,6 +35,7 @@ usage: ralph --init [CONFIG]
        ralph --run-gating [CONFIG]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
+       ralph --complete-feature PRD [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
@@ -101,6 +103,16 @@ usage: ralph --init [CONFIG]
                           Exits 0 on success, 1 on a git/gh failure, 2 on bad
                           config or a refusal (incl. a Feature story without
                           its PRD context).
+  --complete-feature PRD  Integrate a complete Feature (gh --json PRD issue;
+       [CONFIG]           path or - for stdin) into base (ADR-0006).
+                          Autosquash-collapses fixup! commits (cosmetic
+                          fallback on conflict), rebases onto base, runs full
+                          gating, opens a single PR and merges with a merge
+                          commit (never squash), then closes the PRD. A rebase
+                          conflict or red gate pushes the branch, comments
+                          details on the PRD, and labels it ready-for-human
+                          (no needs-human). Never touches main. Exits 0 on
+                          success, 1 on a blocker, 2 on bad config or refusal.
   --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
        SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
                           (carrying the handoff marker) with SUMMARY, then stop.
@@ -191,6 +203,10 @@ main() {
     --complete-hil)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_hil.py" complete "$@"
+      ;;
+    --complete-feature)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_feature.py" complete "$@"
       ;;
     --checkpoint)
       shift
