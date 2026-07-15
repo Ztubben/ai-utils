@@ -28,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_handoff  # noqa: E402
+import ralph_iterate  # noqa: E402
 import ralph_select  # noqa: E402
 import ralph_story  # noqa: E402
 
@@ -41,6 +42,7 @@ DEFAULT_CIRCUIT_BREAKER = 2
 # counter also filters checkpoints out explicitly via non_handoff_comments.
 ATTEMPT_MARKER = "<!-- ralph:attempt -->"
 NEEDS_HUMAN_MARKER = "<!-- ralph:needs-human -->"
+BOUNDARY_MARKER = "<!-- ralph:boundary -->"
 
 
 class Plan:
@@ -104,6 +106,115 @@ def attempt_plan(story, reason, max_attempts=DEFAULT_MAX_ATTEMPTS):
 
     return Plan(True, [], commands, blocked=will_block, attempt_no=attempt_no,
                 max_attempts=max_attempts)
+
+
+def _parse_boundary_sha(comments):
+    """Extract the most recent boundary SHA from a story's comments.
+
+    Returns the SHA string or None if no boundary comment exists.
+    """
+    sha = None
+    for c in (comments or []):
+        body = ralph_handoff._comment_body(c)
+        if BOUNDARY_MARKER not in body:
+            continue
+        for line in body.splitlines():
+            if line.startswith("Feature-branch boundary: "):
+                sha = line.split(": ", 1)[1].strip()
+    return sha
+
+
+def boundary_plan(story, head_sha, prd=None):
+    """Build the plan to record the feature-branch boundary SHA at story start.
+
+    Pure: computes commands, runs nothing. For an Orphan Story (Parent: None)
+    there is nothing to record (no feature branch to rewind), so the plan is
+    empty but ok. For a Feature story the plan posts a boundary comment on the
+    issue carrying `BOUNDARY_MARKER` and the current feature-branch HEAD SHA,
+    so `reset_on_block_plan` can later find the rewind target.
+    """
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is None:
+        return Plan(True, [], [])
+
+    errors = []
+    if prd is None:
+        errors.append(
+            "prd: a Feature story requires its PRD issue to record a boundary")
+    if not head_sha:
+        errors.append(
+            "head_sha: the feature-branch HEAD SHA is required to record the boundary")
+    if errors:
+        return Plan(False, errors, [])
+
+    number = story["number"]
+    body = ("%s\n\nFeature-branch boundary: %s" % (BOUNDARY_MARKER, head_sha))
+    commands = [
+        ["gh", "issue", "comment", str(number), "--body", body],
+    ]
+    return Plan(True, [], commands)
+
+
+def reset_on_block_plan(story, reason, prd=None,
+                        rescue_pattern="rescue/{issue}-{slug}",
+                        feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN):
+    """Build the plan to quarantine a blocked Feature story on a rescue branch.
+
+    Pure: computes commands, runs nothing. For an Orphan Story (Parent: None)
+    there is no feature branch to protect, so the plan is empty but ok (the
+    caller uses the existing `attempt_plan` demotion unchanged). For a Feature
+    story the plan:
+      1. pushes the current HEAD to a rescue branch (named from rescue_pattern),
+      2. force-pushes the feature branch back to the recorded boundary SHA,
+      3. posts a demotion comment naming the rescue branch and the reason,
+      4. relabels the story to state:blocked.
+    Refuses when a Feature story lacks its PRD context or has no recorded
+    boundary SHA.
+    """
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is None:
+        return Plan(True, [], [])
+
+    errors = []
+    if prd is None:
+        errors.append(
+            "prd: a Feature story requires its PRD issue for reset-on-block")
+
+    boundary_sha = _parse_boundary_sha(story.get("comments"))
+    if not boundary_sha:
+        errors.append(
+            "boundary: no boundary SHA recorded on #%s; cannot rewind"
+            % story.get("number"))
+
+    if errors:
+        return Plan(False, errors, [])
+
+    number = story["number"]
+    rescue_branch = ralph_iterate.branch_name(story, rescue_pattern)
+    feature_branch = ralph_iterate.branch_name(prd, feature_pattern)
+    reason_txt = (reason or "").strip() or "no reason given"
+
+    body = ("%s\n\nReset-on-block: demoting #%s to state:blocked.\n\n"
+            "Reason: %s\n\n"
+            "The story's work has been preserved on `%s`. "
+            "The feature branch `%s` has been rewound to the boundary (%s)."
+            % (ATTEMPT_MARKER, number, reason_txt,
+               rescue_branch, feature_branch, boundary_sha))
+
+    current = ralph_story.validate_story(story).fields.get("state")
+    edit = ["gh", "issue", "edit", str(number),
+            "--add-label", "state:" + BLOCKED_STATE]
+    if current and current != BLOCKED_STATE:
+        edit += ["--remove-label", "state:" + current]
+
+    commands = [
+        ["git", "push", "origin", "HEAD:refs/heads/" + rescue_branch],
+        ["git", "push", "--force", "origin",
+         boundary_sha + ":refs/heads/" + feature_branch],
+        ["gh", "issue", "comment", str(number), "--body", body],
+        edit,
+    ]
+    return Plan(True, [], commands)
 
 
 def circuit_breaker_plan(raw_backlog, github_handle,
@@ -225,6 +336,79 @@ def _cmd_record_attempt(rest):
         % (plan.attempt_no, plan.max_attempts, story["number"], state))
 
 
+def _cmd_record_boundary(rest):
+    # Args: STORY [CONFIG] [PRD] SHA
+    # SHA is always the last positional argument.
+    if len(rest) < 2 or not rest[0]:
+        sys.stderr.write(
+            "ralph: --record-boundary requires STORY (path or -) and SHA\n")
+        return 2
+    story_path = rest[0]
+    head_sha = rest[-1]
+    # middle args: config and optional prd
+    middle = rest[1:-1]  # between story and sha
+    config_path = middle[0] if middle else ".ralph.yml"
+    prd_path = middle[1] if len(middle) > 1 else None
+
+    config = _load_config(config_path)
+    if config is None:
+        return 2
+    try:
+        story = _load_json(story_path)
+        prd = _load_json(prd_path) if prd_path else None
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+
+    plan = boundary_plan(story, head_sha, prd=prd)
+    if not plan.ok:
+        sys.stderr.write("REFUSED: record-boundary\n")
+        for err in plan.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+    if not plan.commands:
+        print("OK: orphan story; no boundary to record")
+        return 0
+    run = run_plan(plan.commands, cwd=os.getcwd())
+    return _report_run(run, "OK: boundary recorded for #%s" % story["number"])
+
+
+def _cmd_reset_on_block(rest):
+    if len(rest) < 2 or not rest[0] or rest[1] is None:
+        sys.stderr.write(
+            "ralph: --reset-on-block requires STORY (path or -) and a REASON\n")
+        return 2
+    story_path, reason = rest[0], rest[1]
+    config_path = rest[2] if len(rest) > 2 and rest[2] else ".ralph.yml"
+    prd_path = rest[3] if len(rest) > 3 and rest[3] else None
+
+    config = _load_config(config_path)
+    if config is None:
+        return 2
+    try:
+        story = _load_json(story_path)
+        prd = _load_json(prd_path) if prd_path else None
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+
+    branching = config["branching"]
+    plan = reset_on_block_plan(
+        story, reason, prd=prd,
+        rescue_pattern=branching["rescue_pattern"],
+        feature_pattern=branching["feature_pattern"])
+    if not plan.ok:
+        sys.stderr.write("REFUSED: reset-on-block\n")
+        for err in plan.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+    if not plan.commands:
+        print("OK: orphan story; no reset needed")
+        return 0
+    run = run_plan(plan.commands, cwd=os.getcwd())
+    return _report_run(run, "OK: reset-on-block for #%s" % story["number"])
+
+
 def _cmd_check_breaker(rest):
     backlog_path = rest[0] if rest and rest[0] else None
     config_path = rest[1] if len(rest) > 1 and rest[1] else ".ralph.yml"
@@ -257,11 +441,17 @@ def main(argv):
     if not argv:
         sys.stderr.write(
             "usage: ralph_failure.py {record-attempt <story> <reason> "
+            "| record-boundary <story> [config] [prd] <sha> "
+            "| reset-on-block <story> <reason> [config] [prd] "
             "| check-breaker [backlog]} [config]\n")
         return 2
     mode, rest = argv[0], argv[1:]
     if mode == "record-attempt":
         return _cmd_record_attempt(rest)
+    if mode == "record-boundary":
+        return _cmd_record_boundary(rest)
+    if mode == "reset-on-block":
+        return _cmd_reset_on_block(rest)
     if mode == "check-breaker":
         return _cmd_check_breaker(rest)
     sys.stderr.write("ralph_failure.py: unknown mode: %s\n" % mode)
