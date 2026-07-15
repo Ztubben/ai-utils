@@ -111,21 +111,44 @@ begin_story() {
 # type:afk -> --complete-afk (auto-merge into base, close), type:hil ->
 # --complete-hil (open PR, move to state:awaiting-bench). The completion tools
 # refuse to touch main and re-validate the type, so this stays a thin dispatch.
-# The story is fetched fresh so completion has the full record. Returns non-zero
-# on a git/gh/dispatch failure; the caller logs and moves on.
+# The story is fetched fresh so completion has the full record. A Feature story
+# (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
+# the PRD is fetched and handed to the completion CLI as a temp file; an Orphan
+# Story (Parent: None) passes no PRD and keeps the classic path. Returns
+# non-zero on a git/gh/dispatch failure; the caller logs and moves on.
 complete_story() {
-  local issue="$1" story_json
+  local issue="$1" story_json parent prd_file="" rc=0
   story_json="$(gh issue view "$issue" --json number,title,labels,body,state)"
+  parent="$(grep -oE 'Parent:[[:space:]]*#[0-9]+' <<<"$story_json" \
+    | head -n1 | grep -oE '[0-9]+' || true)"
+  if [[ -n "$parent" ]]; then
+    prd_file="$(mktemp)"
+    if ! gh issue view "$parent" --json number,title,labels,body,state >"$prd_file"; then
+      log "cannot fetch PRD #$parent for Feature story #$issue"
+      rm -f "$prd_file"
+      return 2
+    fi
+  fi
   if grep -q '"type:afk"' <<<"$story_json"; then
-    log "green #$issue is type:afk; auto-merging (--complete-afk)"
-    "$RALPH_BIN" --complete-afk - "$RALPH_CONFIG" <<<"$story_json"
+    log "green #$issue is type:afk; completing (--complete-afk)"
+    "$RALPH_BIN" --complete-afk - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
+      <<<"$story_json" || rc=$?
+    # The close leaves the stale state label on the closed issue; strip it.
+    if (( rc == 0 )); then
+      gh issue edit "$issue" --remove-label state:in-progress >/dev/null 2>&1 || true
+    fi
   elif grep -q '"type:hil"' <<<"$story_json"; then
-    log "green #$issue is type:hil; opening PR (--complete-hil)"
-    "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" <<<"$story_json"
+    log "green #$issue is type:hil; completing (--complete-hil)"
+    # The PRD is passed for Feature HIL stories too; today's --complete-hil
+    # ignores the extra argument until Feature-HIL completion (#26) lands.
+    "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
+      <<<"$story_json" || rc=$?
   else
     log "cannot promote #$issue: no type:afk/type:hil label"
-    return 2
+    rc=2
   fi
+  if [[ -n "$prd_file" ]]; then rm -f "$prd_file"; fi
+  return "$rc"
 }
 
 tick() {
@@ -144,7 +167,12 @@ tick() {
   fi
 
   # --- work eligible stories in sequence (resume-first via the engine) ---
+  # promo_failed bounds promotion retries: a green story whose promotion fails
+  # stays in-progress, so resume-first would re-select it forever within this
+  # tick. One failed promotion per story per tick; hitting it again ends the
+  # tick cleanly (the next tick retries once, which heals transient gh errors).
   local n=0 action_line kind issue
+  local -A promo_failed=()
   while (( n < RALPH_MAX_ITERATIONS )); do
     action_line="$("$RALPH_BIN" --dry-run)"
     kind="${action_line%% *}"
@@ -159,6 +187,10 @@ tick() {
         ;;
       resume|start)
         issue="${action_line##*#}"
+        if [[ -n "${promo_failed[$issue]:-}" ]]; then
+          log "promotion of #$issue already failed this tick; ending tick instead of retry-looping (next tick retries)"
+          return 0
+        fi
         log "$kind #$issue"
         # `start` moves a state:ready story into state:in-progress up front, so a
         # checkpoint/partial pass/completion all see the expected state. `resume`
@@ -173,7 +205,8 @@ tick() {
             ;;
           "$RC_STORY_COMPLETE")  # green: promote it off the backlog
             complete_story "$issue" \
-              || log "promotion of #$issue failed (see above); leaving it in-progress"
+              || { promo_failed[$issue]=1
+                   log "promotion of #$issue failed (see above); leaving it in-progress"; }
             ;;
           "$RC_SESSION_LIMIT")
             checkpoint_story "$issue"
