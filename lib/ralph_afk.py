@@ -40,11 +40,17 @@ class Plan:
 
 def afk_complete_plan(story, base=DEFAULT_BASE,
                       branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
-                      afk_merge=DEFAULT_AFK_MERGE):
-    """Build the ordered command plan to auto-merge a green AFK story + close it.
+                      afk_merge=DEFAULT_AFK_MERGE, prd=None,
+                      feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN):
+    """Build the ordered command plan to complete a green AFK story.
 
-    Pure: computes commands, runs nothing. Refuses (ok=False, no commands) when
-    base is `main`, the story is not `type:afk`, or afk_merge is unknown.
+    Pure: computes commands, runs nothing. The plan branches on Feature
+    membership (ADR-0006): an Orphan Story (`Parent: None`) is pushed, PR'd,
+    merged into base per afk_merge, and closed; a Feature story (`Parent: #N`)
+    is pushed to its Feature's integration branch and closed -- no PR, no
+    merge -- because the code integrates only when the whole Feature merges.
+    Refuses (ok=False, no commands) when base is `main`, the story is not
+    `type:afk`, afk_merge is unknown, or a Feature story lacks its PRD context.
     """
     errors = []
     if (base or "").strip().lower() == PROTECTED_BRANCH:
@@ -59,11 +65,31 @@ def afk_complete_plan(story, base=DEFAULT_BASE,
     if afk_merge not in MERGE_FLAG:
         errors.append("branching/afk_merge: unknown merge method %r" % afk_merge)
 
+    branch = None
+    try:
+        branch = ralph_iterate.resolve_branch(
+            story, prd=prd, branch_pattern=branch_pattern,
+            feature_pattern=feature_pattern)
+    except ValueError as exc:
+        errors.append("branch: %s" % exc)
+
     if errors:
         return Plan(False, errors, [], base=base)
 
     number = story["number"]
-    branch = ralph_iterate.branch_name(story, branch_pattern)
+    _, parent = ralph_story._parse_parent(story.get("body") or "")
+    if parent is not None:
+        # Feature story: push HEAD to the feature branch and close the issue.
+        # No PR, no merge -- the Feature's only PR is feature/* -> base, opened
+        # by the completion pass when every story in the Feature is closed.
+        commands = [
+            ["git", "push", "-u", "origin", "HEAD:" + branch],
+            ["gh", "issue", "close", str(number),
+             "--comment", "Pushed to %s and marked Passing (AFK); integrates "
+             "when Feature #%d merges." % (branch, parent)],
+        ]
+        return Plan(True, [], commands, base=base, branch=branch, method=None)
+
     title = story.get("title") or ("Story #%s" % number)
     commands = [
         # Push the iteration's current HEAD to the canonical remote branch. Using
@@ -126,6 +152,7 @@ def _cmd_complete(rest):
         return 2
     story_path = rest[0]
     config_path = rest[1] if len(rest) > 1 and rest[1] else ".ralph.yml"
+    prd_path = rest[2] if len(rest) > 2 and rest[2] else None
 
     result = ralph_config.load_and_validate(config_path)
     if not result.ok:
@@ -137,6 +164,7 @@ def _cmd_complete(rest):
 
     try:
         story = _load_story(story_path)
+        prd = _load_story(prd_path) if prd_path else None
     except (OSError, ValueError) as exc:
         sys.stderr.write("ralph: could not read story: %s\n" % exc)
         return 2
@@ -144,7 +172,8 @@ def _cmd_complete(rest):
     plan = afk_complete_plan(
         story, base=branching["base"],
         branch_pattern=branching["branch_pattern"],
-        afk_merge=branching["afk_merge"])
+        afk_merge=branching["afk_merge"],
+        prd=prd, feature_pattern=branching["feature_pattern"])
     if not plan.ok:
         sys.stderr.write("REFUSED: afk completion\n")
         for err in plan.errors:
@@ -153,8 +182,12 @@ def _cmd_complete(rest):
 
     run = run_plan(plan.commands, cwd=os.getcwd())
     if run.ok:
-        print("OK: merged #%s into %s (%s); issue closed"
-              % (story["number"], plan.base, plan.method))
+        if plan.method is None:
+            print("OK: pushed #%s to %s; issue closed (Feature integrates later)"
+                  % (story["number"], plan.branch))
+        else:
+            print("OK: merged #%s into %s (%s); issue closed"
+                  % (story["number"], plan.base, plan.method))
         return 0
     sys.stderr.write("FAILED: afk completion (exit %d): %s\n"
                      % (run.failed.returncode, " ".join(run.failed.args)))

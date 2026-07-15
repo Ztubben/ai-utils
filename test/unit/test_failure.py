@@ -49,6 +49,30 @@ def story(number=9, title="Add SPI driver", type_="afk", state="in-progress",
     return s
 
 
+def feature_story(number=9, parent=18, **kwargs):
+    s = story(number=number, **kwargs)
+    s["body"] = s["body"].replace("Parent: None", "Parent: #%d" % parent)
+    return s
+
+
+def prd_issue(number=18, title="Per-Feature integration branches"):
+    return {
+        "number": number,
+        "title": title,
+        "labels": [{"name": "prd"}, {"name": "state:ready"}],
+        "body": "The Feature PRD.",
+        "state": "OPEN",
+    }
+
+
+BOUNDARY_SHA = "0123abc0123abc0123abc0123abc0123abc01234"
+
+
+def _boundary_comment(sha=BOUNDARY_SHA):
+    return {"body": ralph_failure.BOUNDARY_MARKER
+            + "\n\nFeature-branch boundary: " + sha}
+
+
 def _flat(commands):
     return [tok for cmd in commands for tok in cmd]
 
@@ -333,6 +357,257 @@ class CliCheckBreaker(unittest.TestCase):
             proc = self._run(backlog, config, tmp, log)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertFalse(os.path.exists(log))  # nothing executed
+
+
+class BoundaryPlan(unittest.TestCase):
+    """AC#1: starting a Feature story records the feature-branch boundary SHA."""
+
+    def test_feature_story_posts_boundary_comment(self):
+        plan = ralph_failure.boundary_plan(
+            feature_story(number=27, parent=18), BOUNDARY_SHA,
+            prd=prd_issue(number=18))
+        self.assertTrue(plan.ok, plan.errors)
+        comment = next(c for c in plan.commands
+                       if c[:3] == ["gh", "issue", "comment"])
+        body = comment[comment.index("--body") + 1]
+        self.assertIn(ralph_failure.BOUNDARY_MARKER, body)
+        self.assertIn(BOUNDARY_SHA, body)
+        self.assertIn("27", comment)
+
+    def test_orphan_story_produces_no_commands(self):
+        plan = ralph_failure.boundary_plan(story(number=9), BOUNDARY_SHA)
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual(plan.commands, [])
+
+    def test_feature_story_without_prd_refuses(self):
+        plan = ralph_failure.boundary_plan(
+            feature_story(number=27, parent=18), BOUNDARY_SHA)
+        self.assertFalse(plan.ok)
+
+    def test_feature_story_without_sha_refuses(self):
+        plan = ralph_failure.boundary_plan(
+            feature_story(number=27, parent=18), None,
+            prd=prd_issue(number=18))
+        self.assertFalse(plan.ok)
+
+    def test_never_references_main(self):
+        plan = ralph_failure.boundary_plan(
+            feature_story(number=27, parent=18), BOUNDARY_SHA,
+            prd=prd_issue(number=18))
+        self.assertNotIn("main", _flat(plan.commands))
+
+
+class ResetOnBlockPlan(unittest.TestCase):
+    """AC#2/3: demotion pushes a rescue branch, rewinds the feature branch,
+    force-pushes it, and the demotion comment names the rescue branch."""
+
+    def _plan(self, **kwargs):
+        defaults = dict(
+            story=feature_story(number=27, parent=18,
+                                comments=[_boundary_comment()]),
+            reason="gating red",
+            prd=prd_issue(number=18),
+            rescue_pattern="rescue/{issue}-{slug}",
+            feature_pattern="feature/{issue}-{slug}",
+        )
+        defaults.update(kwargs)
+        return ralph_failure.reset_on_block_plan(**defaults)
+
+    def test_pushes_rescue_branch(self):
+        plan = self._plan()
+        self.assertTrue(plan.ok, plan.errors)
+        push_cmds = [c for c in plan.commands if c[0] == "git" and "push" in c]
+        # first push is the rescue branch
+        rescue_push = push_cmds[0]
+        flat = " ".join(rescue_push)
+        self.assertIn("rescue/27-add-spi-driver", flat)
+
+    def test_force_pushes_feature_branch_to_boundary(self):
+        plan = self._plan()
+        flat = " ".join(_flat(plan.commands))
+        # force push that resets the feature branch to the boundary SHA
+        self.assertIn("--force", flat)
+        self.assertIn(BOUNDARY_SHA, flat)
+
+    def test_demotion_comment_names_rescue_branch(self):
+        plan = self._plan()
+        comment = next(c for c in plan.commands
+                       if c[:3] == ["gh", "issue", "comment"])
+        body = comment[comment.index("--body") + 1]
+        self.assertIn("rescue/27-add-spi-driver", body)
+        self.assertIn("gating red", body)
+
+    def test_moves_story_to_blocked(self):
+        plan = self._plan()
+        edit = next(c for c in plan.commands
+                    if c[:3] == ["gh", "issue", "edit"])
+        self.assertIn("state:blocked", edit)
+        self.assertIn("--remove-label", edit)
+        self.assertIn("state:in-progress", edit)
+
+    def test_orphan_story_returns_empty_plan(self):
+        """AC#4: orphan demotion behavior unchanged -- no reset commands."""
+        plan = ralph_failure.reset_on_block_plan(
+            story=story(number=9, comments=[]),
+            reason="gating red",
+            rescue_pattern="rescue/{issue}-{slug}",
+        )
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual(plan.commands, [])
+
+    def test_feature_story_without_prd_refuses(self):
+        plan = ralph_failure.reset_on_block_plan(
+            story=feature_story(number=27, parent=18,
+                                comments=[_boundary_comment()]),
+            reason="gating red",
+            rescue_pattern="rescue/{issue}-{slug}",
+        )
+        self.assertFalse(plan.ok)
+
+    def test_feature_story_without_boundary_refuses(self):
+        plan = self._plan(
+            story=feature_story(number=27, parent=18, comments=[]))
+        self.assertFalse(plan.ok)
+
+    def test_uses_latest_boundary_when_multiple_recorded(self):
+        later_sha = "aaaa000aaaa000aaaa000aaaa000aaaa000aaaa00"
+        comments = [_boundary_comment(BOUNDARY_SHA),
+                    _boundary_comment(later_sha)]
+        plan = self._plan(
+            story=feature_story(number=27, parent=18, comments=comments))
+        self.assertTrue(plan.ok, plan.errors)
+        flat = " ".join(_flat(plan.commands))
+        self.assertIn(later_sha, flat)
+        self.assertNotIn(BOUNDARY_SHA, flat)
+
+    def test_custom_rescue_pattern_is_honored(self):
+        plan = self._plan(rescue_pattern="quarantine/{issue}-{slug}")
+        flat = " ".join(_flat(plan.commands))
+        self.assertIn("quarantine/27-add-spi-driver", flat)
+
+    def test_never_references_main(self):
+        plan = self._plan()
+        self.assertNotIn("main", _flat(plan.commands))
+
+    def test_command_order_rescue_push_before_force_push_before_comment(self):
+        plan = self._plan()
+        rescue_idx = next(i for i, c in enumerate(plan.commands)
+                         if c[0] == "git" and "rescue/" in " ".join(c))
+        force_idx = next(i for i, c in enumerate(plan.commands)
+                        if c[0] == "git" and "--force" in c)
+        comment_idx = next(i for i, c in enumerate(plan.commands)
+                          if c[:3] == ["gh", "issue", "comment"])
+        self.assertLess(rescue_idx, force_idx)
+        self.assertLess(force_idx, comment_idx)
+
+
+class CliRecordBoundary(unittest.TestCase):
+    def _run(self, story_obj, config, tmp, log, prd_obj=None, sha="abc123"):
+        env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
+                   RALPH_LOG=log)
+        args = [RALPH, "--record-boundary", "-", config]
+        stdin = json.dumps(story_obj)
+        if prd_obj is not None:
+            prd_path = os.path.join(tmp, "prd.json")
+            with open(prd_path, "w") as fh:
+                json.dump(prd_obj, fh)
+            args.append(prd_path)
+        args.append(sha)
+        return subprocess.run(
+            args, cwd=REPO_ROOT, input=stdin, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+
+    def test_records_boundary_via_mocked_gh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(feature_story(number=27, parent=18),
+                             config, tmp, log,
+                             prd_obj=prd_issue(number=18))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log) as fh:
+                calls = fh.read()
+            self.assertIn("issue comment 27", calls)
+
+    def test_orphan_story_exits_zero_no_gh_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(story(number=9), config, tmp, log)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertFalse(os.path.exists(log))
+
+    def test_bad_config_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _mockbin(tmp)
+            config = os.path.join(FIXTURES, "config", "invalid", "missing-gating.yml")
+            proc = self._run(feature_story(number=27, parent=18),
+                             config, tmp, log,
+                             prd_obj=prd_issue(number=18))
+            self.assertEqual(proc.returncode, 2)
+
+
+class CliResetOnBlock(unittest.TestCase):
+    def _run(self, story_obj, reason, config, tmp, log, prd_obj=None):
+        env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
+                   RALPH_LOG=log)
+        args = [RALPH, "--reset-on-block", "-", reason, config]
+        stdin = json.dumps(story_obj)
+        if prd_obj is not None:
+            prd_path = os.path.join(tmp, "prd.json")
+            with open(prd_path, "w") as fh:
+                json.dump(prd_obj, fh)
+            args.append(prd_path)
+        return subprocess.run(
+            args, cwd=REPO_ROOT, input=stdin, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+
+    def _mockbin_git_gh(self, tmp, git_exit=0, gh_exit=0):
+        log = os.path.join(tmp, "calls.log")
+        for name, exit_code in [("git", git_exit), ("gh", gh_exit)]:
+            path = os.path.join(tmp, name)
+            with open(path, "w") as fh:
+                fh.write('#!/usr/bin/env bash\n'
+                         'echo "%s $*" >> "$RALPH_LOG"\n'
+                         'exit %d\n' % (name, exit_code))
+            os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP)
+        return log
+
+    def test_resets_feature_story_via_mocked_git_gh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin_git_gh(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            s = feature_story(number=27, parent=18,
+                              comments=[_boundary_comment()])
+            proc = self._run(s, "gating red", config, tmp, log,
+                             prd_obj=prd_issue(number=18))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log) as fh:
+                calls = fh.read()
+            self.assertIn("rescue/", calls)
+            self.assertIn("--force", calls)
+            self.assertIn("state:blocked", calls)
+
+    def test_orphan_story_exits_zero_no_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin_git_gh(tmp)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(story(number=9, comments=[]), "gating red",
+                             config, tmp, log)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertFalse(os.path.exists(log))
+
+    def test_bad_config_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin_git_gh(tmp)
+            config = os.path.join(FIXTURES, "config", "invalid", "missing-gating.yml")
+            proc = self._run(feature_story(number=27, parent=18,
+                                           comments=[_boundary_comment()]),
+                             "x", config, tmp, log,
+                             prd_obj=prd_issue(number=18))
+            self.assertEqual(proc.returncode, 2)
 
 
 class FailurePromptV1(unittest.TestCase):

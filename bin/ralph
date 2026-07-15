@@ -9,13 +9,16 @@
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
-#   ralph --complete-afk STORY [CONFIG]  Auto-merge a green AFK story to base + close it.
-#   ralph --complete-hil STORY [CONFIG]  Open a PR for a green HIL story + move to awaiting-bench.
+#   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
+#   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
 #   ralph --complete-feature PRD [CONFIG]  Integrate a complete Feature into base (ADR-0006).
+#   ralph --record-boundary STORY [CONFIG] [PRD] SHA  Record the feature-branch boundary SHA at story start.
+#   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Quarantine a blocked Feature story on a rescue branch.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
+#   ralph --needs-freshness ISSUE# [BACKLOG]  Print yes/no: does this Feature story need a base merge?
 #   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
 #   ralph --learn-target PATH [ROOT]   Print the nearest AGENTS.md to promote a learning to.
 set -euo pipefail
@@ -31,13 +34,16 @@ usage: ralph --init [CONFIG]
        ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
-       ralph --complete-afk STORY [CONFIG]
-       ralph --complete-hil STORY [CONFIG]
+       ralph --complete-afk STORY [CONFIG] [PRD]
+       ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
+       ralph --record-boundary STORY [CONFIG] [PRD] SHA
+       ralph --reset-on-block STORY REASON [CONFIG] [PRD]
        ralph --check-breaker [BACKLOG] [CONFIG]
+       ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
        ralph --learn-target PATH [ROOT]
 
@@ -79,15 +85,26 @@ usage: ralph --init [CONFIG]
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
-  --complete-afk STORY    Auto-merge a green AFK story (gh --json shape; - for
-       [CONFIG]           stdin) into base per afk_merge and close its issue.
-                          Never touches main. Exits 0 on success, 1 on a
-                          git/gh failure, 2 on bad config or a refusal.
-  --complete-hil STORY    Open a PR to base for a green HIL story (gh --json
-       [CONFIG]           shape; - for stdin) and move it to
-                          state:awaiting-bench. Never merges or closes; never
-                          touches main. Exits 0 on success, 1 on a git/gh
-                          failure, 2 on bad config or a refusal.
+  --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
+       [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
+                          auto-merged into base per afk_merge and closed; a
+                          Feature story (Parent: #N) is pushed to its feature
+                          branch (resolved from its PRD issue, given as PRD)
+                          and closed -- no PR, no merge. Never touches main.
+                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
+                          config or a refusal (incl. a Feature story without
+                          its PRD context).
+  --complete-hil STORY    Park a green HIL story (gh --json shape; - for
+       [CONFIG] [PRD]     stdin) at state:awaiting-bench per story kind
+                          (ADR-0006). An Orphan Story is pushed to its story
+                          branch and PR'd to base; a Feature story (Parent:
+                          #N) is pushed to its feature branch (resolved from
+                          its PRD issue, given as PRD) with the completion
+                          commit SHA recorded as a bench anchor comment -- no
+                          PR. Never merges or closes; never touches main.
+                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
+                          config or a refusal (incl. a Feature story without
+                          its PRD context).
   --complete-feature PRD  Integrate a complete Feature (gh --json PRD issue;
        [CONFIG]           path or - for stdin) into base (ADR-0006).
                           Autosquash-collapses fixup! commits (cosmetic
@@ -113,11 +130,34 @@ usage: ralph --init [CONFIG]
                           failed Attempts the story moves to state:blocked. A
                           context-full checkpoint is not an Attempt. Exits 0 on
                           success, 1 on a gh failure, 2 on bad config.
+  --record-boundary STORY Record the feature-branch boundary SHA at story start
+       [CONFIG] [PRD] SHA (gh --json shape; - for stdin). For a Feature story
+                          (Parent: #N), posts a boundary comment on the issue
+                          recording SHA so reset-on-block can rewind to it. For
+                          an Orphan Story, does nothing (exits 0). PRD is the
+                          gh --json path for the Feature's PRD issue. Exits 0
+                          on success, 1 on a gh failure, 2 on bad config or
+                          refusal.
+  --reset-on-block STORY  Quarantine a blocked Feature story on a rescue branch
+       REASON [CONFIG]    (gh --json shape; - for stdin). Pushes the story's
+       [PRD]              work to a rescue branch (rescue_pattern), rewinds the
+                          feature branch to the recorded boundary SHA, and posts
+                          a demotion comment naming the rescue branch. Orphan
+                          Stories are unchanged (exits 0, no commands). Exits 0
+                          on success, 1 on a git/gh failure, 2 on bad config
+                          or refusal.
   --check-breaker         Trip the circuit breaker if limits.circuit_breaker stories
        [BACKLOG] [CONFIG] are state:blocked: apply needs-human and tag the configured
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
                           (or - for stdin); with no BACKLOG, scans live via gh. Exits
                           0 on success, 1 on a gh failure, 2 on bad config.
+  --needs-freshness       Print "yes" or "no": whether a Feature story with
+       ISSUE# [BACKLOG]  out-of-Feature dependencies needs a base merge into
+                          its feature branch before the iteration starts
+                          (ADR-0006). Reads a JSON backlog from BACKLOG (or -
+                          for stdin); with no BACKLOG, scans live via gh. An
+                          Orphan Story or a story with no out-of-Feature deps
+                          always prints "no". Exits 0, or 2 on bad input.
   --read-learnings DIR    Print the nested AGENTS.md learnings (nearest-first,
        [ROOT]             from DIR up to ROOT, default DIR) Ralph reads at the
                           start of a story. Exits 0, or 2 if DIR is missing.
@@ -157,6 +197,10 @@ main() {
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" ready-features "$@"
       ;;
+    --needs-freshness)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_select.py" needs-freshness "$@"
+      ;;
     --branch-name)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_iterate.py" branch-name "$@"
@@ -188,6 +232,14 @@ main() {
     --record-attempt)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-attempt "$@"
+      ;;
+    --record-boundary)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-boundary "$@"
+      ;;
+    --reset-on-block)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" reset-on-block "$@"
       ;;
     --check-breaker)
       shift

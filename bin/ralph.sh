@@ -13,8 +13,9 @@
 #      as many eligible stories in sequence as the session budget allows, until
 #      no eligible work remains (no-work) or the loop halts (needs-human).
 #   5. when an iteration signals the story is green (the done-signal marker),
-#      promotes it: `ralph --complete-afk` (auto-merge → base) for a type:afk
-#      story, `ralph --complete-hil` (open PR → state:awaiting-bench) for HIL.
+#      promotes it: `ralph --complete-afk` for a type:afk story,
+#      `ralph --complete-hil` (park at state:awaiting-bench) for HIL; both
+#      branch on Feature membership per ADR-0006.
 #      Without this promotion the still-in-progress story would be re-selected
 #      forever (the engine is resume-first), so a green story must move off the
 #      backlog before the loop advances.
@@ -43,6 +44,41 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
 
 log() { printf 'ralph: %s\n' "$*"; }
+
+# Read the configured base branch from .ralph.yml (default 'develop').
+# Called once per tick after config validation; cached in BASE_BRANCH.
+read_base_branch() {
+  python3 -c "
+import sys; sys.path.insert(0, '$(dirname "$RALPH_BIN")/../lib')
+import ralph_config
+r = ralph_config.load_and_validate('$RALPH_CONFIG')
+print(r.config['branching']['base'] if r.ok else 'develop')
+"
+}
+
+# Freshness merge (ADR-0006): when a Feature story has out-of-Feature deps
+# (closed Orphan Stories or PRDs whose code landed in the base branch after
+# the feature branch forked), merge the base branch into the feature branch
+# before the iteration. A merge, never a rebase, so bench anchors survive.
+freshness_merge() {
+  local issue="$1" base="$2" answer
+  answer="$("$RALPH_BIN" --needs-freshness "$issue")" || return 0
+  if [[ "$answer" == "yes" ]]; then
+    log "freshness merge: merging $base into feature branch for #$issue"
+    git merge "$base" --no-edit \
+      || { log "freshness merge failed for #$issue; continuing"; return 0; }
+  fi
+}
+
+# Hard-sync the working branch from origin before an iteration starts, so that
+# human history rewrites (allowed on feature branches) never collide with a
+# stale local checkout (ADR-0006, US-029).
+sync_branch() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
+  git fetch origin || return 0
+  git reset --hard "origin/$branch" 2>/dev/null || true
+}
 
 # Launch one fresh-context claude iteration for the selected story. Returns:
 #   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (by exit
@@ -108,8 +144,9 @@ begin_story() {
 
 # Promote a green story off the backlog. Reads the story's type:* label and
 # dispatches to the completion CLI that owns the label move / PR / merge:
-# type:afk -> --complete-afk (auto-merge into base, close), type:hil ->
-# --complete-hil (open PR, move to state:awaiting-bench). The completion tools
+# type:afk -> --complete-afk (close as Passing), type:hil -> --complete-hil
+# (park at state:awaiting-bench); each branches on Feature membership per
+# ADR-0006 (Feature stories push to the feature branch, no PR). The tools
 # refuse to touch main and re-validate the type, so this stays a thin dispatch.
 # The story is fetched fresh so completion has the full record. A Feature story
 # (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
@@ -139,8 +176,6 @@ complete_story() {
     fi
   elif grep -q '"type:hil"' <<<"$story_json"; then
     log "green #$issue is type:hil; completing (--complete-hil)"
-    # The PRD is passed for Feature HIL stories too; today's --complete-hil
-    # ignores the extra argument until Feature-HIL completion (#26) lands.
     "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
       <<<"$story_json" || rc=$?
   else
@@ -148,6 +183,22 @@ complete_story() {
     rc=2
   fi
   if [[ -n "$prd_file" ]]; then rm -f "$prd_file"; fi
+  return "$rc"
+}
+
+# Run the Feature completion pass for a single eligible PRD (ADR-0006, US-029).
+# Fetches the PRD issue, then delegates to `ralph --complete-feature`.
+complete_feature() {
+  local prd_number="$1" prd_file rc=0
+  prd_file="$(mktemp)"
+  if ! gh issue view "$prd_number" --json number,title,labels,body,state >"$prd_file"; then
+    log "cannot fetch PRD #$prd_number for completion pass"
+    rm -f "$prd_file"
+    return 1
+  fi
+  log "eligible PRD #$prd_number; running completion pass (--complete-feature)"
+  "$RALPH_BIN" --complete-feature "$prd_file" "$RALPH_CONFIG" || rc=$?
+  rm -f "$prd_file"
   return "$rc"
 }
 
@@ -166,6 +217,10 @@ tick() {
     return 2
   fi
 
+  # --- read the base branch once (for freshness merges) ---
+  local base_branch
+  base_branch="$(read_base_branch)"
+
   # --- work eligible stories in sequence (resume-first via the engine) ---
   # promo_failed bounds promotion retries: a green story whose promotion fails
   # stays in-progress, so resume-first would re-select it forever within this
@@ -179,7 +234,7 @@ tick() {
     case "$kind" in
       no-work)
         log "no eligible work; tick complete"
-        return 0
+        break
         ;;
       halt)
         log "loop halted (needs-human); tick complete"
@@ -198,6 +253,8 @@ tick() {
         if [[ "$kind" == "start" ]]; then
           begin_story "$issue"
         fi
+        sync_branch
+        freshness_merge "$issue" "$base_branch"
         local rc=0
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
@@ -228,7 +285,17 @@ tick() {
     esac
   done
 
-  log "reached max iterations ($RALPH_MAX_ITERATIONS) this tick; stopping"
+  # --- completion pass: scan for Features ready to integrate (ADR-0006, US-029) ---
+  # Each tick scans for eligible PRDs (all stories closed, PRD open + state:ready)
+  # and runs the completion pass for each. This fires even when the final story
+  # close was a human bench act between ticks.
+  local prd_number
+  while IFS= read -r prd_number; do
+    [[ -z "$prd_number" ]] && continue
+    complete_feature "$prd_number" \
+      || log "completion pass for PRD #$prd_number failed (see above); continuing"
+  done < <("$RALPH_BIN" --ready-features 2>/dev/null)
+
   return 0
 }
 
