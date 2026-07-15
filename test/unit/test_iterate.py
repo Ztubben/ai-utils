@@ -269,6 +269,48 @@ class AgentPromptV1(unittest.TestCase):
     def test_uses_hil_terminology_not_hitl(self):
         self.assertNotIn("HITL", self.text)
 
+    # --- Feature-workflow directives (ADR-0006, #31) ---
+
+    def test_branch_step_covers_both_story_kinds(self):
+        """Branch step must mention both Orphan Story and Feature story paths."""
+        low = self.text.lower()
+        self.assertIn("orphan", low,
+                       "branch step must mention Orphan stories")
+        self.assertIn("feature", low,
+                       "branch step must mention Feature stories")
+
+    def test_branch_step_resolves_via_shipped_cli(self):
+        """Branch resolution must go through the shipped CLI for both kinds."""
+        self.assertIn("ralph --branch-name", self.text,
+                       "branch step must use `ralph --branch-name` CLI")
+
+    def test_hard_sync_from_origin_before_work(self):
+        """Prompt must instruct a hard sync from origin before starting work."""
+        low = self.text.lower()
+        self.assertIn("hard-sync", low,
+                       "prompt must instruct hard-sync from origin")
+        self.assertIn("origin", low,
+                       "prompt must reference origin for hard-sync")
+
+    def test_fixup_repair_for_bench_failed_stories(self):
+        """Bench-failed HIL stories must be repaired with fixup! commits."""
+        self.assertIn("fixup!", self.text,
+                       "prompt must mandate fixup! commits for bench-failed repairs")
+
+    def test_forbids_history_rewriting_by_iterations(self):
+        """Iterations must never rewrite history (rebase, amend, force-push)."""
+        low = self.text.lower()
+        self.assertIn("never rewrite history", low,
+                       "prompt must explicitly forbid history rewriting")
+
+    def test_existing_guardrails_preserved(self):
+        """Existing scope guardrails and done-signal must remain."""
+        self.assertIn("RALPH-STORY-COMPLETE", self.text)
+        low = self.text.lower()
+        # Markdown-bold markers are kept; match without them.
+        self.assertRegex(low, r"never.*merge into the base branch")
+        self.assertIn("do not close the issue", low)
+
 
 if __name__ == "__main__":
     unittest.main()
