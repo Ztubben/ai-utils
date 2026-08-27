@@ -84,6 +84,59 @@
         }
       }
     },
+    "models": {
+      "description": "Allowlisted model-profile catalog and the committed default profile keys for the implementation and review roles. Optional: a target repository opts in by declaring it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profiles", "defaults"],
+      "properties": {
+        "profiles": {
+          "description": "The allowlisted model profiles. Each is a stable profile key, the provider adapter that runs it, and the exact configured model identifier. Keys must be unique.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "provider", "model"],
+            "properties": {
+              "key": {
+                "description": "Stable profile key; roles are selected by this key.",
+                "type": "string",
+                "minLength": 1
+              },
+              "provider": {
+                "description": "Provider adapter that runs the profile.",
+                "type": "string",
+                "enum": ["claude", "codex"]
+              },
+              "model": {
+                "description": "Exact configured model identifier; this is the model identity persisted on a story.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "defaults": {
+          "description": "Committed default profile keys, so a scheduled tick resolves both roles without command-line arguments. Each must name a profile in the catalog.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["implementation", "review"],
+          "properties": {
+            "implementation": {
+              "description": "Profile key of the default Implementation Agent.",
+              "type": "string",
+              "minLength": 1
+            },
+            "review": {
+              "description": "Profile key of the default Review Agent.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "notify": {
       "description": "Who to tag when the circuit breaker trips (needs-human).",
       "type": "object",

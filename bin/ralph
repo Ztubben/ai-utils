@@ -10,6 +10,8 @@
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
+#   ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+#                                 Resolve the implementation/review model profiles.
 #   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
 #   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
@@ -36,6 +38,7 @@ usage: ralph --init [CONFIG]
        ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
+       ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -92,6 +95,16 @@ usage: ralph --init [CONFIG]
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
+  --resolve-models        Resolve the two model roles from the target
+       [CONFIG]           repository's committed model-profile catalog
+       [--implementation  (default .ralph.yml). Prints the exact model identity
+        KEY]              of the Implementation Agent and the Review Agent, one
+       [--review KEY]     per line. A --implementation/--review override selects
+       [--allow-same-     that role by profile key and wins over the committed
+        model]            default. Refuses (exit 2) when both roles resolve to
+                          the same model identity unless --allow-same-model
+                          acknowledges it. Exits 0 on success, 2 on bad config
+                          or a refusal.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -219,6 +232,10 @@ main() {
     --run-gating)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_iterate.py" run-gating "$@"
+      ;;
+    --resolve-models)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_models.py" resolve "$@"
       ;;
     --complete-afk)
       shift

@@ -12,5 +12,20 @@ gating:
   - name: test
     run: test/run.sh
 
+# ai-utils is its own target repository here (ADR-0001 amendment), so it commits
+# its own catalog. These are an instance of the shipped contract, never defaults
+# inherited by a repository that mounts ai-utils as a submodule.
+models:
+  profiles:
+    - key: claude-opus
+      provider: claude
+      model: claude-opus-5
+    - key: codex-high
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-opus
+    review: codex-high
+
 notify:
   github: Ztubben

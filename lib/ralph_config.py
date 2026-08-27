@@ -50,6 +50,17 @@ class ValidationResult:
         lines.append("notify: @%s" % c.get("notify", {}).get("github"))
         steps = ", ".join(s.get("name", "?") for s in c.get("gating", []))
         lines.append("gating steps: %s" % steps)
+        models = c.get("models") or {}
+        entries = models.get("profiles") or []
+        if entries:
+            lines.append("model profiles: %s" % ", ".join(
+                "%s=%s:%s" % (e.get("key"), e.get("provider"), e.get("model"))
+                for e in entries))
+            defaults = models.get("defaults") or {}
+            lines.append("default implementation: %s" % defaults.get("implementation"))
+            lines.append("default review: %s" % defaults.get("review"))
+        else:
+            lines.append("model profiles: (none configured)")
         return "\n".join(lines)
 
 
@@ -86,6 +97,37 @@ def _format_error(err):
     return "%s: %s" % (path or "(root)", err.message)
 
 
+def _model_catalog_errors(data):
+    """Catalog rules the JSON-schema cannot express: profile keys are unique and
+    every committed role default names a profile in the catalog."""
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return []
+    entries = models.get("profiles")
+    if not isinstance(entries, list):
+        return []
+
+    errors, seen = [], set()
+    for index, entry in enumerate(entries):
+        key = entry.get("key") if isinstance(entry, dict) else None
+        if not isinstance(key, str):
+            continue
+        if key in seen:
+            errors.append("models/profiles/%d/key: duplicate profile key %r"
+                          % (index, key))
+        seen.add(key)
+
+    defaults = models.get("defaults")
+    if isinstance(defaults, dict):
+        for role in ("implementation", "review"):
+            key = defaults.get(role)
+            if isinstance(key, str) and key not in seen:
+                errors.append(
+                    "models/defaults/%s: unknown profile key %r (catalog: %s)"
+                    % (role, key, ", ".join(sorted(seen)) or "empty"))
+    return errors
+
+
 def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     if not os.path.isfile(config_path):
         return ValidationResult(False, ["config file not found: %s" % config_path])
@@ -106,6 +148,10 @@ def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     errors = sorted(validator.iter_errors(data), key=lambda e: list(e.absolute_path))
     if errors:
         return ValidationResult(False, [_format_error(e) for e in errors])
+
+    catalog_errors = _model_catalog_errors(data)
+    if catalog_errors:
+        return ValidationResult(False, catalog_errors)
 
     resolved = _apply_defaults(schema, copy.deepcopy(data))
     return ValidationResult(True, [], resolved)

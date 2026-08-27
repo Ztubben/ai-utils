@@ -246,6 +246,19 @@ limits:
   max_attempts: 3      # failed Attempts before a story → state:blocked (default: 3)
   circuit_breaker: 2   # blocked stories that halt the loop + tag a human (default: 2)
 
+# Allowlisted Model Profiles + the committed defaults for the two model roles.
+models:
+  profiles:
+    - key: claude-opus         # stable profile key; roles are selected by key
+      provider: claude         # provider adapter: claude | codex
+      model: claude-opus-5     # exact model identity, persisted on the story
+    - key: codex-high
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-opus   # must name a profile above
+    review: codex-high
+
 # Who gets tagged when the circuit breaker trips (needs-human).
 notify:
   github: your-github-handle   # no leading @
@@ -253,6 +266,26 @@ notify:
 
 `version`, `gating`, and `notify` are required; everything else has sensible
 defaults. See `.ralph.yml.sample` for the annotated original.
+
+### Model profiles and the two roles
+
+The catalog is the allowlist: Ralph will only run a model that appears in it. The
+committed `defaults` let a scheduled tick resolve an Implementation Agent and an
+independent Review Agent with no command-line arguments; an operator overrides
+either role by profile key at tick start:
+
+```sh
+ralph --resolve-models                                   # committed defaults
+ralph --resolve-models --review codex-high               # override one role
+ralph --resolve-models --implementation codex-high --review claude-opus
+```
+
+`--check-config` rejects an unknown provider adapter, a duplicate profile key, and
+a default naming a profile that is not in the catalog, naming the offending field.
+Resolution **refuses** a pair whose two roles resolve to the same model identity —
+the exact `model` string, whichever adapter runs it — so the independence of
+review is never lost by accident. Single-model operation stays available on
+purpose, via the explicit `--allow-same-model` acknowledgement.
 
 ## Authoring the backlog
 
@@ -309,6 +342,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --dry-run [PATH]` | Scan the backlog and print the next action (`resume #N` / `start #N` / `no-work` / `halt`), changing nothing. Reads a JSON backlog from `PATH`, or scans live via `gh`. |
 | `ralph --branch-name STORY [CONFIG]` | Print the story branch name from `branch_pattern`. |
 | `ralph --run-gating [CONFIG]` | Run the configured gating steps locally, in order, fail-fast. |
+| `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

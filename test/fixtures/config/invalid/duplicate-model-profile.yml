@@ -1,0 +1,17 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: claude-impl
+      provider: claude
+      model: claude-opus-5
+    - key: claude-impl
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-impl
+    review: claude-impl
+notify:
+  github: octocat

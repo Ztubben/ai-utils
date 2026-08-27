@@ -89,6 +89,25 @@ not HITL) and `docs/adr/0001–0005`.
   [CONFIG]`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
   state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
   `prompts/failure.v1.md` (drift-guarded).
+- `lib/ralph_models.py` is the model-profile seam (#44, PRD #42): pure logic, **no**
+  `Plan`/git/gh (resolution decides, it does not mutate). `profiles(config)` reads the
+  catalog into `{key: ModelProfile(key, provider, model)}`; `resolve_roles(config,
+  implementation=, review=, allow_same_model=)` layers a per-role override over the
+  committed `models.defaults` and returns a `RoleResolution`. `same_identity` compares the
+  **exact configured model identifier only** — the provider adapter is an internal concern,
+  so one model reached through two adapters is still one model and the pair is refused
+  unless the operator acknowledges it. CLI: `--resolve-models [CONFIG] [--implementation
+  KEY] [--review KEY] [--allow-same-model]` (exit 2 on bad config or refusal). GOTCHA: the
+  catalog is a **list** of `{key, provider, model}`, not a mapping — a YAML mapping would
+  silently swallow a duplicate profile key, and rejecting duplicates is an AC. Catalog
+  well-formedness (unknown adapter via the schema enum; duplicate key and dangling role
+  default via `ralph_config._model_catalog_errors`) lives in `ralph_config` so
+  `--check-config` stays the one place a broken catalog is reported; the dependency runs
+  `ralph_models` → `ralph_config` only, never back. `models:` is optional in the schema (a
+  target repository opts in), so every pre-existing config still validates — but note
+  `_apply_defaults` materializes an empty `models.defaults` for configs that omit it, which
+  is why the cross-field checks run on the raw data and `profiles()` treats absent/empty as
+  an empty catalog.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from
