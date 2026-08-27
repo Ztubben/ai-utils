@@ -12,7 +12,9 @@
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Resolve the implementation/review model profiles.
-#   ralph --launch-agent ROLE [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+#   ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+#                                 Record the story's implementation/review model identities as labels.
+#   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
 #   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
 #   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
@@ -41,7 +43,8 @@ usage: ralph --init [CONFIG]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
        ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
-       ralph --launch-agent ROLE [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+       ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+       ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -108,10 +111,24 @@ usage: ralph --init [CONFIG]
                           the same model identity unless --allow-same-model
                           acknowledges it. Exits 0 on success, 2 on bad config
                           or a refusal.
+  --assign-models STORY   Record a story's model assignment durably (gh --json
+       [CONFIG]           shape; - for stdin). Resolves each role that the story
+       [--implementation  does not already carry a label for, creates that
+        KEY]              identity's label on demand (model:impl:<id> /
+       [--review KEY]     model:review:<id>) and applies it, so retries, resumes
+       [--allow-same-     and audits read the assignment from the backlog rather
+        model]            than from current configuration. A story that is
+                          already assigned is left untouched: changed defaults
+                          and --implementation/--review overrides never rewrite
+                          it. Idempotent. Exits 0 on success, 1 on a gh failure,
+                          2 on bad config or a refused resolution.
   --launch-agent ROLE     Launch one role's agent (implementation | review) in a
        [CONFIG]           fresh process through its provider adapter, resolved
-       [--implementation  from the target repository's model-profile catalog
-        KEY]              (default .ralph.yml). The prompt is read from stdin and
+       [--story PATH]     from the target repository's model-profile catalog
+       [--implementation  (default .ralph.yml). With --story (a gh --json path),
+        KEY]              the story's own model assignment labels decide which
+                          model the role runs, so a resume or retry never
+                          swaps models. The prompt is read from stdin and
        [--review KEY]     the agent's output is written to stdout. The exit code
        [--allow-same-     is the outcome: 0 normal completion, 10 session
         model]            exhaustion, 12 infrastructure failure, 2 on a bad
@@ -247,6 +264,10 @@ main() {
     --resolve-models)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_models.py" resolve "$@"
+      ;;
+    --assign-models)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_models.py" assign "$@"
       ;;
     --launch-agent)
       shift

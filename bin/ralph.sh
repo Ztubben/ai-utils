@@ -110,10 +110,22 @@ run_iteration() {
   fi
   prompt+=$'\n\n---\nNext action: '"$action #$issue"$'. Work only this story this iteration.\n'
 
+  # Hand the story to the launcher so its recorded model assignment (#46) picks
+  # the implementation model: a resume or a retry runs the model the story was
+  # assigned, never whatever the config now defaults to. Best-effort -- if the
+  # story cannot be fetched the launcher falls back to the committed defaults.
+  local story_file
+  story_file="$(mktemp)"
+  local story_arg=()
+  if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    story_arg=(--story "$story_file")
+  fi
+
   set +e
-  out="$(printf '%s' "$prompt" | "$RALPH_BIN" --launch-agent implementation "$RALPH_CONFIG" 2>&1)"
+  out="$(printf '%s' "$prompt" | "$RALPH_BIN" --launch-agent implementation "$RALPH_CONFIG" "${story_arg[@]}" 2>&1)"
   rc=$?
   set -e
+  rm -f "$story_file"
   [[ -n "$out" ]] && printf '%s\n' "$out"
 
   if [[ "$rc" -eq "$RC_SESSION_LIMIT" ]]; then
@@ -151,6 +163,31 @@ begin_story() {
   gh issue edit "$issue" \
      --add-label state:in-progress --remove-label state:ready \
    || log "could not label #$issue state:in-progress (are the Ralph labels created? run 'ralph --init'); continuing"
+}
+
+# Record the story's implementation/review model assignment durably before its
+# iteration (#46). Resolves each role the story does not already carry a label
+# for and applies `model:impl:<id>` / `model:review:<id>`, so later retries,
+# resumes and audits read the assignment from the backlog rather than from
+# whatever configuration is current. Idempotent: a story that is already
+# assigned is left untouched, which is also why this runs on `resume` -- a story
+# started before it had an assignment heals forward instead of staying blank.
+# Best-effort: a failure here does not stop the iteration (the launcher still
+# falls back to the committed defaults).
+assign_story_models() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue to record its model assignment; continuing"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --assign-models "$story_file" "$RALPH_CONFIG" >/dev/null || rc=$?
+  if (( rc != 0 )); then
+    log "could not record the model assignment for #$issue (exit $rc); continuing"
+  fi
+  rm -f "$story_file"
+  return 0
 }
 
 # Promote a green story off the backlog. Reads the story's type:* label and
@@ -264,6 +301,7 @@ tick() {
         if [[ "$kind" == "start" ]]; then
           begin_story "$issue"
         fi
+        assign_story_models "$issue"
         sync_branch
         freshness_merge "$issue" "$base_branch"
         local rc=0

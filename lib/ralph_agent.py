@@ -23,6 +23,7 @@ exit-code contract (`EXIT_*`) that `ralph --launch-agent` returns and the tick
 reads. Session exhaustion outranks infrastructure failure: a truncated run is
 checkpointed and resumed, never counted as a crash.
 """
+import json
 import os
 import subprocess
 import sys
@@ -185,12 +186,17 @@ PROVIDERS = {ClaudeAdapter.provider: ClaudeAdapter,
 
 
 def adapter_for_role(config, role, implementation=None, review=None,
-                     allow_same_model=False):
+                     allow_same_model=False, story=None):
     """The adapter that runs `role`, per the target repository's catalog.
 
+    With a `story`, the Story's own model assignment labels win (#46): a resume
+    or a retry launches the model the Story was assigned, and the committed
+    defaults and any CLI override are ignored for a role already recorded.
+
     Returns (adapter, errors); the adapter is None when the role is unknown or
-    role resolution refused (an unknown profile key, or the two roles collapsing
-    to one model identity without the explicit acknowledgement).
+    role resolution refused (an unknown profile key, an assigned identity that
+    has left the catalog, or two roles collapsing to one model identity without
+    the explicit acknowledgement).
     """
     if role not in ROLES:
         return None, ["role: unknown role %r (roles: %s)"
@@ -198,9 +204,14 @@ def adapter_for_role(config, role, implementation=None, review=None,
     if not ralph_models.profiles(config):
         return PROVIDERS[DEFAULT_PROVIDER](), []
 
-    resolved = ralph_models.resolve_roles(config, implementation=implementation,
-                                          review=review,
-                                          allow_same_model=allow_same_model)
+    if story is None:
+        resolved = ralph_models.resolve_roles(
+            config, implementation=implementation, review=review,
+            allow_same_model=allow_same_model)
+    else:
+        resolved = ralph_models.roles_for_story(
+            config, story, implementation=implementation, review=review,
+            allow_same_model=allow_same_model)
     if not resolved.ok:
         return None, resolved.errors
     profile = getattr(resolved, role)
@@ -208,12 +219,13 @@ def adapter_for_role(config, role, implementation=None, review=None,
 
 
 def launch_role(config, role, prompt, implementation=None, review=None,
-                allow_same_model=False, run=None):
+                allow_same_model=False, run=None, story=None):
     """Launch `role` in a fresh process. Returns (Outcome, errors)."""
     adapter, errors = adapter_for_role(config, role,
                                        implementation=implementation,
                                        review=review,
-                                       allow_same_model=allow_same_model)
+                                       allow_same_model=allow_same_model,
+                                       story=story)
     if adapter is None:
         return None, errors
     return adapter.launch(prompt, run=run), []
@@ -221,14 +233,21 @@ def launch_role(config, role, prompt, implementation=None, review=None,
 
 def _cmd_launch(rest):
     """`ralph --launch-agent ROLE [CONFIG] [...]`: prompt on stdin, the agent's
-    output on stdout, the outcome as the exit code."""
+    output on stdout, the outcome as the exit code. `--story PATH` pins the
+    launch to that story's recorded model assignment (#46)."""
     role, config_path, implementation, review, allow_same = None, ".ralph.yml", None, None, False
-    positional = []
+    story_path, positional = None, []
     i = 0
     while i < len(rest):
         arg = rest[i]
         if arg == "--allow-same-model":
             allow_same = True
+        elif arg == "--story":
+            if i + 1 >= len(rest):
+                sys.stderr.write("ralph: --story requires a PATH (or -)\n")
+                return 2
+            i += 1
+            story_path = rest[i]
         elif arg in ("--implementation", "--review"):
             if i + 1 >= len(rest):
                 sys.stderr.write("ralph: %s requires a profile key\n" % arg)
@@ -262,9 +281,20 @@ def _cmd_launch(rest):
             sys.stderr.write("  - %s\n" % err)
         return 2
 
+    # stdin carries the prompt, so the story is a file path only (#46). With it,
+    # the story's own assignment labels decide which model this role launches.
+    story = None
+    if story_path:
+        try:
+            with open(story_path) as fh:
+                story = json.load(fh)
+        except (OSError, ValueError) as exc:
+            sys.stderr.write("ralph: could not read story: %s\n" % exc)
+            return 2
+
     outcome, errors = launch_role(validated.config, role, sys.stdin.read(),
                                   implementation=implementation, review=review,
-                                  allow_same_model=allow_same)
+                                  allow_same_model=allow_same, story=story)
     if outcome is None:
         sys.stderr.write("REFUSED: cannot launch the %s agent\n" % role)
         for err in errors:
@@ -281,8 +311,8 @@ def _cmd_launch(rest):
 def main(argv):
     if not argv:
         sys.stderr.write("usage: ralph_agent.py launch ROLE [CONFIG] "
-                         "[--implementation KEY] [--review KEY] "
-                         "[--allow-same-model]\n")
+                         "[--story PATH] [--implementation KEY] "
+                         "[--review KEY] [--allow-same-model]\n")
         return 2
     mode, rest = argv[0], argv[1:]
     if mode == "launch":

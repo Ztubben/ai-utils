@@ -61,9 +61,13 @@ def canonical_labels(prio_max=DEFAULT_PRIO_MAX):
     return FIXED_LABELS + prio_labels(prio_max)
 
 
-def _label_command(name, color, description):
-    # --force makes it idempotent: create the label, or update its color and
-    # description if it already exists. Safe to re-run on an initialized repo.
+def label_command(name, color, description):
+    """The idempotent `gh label create` spelling every Ralph label uses.
+
+    `--force` makes it create-or-update: safe to re-run on an initialized repo,
+    and safe for labels created on demand rather than seeded here (the model
+    assignment labels, #46).
+    """
     return ["gh", "label", "create", name,
             "--color", color, "--description", description, "--force"]
 
@@ -94,7 +98,7 @@ def init_plan(base=None, base_exists=True, default_branch=PROTECTED_BRANCH,
     canonical label vocabulary, then, if `base` is missing, creates it off the
     default branch. Idempotent by construction.
     """
-    commands = [_label_command(*lbl) for lbl in canonical_labels(prio_max)]
+    commands = [label_command(*lbl) for lbl in canonical_labels(prio_max)]
     commands += _base_commands(base, base_exists, default_branch)
     return commands
 

@@ -108,6 +108,32 @@ not HITL) and `docs/adr/0001–0005`.
   `_apply_defaults` materializes an empty `models.defaults` for configs that omit it, which
   is why the cross-field checks run on the raw data and `profiles()` treats absent/empty as
   an empty catalog.
+- Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
+  `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
+  `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,
+  errors)`, with two labels for one role an ambiguity error and the assignment surfaced as
+  `fields["models"]`. `lib/ralph_models.py` owns *policy*: `roles_for_story` resolves each
+  role from the story's label when it has one and from the catalog when it does not
+  (`resolution.newly_assigned` names the fresh choices), and `assign_plan` returns the
+  ordered gh plan to create each new identity's label on demand and apply both in one
+  `issue edit`. CLI: `--assign-models STORY [CONFIG] [--implementation KEY] [--review KEY]
+  [--allow-same-model]`. GOTCHAS: (1) the labels record the **exact model identity, never
+  the profile key** — keys are config-local and can be re-pointed, so only the identity
+  makes a retry reproducible; `profile_for_model` maps the identity back to a provider
+  adapter and refuses an identity that has left the catalog (the allowlist still governs
+  what may launch). (2) The same-model refusal guards **fresh choices only** — a pair
+  already persisted is honored as recorded, because re-litigating independence on every
+  resume would strand an in-flight story on an unrelated config change. (3) A half-assigned
+  story (a crash between the two label writes) heals **forward**: only the missing role is
+  recorded, the existing one is never rewritten. (4) With no `models:` catalog `assign_plan`
+  is a documented **no-op** (`implementation is None`), not a refusal, so a target repository
+  that opted out keeps ticking. `bin/ralph.sh` calls `assign_story_models` on both `start`
+  and `resume` (best-effort; idempotent, which is what makes the resume call safe and lets a
+  story started before it had an assignment heal forward), and `run_iteration` passes the
+  fetched story to `ralph --launch-agent ... --story FILE` so the launch reads the
+  assignment rather than the current defaults. NOTE: `ralph_init.label_command` is the one
+  idempotent `gh label create --force` spelling — assignment labels are created on demand
+  (one per identity) rather than seeded by `ralph --init`, but reuse it.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from

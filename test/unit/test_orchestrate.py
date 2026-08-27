@@ -388,5 +388,91 @@ class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
         self.assertFalse(any("issue comment" in ln for ln in log), log)
 
 
+class TheTickRecordsTheModelAssignmentOnTheStory(unittest.TestCase):
+    """AC (#46): starting a newly unassigned Story records the exact
+    implementation and review model identities as durable Story labels, and an
+    already-assigned Story is launched from its labels rather than from config."""
+
+    def harness(self, provider="claude"):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        h = TickHarness(tmp)
+        h.select_implementation(provider)
+        return h
+
+    def _assigned(self, s, impl="claude-model", review="codex-model"):
+        s = json.loads(json.dumps(s))
+        s["labels"] = s["labels"] + [{"name": "model:impl:" + impl},
+                                     {"name": "model:review:" + review}]
+        return s
+
+    def test_starting_a_story_creates_and_applies_both_assignment_labels(self):
+        h = self.harness("claude")
+        h.set_backlogs([story(7, "ready", "afk")], [])
+        h.set_view_story(story(7, "ready", "afk"))
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("label create model:impl:claude-model" in ln for ln in log), log)
+        self.assertTrue(any("label create model:review:codex-model" in ln for ln in log), log)
+        applied = [ln for ln in log
+                   if "issue edit 7" in ln and "model:impl:claude-model" in ln]
+        self.assertTrue(applied, log)
+        self.assertIn("model:review:codex-model", applied[0])
+
+    def test_an_already_assigned_story_is_not_relabelled(self):
+        # The tick's committed default is claude-model, but the story was
+        # assigned codex-model: the assignment wins and is not rewritten.
+        h = self.harness("claude")
+        assigned = self._assigned(story(7, "ready", "afk"), impl="codex-model",
+                                  review="claude-model")
+        h.set_backlogs([assigned], [])
+        h.set_view_story(assigned)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("label create model:" in ln for ln in log), log)
+        self.assertFalse(any("--add-label model:" in ln for ln in log), log)
+
+    def test_the_iteration_launches_the_assigned_model_not_the_default(self):
+        h = self.harness("claude")
+        assigned = self._assigned(story(7, "ready", "afk"), impl="codex-model",
+                                  review="claude-model")
+        h.set_backlogs([assigned], [])
+        h.set_view_story(assigned)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        calls = h.agent_calls("codex")
+        self.assertEqual(len(calls), 1, log)
+        self.assertIn("--model codex-model", calls[0])
+        self.assertEqual(h.agent_calls("claude"), [], log)
+
+    def test_a_resumed_unassigned_story_is_assigned_before_its_iteration(self):
+        # A story started before it had an assignment heals forward on resume
+        # instead of staying blank.
+        h = self.harness("claude")
+        h.set_backlogs([story(5, "in-progress", "afk")], [])
+        h.set_view_story(story(5, "in-progress", "afk"))
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("issue edit 5" in ln and "model:impl:claude-model" in ln
+                            for ln in log), log)
+
+    def test_a_repository_without_a_catalog_records_nothing_and_still_ticks(self):
+        # The catalog stays optional (#44): no identities to persist, no labels.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        h = TickHarness(tmp)  # full.yml declares no models:
+        h.set_backlogs([story(7, "ready", "afk")], [])
+        h.set_view_story(story(7, "ready", "afk"))
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("model:impl:" in ln for ln in log), log)
+        self.assertTrue(h.agent_calls(), log)
+
+
 if __name__ == "__main__":
     unittest.main()

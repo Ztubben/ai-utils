@@ -304,6 +304,36 @@ printf '%s' "$prompt" | ralph --launch-agent implementation
 A target repository that has not declared a `models:` catalog keeps ticking on
 the `claude` adapter at that CLI's own default model.
 
+### The assignment is durable, on the story
+
+Resolution decides which two models a story runs; the tick then **records that
+decision on the story itself**, as two labels carrying the exact model
+identities:
+
+```
+model:impl:claude-opus-5      model:review:gpt-5-codex
+```
+
+The labels are created on demand the first time an identity is assigned, so the
+catalog can grow without re-running `ralph --init`. From then on the story is the
+source of truth: a resume, a retry, or an audit reads its roles from the backlog,
+not from whatever configuration happens to be current. **Changed defaults and
+`--implementation`/`--review` overrides never rewrite an assigned story** — they
+only ever decide a role that has no label yet. Same-model independence is
+likewise settled once, when the pair is chosen, so a later config change cannot
+strand a story that is already in flight.
+
+```sh
+ralph --assign-models story.json          # idempotent; a no-op once assigned
+```
+
+The tick does this for you (on both `start` and `resume`), and hands the story to
+the launcher so the iteration runs the assigned model:
+
+```sh
+printf '%s' "$prompt" | ralph --launch-agent implementation --story story.json
+```
+
 ## Authoring the backlog
 
 Stories are GitHub issues in a **canonical shape** so the selection engine can
@@ -360,7 +390,8 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --branch-name STORY [CONFIG]` | Print the story branch name from `branch_pattern`. |
 | `ralph --run-gating [CONFIG]` | Run the configured gating steps locally, in order, fail-fast. |
 | `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
-| `ralph --launch-agent ROLE [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
+| `ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Record the story's implementation/review model identities as durable labels (`model:impl:<id>` / `model:review:<id>`, created on demand). Idempotent; an already-assigned story is never rewritten. |
+| `ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. With `--story`, the story's recorded assignment picks the model. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

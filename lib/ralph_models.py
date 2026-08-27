@@ -12,15 +12,33 @@ identity is refused unless the operator passes the explicit same-model
 acknowledgement. Identity is the exact configured model identifier — two
 profiles that name one model are one model, whichever adapter runs it.
 
+`assign_plan` makes that resolution *durable* (#46): the first time a Story is
+started it records the two exact model identities as Story labels
+(`model:impl:<id>` / `model:review:<id>`, created on demand), and from then on
+`roles_for_story` reads the roles off the Story instead of the config. A Story
+that already carries an assignment keeps it -- later default changes and CLI
+overrides never rewrite it -- so a retry, a resume, or an audit reproduces the
+run that was actually made rather than the configuration that happens to be
+current. Independence is decided once, when the pair is chosen; re-litigating it
+on every resume would strand an in-flight Story on an unrelated config change.
+
 Catalog *well-formedness* (unknown adapter, duplicate key, a default naming an
 absent profile) belongs to `ralph_config`, so `ralph --check-config` is the one
 place a broken catalog is reported. This module trusts a validated config.
 """
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_init  # noqa: E402
+import ralph_story  # noqa: E402
+
+# Assignment labels are created on demand (one per model identity), so they are
+# not part of the fixed vocabulary `ralph --init` seeds -- but they use the same
+# idempotent `gh label create --force` spelling.
+ASSIGNMENT_LABEL_COLOR = "bfd4f2"
 
 
 class ModelProfile:
@@ -57,12 +75,29 @@ def same_identity(a, b):
 
 class RoleResolution:
     def __init__(self, ok, errors, implementation=None, review=None,
-                 same_model=False):
+                 same_model=False, newly_assigned=None):
         self.ok = ok
         self.errors = errors
         self.implementation = implementation
         self.review = review
         self.same_model = same_model
+        # The roles a *fresh* choice was just made for -- both, unless the Story
+        # already carried an assignment for one of them (#46).
+        self.newly_assigned = (list(ralph_story.MODEL_ROLES)
+                               if newly_assigned is None else newly_assigned)
+
+
+def profile_for_model(catalog, model):
+    """The catalog entry whose exact model identifier is `model`, or None.
+
+    Assignment labels record the identity, not the profile key, so this is how a
+    persisted role gets back its provider adapter. Two keys naming one model are
+    one identity (`same_identity`), so either entry answers equally.
+    """
+    for key in sorted(catalog):
+        if catalog[key].model.strip() == model.strip():
+            return catalog[key]
+    return None
 
 
 def _pick(catalog, role, override, committed):
@@ -116,8 +151,140 @@ def resolve_roles(config, implementation=None, review=None,
                           same_model=collapsed)
 
 
-def _cmd_resolve(rest):
-    config_path, implementation, review, allow_same = ".ralph.yml", None, None, False
+def roles_for_story(config, story, implementation=None, review=None,
+                    allow_same_model=False):
+    """Resolve both roles for one Story, its own labels winning over config.
+
+    A role already recorded on the Story (`model:impl:` / `model:review:`) is
+    read back from the label, so a resume or a retry runs the same model the
+    Story was assigned -- config defaults and CLI overrides are ignored for it.
+    A role with no label is resolved from the catalog exactly as `resolve_roles`
+    does. `resolution.newly_assigned` names the roles that had no label, i.e.
+    the ones a fresh choice was just made for.
+
+    The independence invariant guards *fresh* choices only: a pair persisted on
+    the Story is honored as recorded, because that decision (including an
+    explicit same-model acknowledgement) was already made when the Story
+    started.
+    """
+    catalog = profiles(config)
+    if not catalog:
+        return RoleResolution(False, [
+            "models: no model-profile catalog is configured; declare "
+            "models.profiles and models.defaults"])
+
+    assignment, errors = ralph_story.model_assignment(story)
+    if errors:
+        return RoleResolution(False, errors)
+
+    defaults = (config.get("models") or {}).get("defaults") or {}
+    overrides = {"implementation": implementation, "review": review}
+    resolved, newly_assigned = {}, []
+    for role in ralph_story.MODEL_ROLES:
+        model = assignment.get(role)
+        if model:
+            profile = profile_for_model(catalog, model)
+            if profile is None:
+                errors.append(
+                    "%s: story is assigned model %r, which is not in the "
+                    "catalog (%s); restore the profile or reassign the story"
+                    % (ralph_story.MODEL_LABEL_PREFIXES[role], model,
+                       ", ".join(sorted(catalog))))
+            resolved[role] = profile
+            continue
+        newly_assigned.append(role)
+        profile, err = _pick(catalog, role, overrides[role], defaults.get(role))
+        if err:
+            errors.append(err)
+        resolved[role] = profile
+    if errors:
+        return RoleResolution(False, errors)
+
+    impl, rev = resolved["implementation"], resolved["review"]
+    collapsed = same_identity(impl, rev)
+    if collapsed and newly_assigned and not allow_same_model:
+        return RoleResolution(False, [
+            "models: implementation %r and review %r resolve to the same model "
+            "identity %r; pass --allow-same-model to accept it"
+            % (impl.key, rev.key, impl.model)])
+
+    return RoleResolution(True, [], implementation=impl, review=rev,
+                          same_model=collapsed, newly_assigned=newly_assigned)
+
+
+class AssignPlan:
+    def __init__(self, ok, errors, commands, implementation=None, review=None,
+                 newly_assigned=None, same_model=False):
+        self.ok = ok
+        self.errors = errors
+        self.commands = commands
+        self.implementation = implementation
+        self.review = review
+        self.newly_assigned = newly_assigned or []
+        self.same_model = same_model
+
+
+def assign_plan(story, config, implementation=None, review=None,
+                allow_same_model=False):
+    """Build the plan that records this Story's model assignment durably.
+
+    Pure: computes commands, runs nothing. For each role with no assignment
+    label yet, creates that identity's label on demand and adds it to the issue
+    in one edit. A Story whose roles are both already recorded yields an empty
+    plan -- re-running is a no-op, and a crash between the two label writes
+    heals forward by recording only the missing role. With no catalog configured
+    the plan is empty and `implementation`/`review` are None: there is no exact
+    identity to persist.
+    """
+    if not profiles(config):
+        # The catalog stays optional (#44): a target repository that declares no
+        # profiles runs the provider Ralph shipped with, and there is no exact
+        # identity to persist. Nothing to do rather than a refusal, so the tick
+        # keeps working stories.
+        return AssignPlan(True, [], [], newly_assigned=[])
+
+    resolution = roles_for_story(config, story, implementation=implementation,
+                                 review=review,
+                                 allow_same_model=allow_same_model)
+    if not resolution.ok:
+        return AssignPlan(False, resolution.errors, [])
+
+    newly_assigned = resolution.newly_assigned
+    labels = [(role, ralph_story.model_label(role, getattr(resolution, role).model))
+              for role in newly_assigned]
+
+    commands = [
+        ralph_init.label_command(
+            label, ASSIGNMENT_LABEL_COLOR,
+            "%s Agent: %s" % (role.capitalize(), getattr(resolution, role).model))
+        for role, label in labels
+    ]
+    if labels:
+        edit = ["gh", "issue", "edit", str(story["number"])]
+        for _, label in labels:
+            edit += ["--add-label", label]
+        commands.append(edit)
+
+    return AssignPlan(True, [], commands,
+                      implementation=resolution.implementation,
+                      review=resolution.review,
+                      newly_assigned=newly_assigned,
+                      same_model=resolution.same_model)
+
+
+class _RoleOptions:
+    """The role flags `--resolve-models` and `--assign-models` share."""
+
+    def __init__(self, positional, implementation, review, allow_same):
+        self.positional = positional
+        self.implementation = implementation
+        self.review = review
+        self.allow_same = allow_same
+
+
+def _parse_role_options(rest):
+    """Return (_RoleOptions, None) or (None, exit code) on a bad flag."""
+    implementation, review, allow_same = None, None, False
     positional = []
     i = 0
     while i < len(rest):
@@ -127,7 +294,7 @@ def _cmd_resolve(rest):
         elif arg in ("--implementation", "--review"):
             if i + 1 >= len(rest):
                 sys.stderr.write("ralph: %s requires a profile key\n" % arg)
-                return 2
+                return None, 2
             i += 1
             if arg == "--implementation":
                 implementation = rest[i]
@@ -135,15 +302,92 @@ def _cmd_resolve(rest):
                 review = rest[i]
         elif arg.startswith("--"):
             sys.stderr.write("ralph: unknown option: %s\n" % arg)
-            return 2
+            return None, 2
         elif arg:
             positional.append(arg)
         i += 1
-    if len(positional) > 1:
+    return _RoleOptions(positional, implementation, review, allow_same), None
+
+
+def _load_story(path):
+    if path == "-":
+        return json.load(sys.stdin)
+    with open(path) as fh:
+        return json.load(fh)
+
+
+def _cmd_assign(rest):
+    """`ralph --assign-models STORY [CONFIG] [...]`: record the Story's exact
+    implementation and review model identities as durable labels (#46)."""
+    opts, rc = _parse_role_options(rest)
+    if opts is None:
+        return rc
+    if not opts.positional:
+        sys.stderr.write("ralph: --assign-models requires a STORY "
+                         "(gh --json path, or - for stdin)\n")
+        return 2
+    if len(opts.positional) > 2:
+        sys.stderr.write("ralph: --assign-models takes STORY and at most one CONFIG\n")
+        return 2
+    story_path = opts.positional[0]
+    config_path = opts.positional[1] if len(opts.positional) > 1 else ".ralph.yml"
+
+    try:
+        story = _load_story(story_path)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+
+    validated = ralph_config.load_and_validate(config_path)
+    if not validated.ok:
+        sys.stderr.write("INVALID CONFIG: %s\n" % config_path)
+        for err in validated.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    plan = assign_plan(story, validated.config,
+                       implementation=opts.implementation,
+                       review=opts.review,
+                       allow_same_model=opts.allow_same)
+    if not plan.ok:
+        sys.stderr.write("REFUSED: model assignment\n")
+        for err in plan.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    run = ralph_init.run_plan(plan.commands, cwd=os.getcwd())
+    if not run.ok:
+        sys.stderr.write("FAILED: assign-models (exit %d): %s\n"
+                         % (run.failed.returncode, " ".join(run.failed.args)))
+        if run.failed.output.strip():
+            sys.stderr.write(run.failed.output.rstrip() + "\n")
+        return 1
+
+    if plan.implementation is None:
+        print("assigned: no model-profile catalog is configured; nothing to record")
+        return 0
+
+    print("implementation: %s" % plan.implementation.describe())
+    print("review: %s" % plan.review.describe())
+    if plan.newly_assigned:
+        print("assigned: %s" % ", ".join(plan.newly_assigned))
+    else:
+        print("assigned: already recorded on the story; unchanged")
+    if plan.same_model:
+        sys.stderr.write("note: both roles run the same model identity\n")
+    return 0
+
+
+def _cmd_resolve(rest):
+    opts, rc = _parse_role_options(rest)
+    if opts is None:
+        return rc
+    if len(opts.positional) > 1:
         sys.stderr.write("ralph: --resolve-models takes at most one CONFIG\n")
         return 2
-    if positional:
-        config_path = positional[0]
+    config_path = opts.positional[0] if opts.positional else ".ralph.yml"
+    implementation, review, allow_same = (opts.implementation, opts.review,
+                                          opts.allow_same)
 
     validated = ralph_config.load_and_validate(config_path)
     if not validated.ok:
@@ -170,13 +414,16 @@ def _cmd_resolve(rest):
 
 def main(argv):
     if not argv:
-        sys.stderr.write("usage: ralph_models.py resolve [CONFIG] "
-                         "[--implementation KEY] [--review KEY] "
+        sys.stderr.write("usage: ralph_models.py resolve [CONFIG] ...\n"
+                         "       ralph_models.py assign STORY [CONFIG] ...\n"
+                         "       [--implementation KEY] [--review KEY] "
                          "[--allow-same-model]\n")
         return 2
     mode, rest = argv[0], argv[1:]
     if mode == "resolve":
         return _cmd_resolve(rest)
+    if mode == "assign":
+        return _cmd_assign(rest)
     sys.stderr.write("ralph_models.py: unknown mode: %s\n" % mode)
     return 2
 
