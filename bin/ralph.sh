@@ -22,7 +22,9 @@
 #   6. when `claude` signals session-limit exhaustion, checkpoints the current
 #      story via a Handoff (`ralph --checkpoint`) and ends the tick cleanly.
 #
-# Ralph only ever modifies the superproject and never touches main. The heavy
+# Ralph only ever modifies its target repository (the superproject when ai-utils is
+# mounted as a submodule; ai-utils itself when it is the checkout root -- ADR-0001
+# amendment) and never touches main. The heavy
 # lifting (TDD, gating) lives in the `claude` iteration driven by
 # prompts/iterate.v1.md, which reports a green story via a done-signal marker;
 # this script is only the orchestration shell -- selecting, promoting green

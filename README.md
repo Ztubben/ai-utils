@@ -5,9 +5,11 @@ submodule**. Its centerpiece is the **Ralph Loop**: an autonomous coding-agent
 loop that works through a GitHub-issue backlog, implementing stories test-first
 until the local quality gate is green.
 
-ai-utils contains no project-specific source, issues, or CI. You mount it inside
-a host project (the *superproject*) and drive it from there. Ralph only ever
-modifies the superproject — never ai-utils itself, and **never `main`**.
+ai-utils carries no consuming project's source, issues, or CI. You mount it inside
+a host project (the *superproject*) and drive it from there; Ralph then modifies
+only that **target repository** and never the mounted ai-utils checkout. When
+ai-utils is itself the checkout root it is its own target repository and may work
+its own backlog (ADR-0001 amendment). Either way, Ralph **never touches `main`**.
 
 ---
 

@@ -137,3 +137,12 @@ not HITL) and `docs/adr/0001–0005`.
   that the README's install section covers submodule/config/schedule/`gh auth login`+`claude`
   auth. GOTCHA: do NOT `assertNotIn("HITL", README)` — the README intentionally says "never
   *HITL*", so that check false-positives (the substring rule bites again, cf. the prompt note).
+- `test/unit/test_terminology.py` is the repo-wide **docs/terminology guard**: CONTEXT.md's
+  `## Language` section is the single glossary (parsed from its `**Term**:` headings), and no
+  shipped surface (README/CONTEXT/AGENTS, `docs/`, `prompts/`, `skills/`, `bin/`, `lib/`,
+  `schema/`) may contradict it. `ralph/` (the build harness) and `test/` are excluded. It judges
+  **paragraphs and sentences, not lines**, because markdown claims wrap; that is what makes the
+  stale-invariant check work at all (a guard describing its own forbidden phrasing would trip it). Two escape hatches, both deliberate: a never-`ai-utils`
+  sentence is fine when it scopes itself to the submodule mount or names the target repository
+  (ADR-0001 amendment), and a doc may spell HITL only in a forbidding context (`never HITL`,
+  `_Avoid_: HITL`). New Feature vocabulary goes in CONTEXT.md **and** in this guard's term list.

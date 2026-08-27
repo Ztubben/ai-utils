@@ -1,5 +1,6 @@
 # Ralph Loop superproject config (schema/ralph.schema.json, ADR-0001).
-# Here the superproject is ai-utils itself: the loop dogfoods its own tooling.
+# Here ai-utils is the checkout root and so is its own target repository
+# (ADR-0001 amendment): the loop dogfoods its own tooling.
 version: 1
 
 branching:

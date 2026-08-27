@@ -4,8 +4,12 @@ Reusable, project-agnostic tooling shared across embedded projects as a git subm
 
 ## Language
 
+**Target Repository**:
+The repository whose backlog Ralph works and whose code Ralph modifies. It owns everything project-specific: the committed `.ralph.yml`, the gating steps, CI, credentials, model profiles, protected control-plane policy, and the notify handle. Usually the target repository is the superproject that mounts `ai-utils` as a submodule, in which case Ralph never mutates the mounted `ai-utils` checkout. When `ai-utils` is itself the checkout root it is its own target repository and Ralph works its backlog directly; its target-repository configuration is an instance of the shipped contracts, never a default inherited by embedding repositories (ADR-0001 amendment).
+_Avoid_: host repo, project repo, consuming repo (use "target repository")
+
 **Superproject**:
-The parent embedded project that mounts `ai-utils` as a submodule. The Ralph Loop runs against the superproject and only ever modifies the superproject — never `ai-utils` itself.
+The parent embedded project that mounts `ai-utils` as a submodule — the target repository of that mount. Ralph runs against it and, in this arrangement, never modifies the mounted `ai-utils` checkout.
 _Avoid_: parent repo, host project (use "superproject")
 
 **Ralph Loop**:
@@ -70,6 +74,32 @@ The summary an iteration leaves for the next so a story can resume with clean co
 **Learnings**:
 Durable, reusable knowledge (conventions, gotchas, HAL patterns) Ralph records in nested `AGENTS.md` files in the superproject, read at story start and updated on genuine discoveries. Global across all features. Distinct from a Handoff, which is transient per-story resume state. At story completion Ralph promotes reusable knowledge to `AGENTS.md` and leaves story-specific notes on the issue. There is no `progress.txt`.
 _Avoid_: progress log, patterns file (use "learnings" / "AGENTS.md")
+
+**Model Profile**:
+An allowlisted entry in the target repository's model catalog: a stable profile key, the provider adapter that runs it, and the exact configured model identifier. Roles are selected by profile key; the exact model identity is what gets persisted on the story.
+
+**Implementation Agent**:
+The provider-neutral role that implements a story — a fresh-context model process behind one adapter contract, whichever provider backs the assigned Model Profile. It is the only role permitted to edit, commit, and push, and it does so through Ralph's controlled workflow.
+_Avoid_: the coder, the implementer (use "Implementation Agent")
+
+**Review Agent**:
+The provider-neutral role that independently reviews a story implemented by the other model. It gets a fresh context for every Negotiation Round, is read-only, and holds no GitHub credential — a trusted Ralph-side wrapper validates its structured output and renders it as an ordinary GitHub review.
+_Avoid_: the reviewer model, the critic (use "Review Agent")
+
+**In Review**:
+The state a story occupies from a locally green implementation until model review is resolved: the marked pull request exists and Ralph is waiting on the Review Agent, on fixes, on disputes, or on human adjudication. A story stays In Review across every Negotiation Round; deadlock blocks that story alone.
+
+**Finding**:
+One reviewer objection, carrying a stable identifier, a blocking classification, a source location where applicable, the claim, its evidence, and the governing requirement. A Finding is blocking only for an acceptance-criteria violation, a demonstrable defect, a safety regression, an explicit-rule violation, materially missing tests, or risky scope creep — preferences and unrelated pre-existing issues are explicitly non-blocking. The Implementation Agent answers each Finding by accepting it (an append-only fix commit) or disputing it with evidence.
+
+**Negotiation Round**:
+One review-and-respond cycle against an immutable pull-request head: a fresh Review Agent reviews, the Implementation Agent responds, and a fresh Review Agent adjudicates the new head. Round one is a full in-scope review; later rounds adjudicate open Findings and may raise a new blocker only for a fix-induced regression or a serious missed correctness/safety defect. Infrastructure failures and invalid provider output never consume a round. Exhausting the round limit (default 2) moves that story to `state:blocked` and requests native human review.
+
+**Control Plane**:
+The parts of the target repository that govern Ralph's own review gate — review workflows, prompts, schemas, configuration, and override policy. Each target repository declares its control-plane categories or path patterns; a story touching them always requires native human approval and is never auto-merged, even when it began as an AFK Story.
+
+**Token Ledger**:
+The durable per-story record of provider-reported token usage: one versioned machine-readable event per Implementation Agent or Review Agent invocation (role, phase, model, provider, round, head, run identity), kept as a single machine-managed issue comment with a readable table. Telemetry only — it gates nothing. Categories a provider does not expose are recorded as unavailable rather than estimated.
 
 **needs-human**:
 The label Ralph applies (with a comment tagging the user) when the circuit breaker trips — a second story has failed to `state:blocked` — signalling the loop has halted and the user must intervene and reset.
