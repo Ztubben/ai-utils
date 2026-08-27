@@ -97,6 +97,17 @@ def _format_error(err):
     return "%s: %s" % (path or "(root)", err.message)
 
 
+def provider_enum(schema_path=DEFAULT_SCHEMA):
+    """The provider adapters a Model Profile may name, per the shipped schema.
+
+    The adapter registry is keyed off the same list, so a config that validates
+    can always be launched.
+    """
+    schema = _load_schema(schema_path)
+    return list(schema["properties"]["models"]["properties"]["profiles"]
+                ["items"]["properties"]["provider"]["enum"])
+
+
 def _model_catalog_errors(data):
     """Catalog rules the JSON-schema cannot express: profile keys are unique and
     every committed role default names a profile in the catalog."""

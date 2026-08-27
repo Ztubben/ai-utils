@@ -92,7 +92,7 @@ scheduler (every ~5h)
    ralph --dry-run  ──► next action: resume #N | start #N | no-work | halt
         │
         ▼
-   fresh-context `claude` iteration  (prompts/iterate.v1.md)
+   fresh-context Implementation Agent  (ralph --launch-agent, prompts/iterate.v1.md)
         │   implements the story test-first, runs gating
         ├── green + AFK  ──► ralph --complete-afk   (auto-merge → base, close issue)
         ├── green + HIL  ──► ralph --complete-hil   (open PR, → state:awaiting-bench)
@@ -107,7 +107,7 @@ scheduler (every ~5h)
 
 - **Bash** and **Python 3** (stdlib + [`PyYAML`](https://pypi.org/project/PyYAML/) + [`jsonschema`](https://pypi.org/project/jsonschema/)).
 - The **[`gh`](https://cli.github.com/) GitHub CLI**, authenticated for the superproject (Ralph reads the backlog and opens PRs through it).
-- **[Claude Code](https://claude.com/claude-code)** (`claude` on `PATH`) — Ralph drives it to do the actual implementation.
+- A **provider CLI on `PATH` for every adapter your model catalog uses** — Ralph launches it to do the actual implementation: [Claude Code](https://claude.com/claude-code) (`claude`) for the `claude` adapter, [Codex CLI](https://developers.openai.com/codex/cli) (`codex`) for the `codex` adapter. Override a binary's path with `RALPH_CLAUDE` / `RALPH_CODEX`.
 - Whatever your gating steps need (e.g. `make`, a toolchain, a test runner).
 
 ## Getting started
@@ -287,6 +287,23 @@ the exact `model` string, whichever adapter runs it — so the independence of
 review is never lost by accident. Single-model operation stays available on
 purpose, via the explicit `--allow-same-model` acknowledgement.
 
+Both roles are launched through **one adapter interface**, so the orchestration
+never names a provider. An adapter resolves its role's Model Profile, launches
+that exact model identity in a **fresh process** carrying no inherited session
+state (no resume flag; the provider's own session variables are stripped from the
+child environment), and classifies what came back as normal completion, session
+exhaustion, or infrastructure failure. `ralph --launch-agent` exposes that as a
+CLI — prompt on stdin, the agent's output on stdout, the outcome as the exit code
+(`0` normal, `10` session exhaustion, `12` infrastructure failure) — which is how
+the tick drives an iteration:
+
+```sh
+printf '%s' "$prompt" | ralph --launch-agent implementation
+```
+
+A target repository that has not declared a `models:` catalog keeps ticking on
+the `claude` adapter at that CLI's own default model.
+
 ## Authoring the backlog
 
 Stories are GitHub issues in a **canonical shape** so the selection engine can
@@ -343,6 +360,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --branch-name STORY [CONFIG]` | Print the story branch name from `branch_pattern`. |
 | `ralph --run-gating [CONFIG]` | Run the configured gating steps locally, in order, fail-fast. |
 | `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
+| `ralph --launch-agent ROLE [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

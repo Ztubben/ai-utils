@@ -3,11 +3,16 @@
 `bin/ralph.sh` is the unattended **tick**: it guards with `flock` (one tick per
 superproject), resumes an in-progress story before scanning for new
 `state:ready` work, works multiple eligible stories in sequence until no
-eligible work remains, and -- when the `claude` CLI signals session-limit
+eligible work remains, and -- when the launched agent signals session-limit
 exhaustion -- checkpoints the current story via a Handoff and ends cleanly.
 
+The tick names no provider (#45): it launches the Implementation Agent through
+the adapter interface, so the same script drives whichever provider the target
+repository's model catalog selects. The harness therefore puts a fake binary for
+*every* provider on PATH and asserts which one the tick actually ran.
+
 The bats suite (`test/bats/orchestration.bats`) drives the same script against
-mocked `claude`/`gh` on PATH; bats is not installed in this environment, so
+mocked provider CLIs/`gh` on PATH; bats is not installed in this environment, so
 these stdlib-`unittest` subprocess tests are the executed green gate (the same
 "mock the CLIs on PATH via $RALPH_LOG" pattern the completion stages use).
 """
@@ -22,6 +27,11 @@ import textwrap
 import unittest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
+
+import ralph_agent  # noqa: E402
+
+PROVIDERS = sorted(ralph_agent.PROVIDERS)
 RALPH_SH = os.path.join(REPO_ROOT, "bin", "ralph.sh")
 FULL_CONFIG = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid", "full.yml")
 
@@ -48,8 +58,9 @@ def _write_exec(path, contents):
 
 
 class TickHarness:
-    """A throwaway superproject: .ralph.yml, a .git/ lock dir, mock claude/gh/git
-    on PATH, and a queue of backlog responses the mock `gh issue list` pops."""
+    """A throwaway superproject: .ralph.yml, a .git/ lock dir, a fake binary for
+    every provider plus mock gh/git on PATH, and a queue of backlog responses the
+    mock `gh issue list` pops."""
 
     def __init__(self, tmp):
         self.tmp = tmp
@@ -67,6 +78,26 @@ class TickHarness:
         for i, backlog in enumerate(backlogs):
             with open(os.path.join(self.queue, "%d.json" % i), "w") as fh:
                 json.dump(backlog, fh)
+
+    def select_implementation(self, provider):
+        """Commit a model catalog whose implementation role resolves to
+        `provider`; the review role gets the other one, so the two roles keep
+        their distinct model identities (#44)."""
+        other = "codex" if provider == "claude" else "claude"
+        with open(os.path.join(self.tmp, ".ralph.yml"), "a") as fh:
+            fh.write(textwrap.dedent("""\
+                models:
+                  profiles:
+                    - key: impl
+                      provider: %s
+                      model: %s-model
+                    - key: rev
+                      provider: %s
+                      model: %s-model
+                  defaults:
+                    implementation: impl
+                    review: rev
+                """ % (provider, provider, other, other)))
 
     def set_view_story(self, s):
         with open(os.path.join(self.queue, "story.json"), "w") as fh:
@@ -86,33 +117,42 @@ class TickHarness:
               cat "$RALPH_GH_QUEUE_DIR/story.json"
             fi
             """))
-        _write_exec(os.path.join(mb, "claude"), textwrap.dedent("""\
-            #!/usr/bin/env bash
-            cat > /dev/null
-            echo "claude action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
-            [[ -n "${RALPH_CLAUDE_EMIT:-}" ]] && printf '%s\\n' "$RALPH_CLAUDE_EMIT"
-            exit "${RALPH_CLAUDE_EXIT:-0}"
-            """))
+        for provider in PROVIDERS:
+            # One fake per provider, logging its own argv: the tick is only
+            # provider-neutral if the assertion can tell which one it ran.
+            _write_exec(os.path.join(mb, provider), textwrap.dedent("""\
+                #!/usr/bin/env bash
+                cat > /dev/null
+                echo "%s $* action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
+                [[ -n "${RALPH_AGENT_EMIT:-}" ]] && printf '%%s\\n' "$RALPH_AGENT_EMIT"
+                exit "${RALPH_AGENT_EXIT:-0}"
+                """ % provider))
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
             exit 0
             """))
 
-    def env(self, claude_exit="0", claude_emit=""):
+    def env(self, agent_exit="0", agent_emit=""):
         e = dict(os.environ)
         e["PATH"] = os.path.join(self.tmp, "mockbin") + os.pathsep + e["PATH"]
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = SESSION_LIMIT_EXIT
-        e["RALPH_CLAUDE_EXIT"] = claude_exit
-        e["RALPH_CLAUDE_EMIT"] = claude_emit
+        e["RALPH_AGENT_EXIT"] = agent_exit
+        e["RALPH_AGENT_EMIT"] = agent_emit
         return e
 
-    def run(self, claude_exit="0", claude_emit=""):
+    def run(self, agent_exit="0", agent_emit=""):
         return subprocess.run([RALPH_SH], cwd=self.tmp,
-                              env=self.env(claude_exit, claude_emit),
+                              env=self.env(agent_exit, agent_emit),
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def agent_calls(self, provider=None):
+        """Log lines written by a fake provider binary (all, or just one)."""
+        wanted = [provider] if provider else list(PROVIDERS)
+        return [ln for ln in self.log_lines()
+                if any(ln.startswith(p + " ") for p in wanted)]
 
     def log_lines(self):
         if not os.path.exists(self.log):
@@ -138,8 +178,8 @@ class OrchestrationTest(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("already running", proc.stdout.lower())
-        # It did no work: no claude iteration was launched.
-        self.assertFalse(any("claude" in ln for ln in h.log_lines()), h.log_lines())
+        # It did no work: no agent iteration was launched.
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
 
     def test_resume_first_before_ready(self):
         # AC: resume an in-progress story before scanning for new ready work.
@@ -147,10 +187,10 @@ class OrchestrationTest(unittest.TestCase):
         h.set_backlogs([story(5, "in-progress"), story(7, "ready")], [])
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        claude_calls = [ln for ln in h.log_lines() if ln.startswith("claude ")]
-        self.assertEqual(len(claude_calls), 1, h.log_lines())
-        self.assertIn("issue=5", claude_calls[0])
-        self.assertIn("action=resume", claude_calls[0])
+        agent_calls = h.agent_calls()
+        self.assertEqual(len(agent_calls), 1, h.log_lines())
+        self.assertIn("issue=5", agent_calls[0])
+        self.assertIn("action=resume", agent_calls[0])
 
     def test_works_multiple_stories_in_sequence(self):
         # AC: a tick works multiple eligible stories in sequence until none remain.
@@ -167,22 +207,22 @@ class OrchestrationTest(unittest.TestCase):
         )
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        claude_calls = [ln for ln in h.log_lines() if ln.startswith("claude ")]
-        self.assertEqual(len(claude_calls), 2, h.log_lines())
-        self.assertIn("issue=7", claude_calls[0])
-        self.assertIn("issue=8", claude_calls[1])
+        agent_calls = h.agent_calls()
+        self.assertEqual(len(agent_calls), 2, h.log_lines())
+        self.assertIn("issue=7", agent_calls[0])
+        self.assertIn("issue=8", agent_calls[1])
 
     def test_session_limit_checkpoints_and_ends(self):
-        # AC: session-limit exhaustion from the claude CLI checkpoints via Handoff
+        # AC: session-limit exhaustion from the launched agent checkpoints via Handoff
         # and the tick ends cleanly.
         h = self.harness()
         h.set_backlogs([story(5, "in-progress")])
         h.set_view_story(story(5, "in-progress"))
-        proc = h.run(claude_exit=SESSION_LIMIT_EXIT)
+        proc = h.run(agent_exit=SESSION_LIMIT_EXIT)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        claude_calls = [ln for ln in log if ln.startswith("claude ")]
-        self.assertEqual(len(claude_calls), 1, log)          # did not continue
+        agent_calls = h.agent_calls()
+        self.assertEqual(len(agent_calls), 1, log)          # did not continue
         # It fetched the story and wrote a Handoff (issue comment) for #5.
         self.assertTrue(any("issue view 5" in ln for ln in log), log)
         self.assertTrue(any("issue comment 5" in ln for ln in log), log)
@@ -194,7 +234,7 @@ class OrchestrationTest(unittest.TestCase):
         h.set_backlogs([story(9, "ready", needs_human=True)])
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        self.assertFalse(any("claude" in ln for ln in h.log_lines()), h.log_lines())
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
         self.assertIn("halt", proc.stdout.lower())
 
     def test_no_work_empty_backlog_ends_cleanly(self):
@@ -202,7 +242,7 @@ class OrchestrationTest(unittest.TestCase):
         h.set_backlogs([])
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        self.assertFalse(any("claude" in ln for ln in h.log_lines()), h.log_lines())
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
 
     def test_start_moves_ready_story_to_in_progress(self):
         # AC: a `start` action transitions the story state:ready -> state:in-progress
@@ -233,11 +273,11 @@ class OrchestrationTest(unittest.TestCase):
         h = self.harness()
         h.set_backlogs([story(7, "ready", "afk")], [])  # then no-work -> stop
         h.set_view_story(story(7, "ready", "afk"))
-        proc = h.run(claude_emit=STORY_COMPLETE_MARKER)
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        claude_calls = [ln for ln in log if ln.startswith("claude ")]
-        self.assertEqual(len(claude_calls), 1, log)  # promoted, not re-run
+        agent_calls = h.agent_calls()
+        self.assertEqual(len(agent_calls), 1, log)  # promoted, not re-run
         self.assertTrue(any("pr merge" in ln for ln in log), log)
         self.assertTrue(any("issue close 7" in ln for ln in log), log)
 
@@ -247,7 +287,7 @@ class OrchestrationTest(unittest.TestCase):
         h = self.harness()
         h.set_backlogs([story(5, "in-progress", "hil")], [])
         h.set_view_story(story(5, "in-progress", "hil"))
-        proc = h.run(claude_emit=STORY_COMPLETE_MARKER)
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         self.assertTrue(any("pr create" in ln for ln in log), log)
@@ -265,8 +305,87 @@ class OrchestrationTest(unittest.TestCase):
         proc = h.run()  # no marker emitted
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        self.assertTrue(any(ln.startswith("claude ") for ln in log), log)
+        self.assertTrue(h.agent_calls(), log)
         self.assertFalse(any("pr merge" in ln or "pr create" in ln for ln in log), log)
+
+
+class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
+    """AC (#45): a tick implements a Story with the Codex adapter selected, and
+    with the Claude adapter selected, driven against fake provider binaries on
+    PATH -- and the orchestration behaves identically either way."""
+
+    def harness(self, provider):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        h = TickHarness(tmp)
+        h.select_implementation(provider)
+        return h
+
+    def other(self, provider):
+        return "codex" if provider == "claude" else "claude"
+
+    def test_a_tick_implements_a_story_with_the_selected_adapter(self):
+        for provider in PROVIDERS:
+            with self.subTest(provider=provider):
+                h = self.harness(provider)
+                h.set_backlogs([story(7, "ready", "afk")], [])
+                h.set_view_story(story(7, "ready", "afk"))
+                proc = h.run()
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                log = h.log_lines()
+                calls = h.agent_calls(provider)
+                self.assertEqual(len(calls), 1, log)
+                self.assertIn("issue=7", calls[0])
+                self.assertIn("action=start", calls[0])
+                # ... running the exact model identity the catalog configured ...
+                self.assertIn("--model %s-model" % provider, calls[0])
+                # ... and only that provider: the review model is never launched
+                # as the Implementation Agent.
+                self.assertEqual(h.agent_calls(self.other(provider)), [], log)
+
+    def test_a_done_signal_still_promotes_whichever_adapter_ran(self):
+        # AC: existing orchestration behavior is unchanged -- a done-signal
+        # promotes the green AFK story (auto-merge + close) via either adapter.
+        for provider in PROVIDERS:
+            with self.subTest(provider=provider):
+                h = self.harness(provider)
+                h.set_backlogs([story(7, "ready", "afk")], [])
+                h.set_view_story(story(7, "ready", "afk"))
+                proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                log = h.log_lines()
+                self.assertEqual(len(h.agent_calls(provider)), 1, log)  # not re-run
+                self.assertTrue(any("pr merge" in ln for ln in log), log)
+                self.assertTrue(any("issue close 7" in ln for ln in log), log)
+
+    def test_session_exhaustion_still_checkpoints_whichever_adapter_ran(self):
+        # AC: existing orchestration behavior is unchanged -- exhaustion
+        # checkpoints via Handoff and ends the tick, via either adapter.
+        for provider in PROVIDERS:
+            with self.subTest(provider=provider):
+                h = self.harness(provider)
+                h.set_backlogs([story(5, "in-progress")])
+                h.set_view_story(story(5, "in-progress"))
+                proc = h.run(agent_exit=SESSION_LIMIT_EXIT)
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                log = h.log_lines()
+                self.assertEqual(len(h.agent_calls()), 1, log)   # did not continue
+                self.assertTrue(any("issue comment 5" in ln for ln in log), log)
+                self.assertIn("session limit", proc.stdout.lower())
+
+    def test_an_infrastructure_failure_is_not_promoted_and_not_a_checkpoint(self):
+        # AC: the three outcomes are distinct all the way out to the tick. A
+        # crashing provider is neither green nor exhausted: the story stays
+        # in-progress for a later pass, exactly as a partial pass does.
+        h = self.harness("codex")
+        h.set_backlogs([story(7, "ready", "afk")], [])
+        h.set_view_story(story(7, "ready", "afk"))
+        proc = h.run(agent_exit="1")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertEqual(len(h.agent_calls("codex")), 1, log)
+        self.assertFalse(any("pr merge" in ln or "pr create" in ln for ln in log), log)
+        self.assertFalse(any("issue comment" in ln for ln in log), log)
 
 
 if __name__ == "__main__":

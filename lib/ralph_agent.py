@@ -1,0 +1,295 @@
+"""Provider-neutral agent adapters (#45, PRD #42).
+
+One adapter contract launches either role, so the orchestration that drives the
+Implementation Agent and the Review Agent never names a provider. An adapter
+knows three things and nothing else:
+
+  * how to spell its provider's launch command for the configured model
+    identity (the exact identifier from the target repository's Model Profile
+    catalog, #44);
+  * how to hand that command a **fresh process** carrying no inherited session
+    state -- no resume/continue flag, and the provider's own session variables
+    stripped from the child environment, so a tick launched from inside a
+    provider session cannot leak that session into the agent it starts;
+  * how to classify what came back as normal completion, session exhaustion, or
+    infrastructure failure.
+
+`launch_role` is the whole public surface the loop needs: name a role, get an
+outcome. Role resolution stays in `ralph_models` (including #44's independence
+invariant), so this module never re-decides which model a role runs.
+
+`bin/ralph.sh` cannot import Python, so the three outcomes are also a small
+exit-code contract (`EXIT_*`) that `ralph --launch-agent` returns and the tick
+reads. Session exhaustion outranks infrastructure failure: a truncated run is
+checkpointed and resumed, never counted as a crash.
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ralph_config  # noqa: E402
+import ralph_models  # noqa: E402
+
+# The three outcomes an adapter distinguishes.
+NORMAL = "normal"
+SESSION_EXHAUSTED = "session-exhausted"
+INFRASTRUCTURE_FAILURE = "infrastructure-failure"
+
+# The same three, as the exit-code contract `bin/ralph.sh` reads. 11 is the
+# tick's own RC_STORY_COMPLETE (the done-signal is a loop protocol, not a
+# provider outcome), so infrastructure failure takes 12.
+EXIT_NORMAL = 0
+EXIT_SESSION_EXHAUSTED = 10
+EXIT_INFRASTRUCTURE_FAILURE = 12
+
+_CLI_EXIT = {NORMAL: EXIT_NORMAL,
+             SESSION_EXHAUSTED: EXIT_SESSION_EXHAUSTED,
+             INFRASTRUCTURE_FAILURE: EXIT_INFRASTRUCTURE_FAILURE}
+
+# Session-exhaustion signals, env-overridable per target repository because each
+# provider CLI spells the limit its own way and may change it.
+DEFAULT_SESSION_LIMIT_EXIT = 91
+DEFAULT_SESSION_LIMIT_MARKER = "usage limit reached"
+
+ROLES = ("implementation", "review")
+
+# Compatibility default for a target repository that has not declared a
+# `models:` catalog (it stays optional, #44): keep ticking on the provider Ralph
+# shipped with, at whatever model that CLI defaults to.
+DEFAULT_PROVIDER = "claude"
+
+
+def _session_limit_exit():
+    raw = os.environ.get("RALPH_SESSION_LIMIT_EXIT")
+    try:
+        return int(raw) if raw else DEFAULT_SESSION_LIMIT_EXIT
+    except ValueError:
+        return DEFAULT_SESSION_LIMIT_EXIT
+
+
+def _session_limit_marker():
+    return (os.environ.get("RALPH_SESSION_LIMIT_MARKER")
+            or DEFAULT_SESSION_LIMIT_MARKER).lower()
+
+
+def _run_process(argv, prompt, env):
+    """Launch the provider CLI, hand it the prompt on stdin, and capture the
+    combined output. Returns (exit code, output)."""
+    proc = subprocess.run(argv, input=prompt, env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True)
+    return proc.returncode, proc.stdout
+
+
+class Outcome:
+    """What one agent launch produced."""
+
+    def __init__(self, kind, provider, model, exit_code, output):
+        self.kind = kind
+        self.provider = provider
+        self.model = model
+        self.exit_code = exit_code
+        self.output = output
+
+    @property
+    def cli_exit(self):
+        """The exit code `ralph --launch-agent` returns for this outcome."""
+        return _CLI_EXIT[self.kind]
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return "Outcome(%r, %r, %r, %r)" % (self.kind, self.provider,
+                                            self.model, self.exit_code)
+
+
+class AgentAdapter:
+    """The one contract both roles are launched through."""
+
+    provider = None
+    binary_env = None      # env var overriding the provider CLI's path
+    default_binary = None
+    session_env = ()       # inherited session state stripped from the child
+
+    def __init__(self, model=None):
+        self.model = model
+
+    def binary(self):
+        return os.environ.get(self.binary_env) or self.default_binary
+
+    def argv(self):
+        """The launch command for this adapter's configured model identity."""
+        raise NotImplementedError
+
+    def environment(self):
+        """The child environment: this one, minus the provider's session state.
+
+        Credentials and provider *configuration* are deliberately kept -- only
+        the variables that would attach the child to an existing session go.
+        """
+        env = dict(os.environ)
+        for name in self.session_env:
+            env.pop(name, None)
+        return env
+
+    def classify(self, exit_code, output):
+        text = (output or "").lower()
+        if exit_code == _session_limit_exit() or _session_limit_marker() in text:
+            return SESSION_EXHAUSTED
+        return NORMAL if exit_code == 0 else INFRASTRUCTURE_FAILURE
+
+    def launch(self, prompt, run=None):
+        """Run one fresh agent process and classify what came back."""
+        run = run or _run_process
+        try:
+            exit_code, output = run(self.argv(), prompt, self.environment())
+        except OSError as exc:
+            # An unavailable provider CLI is infrastructure, not a failed story.
+            return Outcome(INFRASTRUCTURE_FAILURE, self.provider, self.model,
+                           None, "%s: %s" % (self.binary(), exc))
+        return Outcome(self.classify(exit_code, output), self.provider,
+                       self.model, exit_code, output)
+
+
+class ClaudeAdapter(AgentAdapter):
+    provider = "claude"
+    binary_env = "RALPH_CLAUDE"
+    default_binary = "claude"
+    session_env = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+                   "CLAUDE_CODE_SSE_PORT", "CLAUDE_SESSION_ID")
+
+    def argv(self):
+        argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
+        if self.model:
+            argv += ["--model", self.model]
+        return argv
+
+
+class CodexAdapter(AgentAdapter):
+    provider = "codex"
+    binary_env = "RALPH_CODEX"
+    default_binary = "codex"
+    session_env = ("CODEX_SESSION_ID", "CODEX_THREAD_ID")
+
+    def argv(self):
+        argv = [self.binary(), "exec",
+                "--dangerously-bypass-approvals-and-sandbox"]
+        if self.model:
+            argv += ["--model", self.model]
+        argv.append("-")            # read the prompt from stdin
+        return argv
+
+
+# Every provider the schema allows in a Model Profile has an adapter here, so a
+# config that validates can always be launched (guarded by a test).
+PROVIDERS = {ClaudeAdapter.provider: ClaudeAdapter,
+             CodexAdapter.provider: CodexAdapter}
+
+
+def adapter_for_role(config, role, implementation=None, review=None,
+                     allow_same_model=False):
+    """The adapter that runs `role`, per the target repository's catalog.
+
+    Returns (adapter, errors); the adapter is None when the role is unknown or
+    role resolution refused (an unknown profile key, or the two roles collapsing
+    to one model identity without the explicit acknowledgement).
+    """
+    if role not in ROLES:
+        return None, ["role: unknown role %r (roles: %s)"
+                      % (role, ", ".join(ROLES))]
+    if not ralph_models.profiles(config):
+        return PROVIDERS[DEFAULT_PROVIDER](), []
+
+    resolved = ralph_models.resolve_roles(config, implementation=implementation,
+                                          review=review,
+                                          allow_same_model=allow_same_model)
+    if not resolved.ok:
+        return None, resolved.errors
+    profile = getattr(resolved, role)
+    return PROVIDERS[profile.provider](profile.model), []
+
+
+def launch_role(config, role, prompt, implementation=None, review=None,
+                allow_same_model=False, run=None):
+    """Launch `role` in a fresh process. Returns (Outcome, errors)."""
+    adapter, errors = adapter_for_role(config, role,
+                                       implementation=implementation,
+                                       review=review,
+                                       allow_same_model=allow_same_model)
+    if adapter is None:
+        return None, errors
+    return adapter.launch(prompt, run=run), []
+
+
+def _cmd_launch(rest):
+    """`ralph --launch-agent ROLE [CONFIG] [...]`: prompt on stdin, the agent's
+    output on stdout, the outcome as the exit code."""
+    role, config_path, implementation, review, allow_same = None, ".ralph.yml", None, None, False
+    positional = []
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg == "--allow-same-model":
+            allow_same = True
+        elif arg in ("--implementation", "--review"):
+            if i + 1 >= len(rest):
+                sys.stderr.write("ralph: %s requires a profile key\n" % arg)
+                return 2
+            i += 1
+            if arg == "--implementation":
+                implementation = rest[i]
+            else:
+                review = rest[i]
+        elif arg.startswith("--"):
+            sys.stderr.write("ralph: unknown option: %s\n" % arg)
+            return 2
+        elif arg:
+            positional.append(arg)
+        i += 1
+    if not positional:
+        sys.stderr.write("ralph: --launch-agent requires a ROLE (%s)\n"
+                         % ", ".join(ROLES))
+        return 2
+    if len(positional) > 2:
+        sys.stderr.write("ralph: --launch-agent takes ROLE and at most one CONFIG\n")
+        return 2
+    role = positional[0]
+    if len(positional) > 1:
+        config_path = positional[1]
+
+    validated = ralph_config.load_and_validate(config_path)
+    if not validated.ok:
+        sys.stderr.write("INVALID CONFIG: %s\n" % config_path)
+        for err in validated.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    outcome, errors = launch_role(validated.config, role, sys.stdin.read(),
+                                  implementation=implementation, review=review,
+                                  allow_same_model=allow_same)
+    if outcome is None:
+        sys.stderr.write("REFUSED: cannot launch the %s agent\n" % role)
+        for err in errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    if outcome.output:
+        sys.stdout.write(outcome.output)
+        if not outcome.output.endswith("\n"):
+            sys.stdout.write("\n")
+    return outcome.cli_exit
+
+
+def main(argv):
+    if not argv:
+        sys.stderr.write("usage: ralph_agent.py launch ROLE [CONFIG] "
+                         "[--implementation KEY] [--review KEY] "
+                         "[--allow-same-model]\n")
+        return 2
+    mode, rest = argv[0], argv[1:]
+    if mode == "launch":
+        return _cmd_launch(rest)
+    sys.stderr.write("ralph_agent.py: unknown mode: %s\n" % mode)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,10 +1,11 @@
 #!/usr/bin/env bats
 # Orchestration tests for the Ralph tick loop (US-011, ADR-0002/0004).
 #
-# These drive bin/ralph.sh against mocked `claude`, `gh` and `git` on PATH. bats
-# is auto-detected by test/run.sh; the same contract is also exercised by the
-# stdlib-unittest gate test/unit/test_orchestrate.py (the executed gate where
-# bats is not installed).
+# These drive bin/ralph.sh against a fake binary for every provider plus mocked
+# `gh` and `git` on PATH. bats is auto-detected by test/run.sh; the same contract
+# is also exercised by the stdlib-unittest gate test/unit/test_orchestrate.py
+# (the executed gate where bats is not installed), which additionally covers
+# selecting each provider adapter from the model catalog (#45).
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -36,25 +37,33 @@ elif [[ "$1 $2" == "issue view" ]]; then
   cat "$RALPH_GH_QUEUE_DIR/story.json"
 fi
 EOF
-  cat >"$MB/claude" <<'EOF'
+  for provider in claude codex; do
+    cat >"$MB/$provider" <<EOF
 #!/usr/bin/env bash
 cat > /dev/null
-echo "claude action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
-[[ -n "${RALPH_CLAUDE_EMIT:-}" ]] && printf '%s\n' "$RALPH_CLAUDE_EMIT"
-exit "${RALPH_CLAUDE_EXIT:-0}"
+echo "$provider \$* action=\${RALPH_ITERATION_ACTION:-} issue=\${RALPH_ITERATION_ISSUE:-}" >> "\$RALPH_LOG"
+[[ -n "\${RALPH_AGENT_EMIT:-}" ]] && printf '%s\n' "\$RALPH_AGENT_EMIT"
+exit "\${RALPH_AGENT_EXIT:-0}"
 EOF
+    chmod +x "$MB/$provider"
+  done
   cat >"$MB/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*" >> "$RALPH_LOG"
 exit 0
 EOF
-  chmod +x "$MB/gh" "$MB/claude" "$MB/git"
+  chmod +x "$MB/gh" "$MB/git"
 }
 
 teardown() {
   if [[ -n "${RALPH_OWN_TMPDIR:-}" ]]; then
     rm -rf "$RALPH_OWN_TMPDIR"
   fi
+}
+
+# How many agent iterations the tick launched, whichever provider ran.
+agent_calls() {
+  grep -cE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null || true
 }
 
 # A story issue in `gh --json` shape. $1=number $2=state $3=type(default afk).
@@ -72,7 +81,7 @@ story() {
   flock -u 8
   [ "$status" -eq 0 ]
   [[ "$output" == *"already running"* ]]
-  ! grep -q claude "$RALPH_LOG" 2>/dev/null
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
 }
 
 @test "resume-first: an in-progress story is resumed before ready work" {
@@ -80,7 +89,7 @@ story() {
   echo "[]" > "$SP/ghq/1.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  [ "$(agent_calls)" -eq 1 ]
   grep -q 'action=resume issue=5' "$RALPH_LOG"
 }
 
@@ -93,15 +102,15 @@ story() {
   echo "[]" > "$SP/ghq/4.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 2 ]
+  [ "$(agent_calls)" -eq 2 ]
 }
 
 @test "session-limit exhaustion checkpoints via Handoff and ends cleanly" {
   echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
   story 5 in-progress > "$SP/ghq/story.json"
-  RALPH_CLAUDE_EXIT=91 run bash -c "cd '$SP' && RALPH_CLAUDE_EXIT=91 '$RALPH_SH'"
+  RALPH_AGENT_EXIT=91 run bash -c "cd '$SP' && RALPH_AGENT_EXIT=91 '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  [ "$(agent_calls)" -eq 1 ]
   grep -q 'issue comment 5' "$RALPH_LOG"
   [[ "$output" == *"session limit"* ]]
 }
@@ -111,7 +120,7 @@ story() {
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"halt"* ]]
-  ! grep -q claude "$RALPH_LOG" 2>/dev/null
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
 }
 
 @test "start moves a ready story to state:in-progress before iterating" {
@@ -134,9 +143,9 @@ story() {
   echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
   story 7 ready afk > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  [ "$(agent_calls)" -eq 1 ]
   grep -q 'gh pr merge' "$RALPH_LOG"
   grep -q 'gh issue close 7' "$RALPH_LOG"
 }
@@ -145,7 +154,7 @@ story() {
   echo "[$(story 5 in-progress hil)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
   story 5 in-progress hil > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
   grep -q 'gh pr create' "$RALPH_LOG"
   grep -q 'state:awaiting-bench' "$RALPH_LOG"
@@ -217,7 +226,7 @@ MKEOF
   story 7 ready afk > "$SP/ghq/story.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  grep -q '^claude ' "$RALPH_LOG"
+  [ "$(agent_calls)" -eq 1 ]
   ! grep -q 'gh pr merge' "$RALPH_LOG"
   ! grep -q 'gh pr create' "$RALPH_LOG"
 }

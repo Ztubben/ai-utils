@@ -9,9 +9,12 @@
 #   3. drives the pure selection engine (`ralph --dry-run`) which is resume-first:
 #      any state:in-progress story is resumed before scanning for new state:ready
 #      work.
-#   4. launches a fresh-context `claude` iteration per selected story and works
-#      as many eligible stories in sequence as the session budget allows, until
-#      no eligible work remains (no-work) or the loop halts (needs-human).
+#   4. launches a fresh-context Implementation Agent iteration per selected
+#      story -- through the provider-neutral adapter interface, so which
+#      provider runs is the target repository's model catalog's decision, not
+#      this script's -- and works as many eligible stories in sequence as the
+#      session budget allows, until no eligible work remains (no-work) or the
+#      loop halts (needs-human).
 #   5. when an iteration signals the story is green (the done-signal marker),
 #      promotes it: `ralph --complete-afk` for a type:afk story,
 #      `ralph --complete-hil` (park at state:awaiting-bench) for HIL; both
@@ -19,17 +22,17 @@
 #      Without this promotion the still-in-progress story would be re-selected
 #      forever (the engine is resume-first), so a green story must move off the
 #      backlog before the loop advances.
-#   6. when `claude` signals session-limit exhaustion, checkpoints the current
+#   6. when the agent signals session-limit exhaustion, checkpoints the current
 #      story via a Handoff (`ralph --checkpoint`) and ends the tick cleanly.
 #
 # Ralph only ever modifies its target repository (the superproject when ai-utils is
 # mounted as a submodule; ai-utils itself when it is the checkout root -- ADR-0001
 # amendment) and never touches main. The heavy
-# lifting (TDD, gating) lives in the `claude` iteration driven by
+# lifting (TDD, gating) lives in the agent iteration driven by
 # prompts/iterate.v1.md, which reports a green story via a done-signal marker;
 # this script is only the orchestration shell -- selecting, promoting green
 # stories, and checkpointing -- kept thin so it can be driven by tests against
-# mocked `claude`/`gh`/`git` on PATH.
+# mocked provider CLIs/`gh`/`git` on PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,10 +42,7 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 # Tunables (env-overridable so tests and superprojects can adjust them).
 : "${RALPH_LOCK_DIR:=.git}"                 # flock lives in the superproject's .git/
 : "${RALPH_CONFIG:=.ralph.yml}"
-: "${RALPH_CLAUDE:=claude}"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
-: "${RALPH_SESSION_LIMIT_EXIT:=91}"         # claude CLI exit signalling session-limit exhaustion
-: "${RALPH_SESSION_LIMIT_MARKER:=usage limit reached}"
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
 
 log() { printf 'ralph: %s\n' "$*"; }
@@ -82,16 +82,23 @@ sync_branch() {
   git reset --hard "origin/$branch" 2>/dev/null || true
 }
 
-# Launch one fresh-context claude iteration for the selected story. Returns:
-#   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (by exit
-#                         code or output marker) -- the story gets checkpointed;
+# Launch one fresh-context Implementation Agent iteration for the selected story.
+# `ralph --launch-agent` resolves the configured implementation Model Profile,
+# runs it in a fresh process, and reports the outcome as its exit code -- so the
+# provider is named nowhere in this script. Returns:
+#   RC_SESSION_LIMIT (10) when the agent signalled session-limit exhaustion --
+#                         the story gets checkpointed;
 #   RC_STORY_COMPLETE (11) when the iteration emitted the done-signal marker,
 #                         meaning the gate is green and every acceptance criterion
 #                         is checked -- the story gets promoted;
+#   RC_INFRA_FAILURE (12) when the launch itself failed (crash, missing CLI) --
+#                         no progress to promote; the story is resumed later;
 #   0                     otherwise (partial progress -- resume it next pass).
-# Session-limit takes priority: a truncated run never counts as complete.
+# Session-limit takes priority: a truncated run never counts as complete. These
+# codes are the shared exit-code contract in lib/ralph_agent.py (EXIT_*).
 RC_SESSION_LIMIT=10
 RC_STORY_COMPLETE=11
+RC_INFRA_FAILURE=12
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -104,17 +111,19 @@ run_iteration() {
   prompt+=$'\n\n---\nNext action: '"$action #$issue"$'. Work only this story this iteration.\n'
 
   set +e
-  out="$(printf '%s' "$prompt" | "$RALPH_CLAUDE" --dangerously-skip-permissions --print 2>&1)"
+  out="$(printf '%s' "$prompt" | "$RALPH_BIN" --launch-agent implementation "$RALPH_CONFIG" 2>&1)"
   rc=$?
   set -e
   [[ -n "$out" ]] && printf '%s\n' "$out"
 
-  if [[ "$rc" -eq "$RALPH_SESSION_LIMIT_EXIT" ]] \
-     || printf '%s' "$out" | grep -qiF "$RALPH_SESSION_LIMIT_MARKER"; then
+  if [[ "$rc" -eq "$RC_SESSION_LIMIT" ]]; then
     return "$RC_SESSION_LIMIT"
   fi
   if printf '%s' "$out" | grep -qF "$RALPH_STORY_COMPLETE_MARKER"; then
     return "$RC_STORY_COMPLETE"
+  fi
+  if [[ "$rc" -eq "$RC_INFRA_FAILURE" ]]; then
+    return "$RC_INFRA_FAILURE"
   fi
   return 0
 }
@@ -261,6 +270,9 @@ tick() {
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
           0)  # partial progress: resume the same story on the next pass
+            ;;
+          "$RC_INFRA_FAILURE")  # the launch failed; no progress to promote
+            log "agent launch failed for #$issue (infrastructure); resuming it on a later pass"
             ;;
           "$RC_STORY_COMPLETE")  # green: promote it off the backlog
             complete_story "$issue" \
