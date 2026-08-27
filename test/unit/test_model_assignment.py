@@ -180,7 +180,7 @@ class NoCatalogIsNothingToRecord(unittest.TestCase):
             log = _mockbin(tmp)
             proc = subprocess.run(
                 [RALPH, "--assign-models", "-", valid("minimal.yml")],
-                cwd=REPO_ROOT, input=json.dumps(story()),
+                cwd=tmp, input=json.dumps(story()),
                 env=dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                          RALPH_LOG=log),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -324,9 +324,12 @@ class CliAssignModels(unittest.TestCase):
     def _run(self, story_obj, config, tmp, log, extra=()):
         env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=log)
+        # Run in the throwaway directory, never the real checkout: an
+        # assignment advances the alternation phase under the target
+        # repository's git dir (#47).
         return subprocess.run(
             [RALPH, "--assign-models", "-", config] + list(extra),
-            cwd=REPO_ROOT, input=json.dumps(story_obj), env=env,
+            cwd=tmp, input=json.dumps(story_obj), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
 

@@ -12,7 +12,7 @@
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Resolve the implementation/review model profiles.
-#   ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+#   ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
 #                                 Record the story's implementation/review model identities as labels.
 #   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
@@ -43,7 +43,7 @@ usage: ralph --init [CONFIG]
        ralph --branch-name STORY [CONFIG] [PRD]
        ralph --run-gating [CONFIG]
        ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
-       ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
+       ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
@@ -118,9 +118,13 @@ usage: ralph --init [CONFIG]
        [--review KEY]     model:review:<id>) and applies it, so retries, resumes
        [--allow-same-     and audits read the assignment from the backlog rather
         model]            than from current configuration. A story that is
-                          already assigned is left untouched: changed defaults
+       [--fixed-roles]    already assigned is left untouched: changed defaults
                           and --implementation/--review overrides never rewrite
-                          it. Idempotent. Exits 0 on success, 1 on a gh failure,
+                          it. Idempotent. A story with no assignment at all is a
+                          fresh pair, so it takes its turn in the alternation
+                          (the resolved order, then swapped, then back) unless
+                          --fixed-roles or models.alternate: false holds the
+                          roles fixed. Exits 0 on success, 1 on a gh failure,
                           2 on bad config or a refused resolution.
   --launch-agent ROLE     Launch one role's agent (implementation | review) in a
        [CONFIG]           fresh process through its provider adapter, resolved

@@ -134,6 +134,11 @@
               "minLength": 1
             }
           }
+        },
+        "alternate": {
+          "description": "Alternate the two selected profiles across newly started stories, so authorship and review influence stay balanced. The resolved role order is the first newly assigned story's order and each later one swaps the pair. Set false for fixed roles.",
+          "type": "boolean",
+          "default": true
         }
       }
     },

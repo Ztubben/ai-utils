@@ -5,7 +5,8 @@
 # `gh` and `git` on PATH. bats is auto-detected by test/run.sh; the same contract
 # is also exercised by the stdlib-unittest gate test/unit/test_orchestrate.py
 # (the executed gate where bats is not installed), which additionally covers
-# selecting each provider adapter from the model catalog (#45).
+# selecting each provider adapter from the model catalog (#45) and role
+# alternation across newly started stories (#47).
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -24,6 +25,10 @@ setup() {
   export RALPH_GH_QUEUE_DIR="$SP/ghq"
   export RALPH_SESSION_LIMIT_EXIT=91
   export PATH="$MB:$PATH"
+  # A tick that is itself running Ralph exports the provider binary overrides;
+  # inherited, they would win over the fakes on PATH and this suite would launch
+  # a *real* agent. The mocks are the only providers a test may run.
+  unset RALPH_CLAUDE RALPH_CODEX
 
   cat >"$MB/gh" <<'EOF'
 #!/usr/bin/env bash

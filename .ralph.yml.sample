@@ -37,7 +37,9 @@ limits:
 # profile key; `model` is the exact model identity persisted on a story. Keys
 # must be unique, and each default must name a profile below. Resolution refuses
 # a pair whose two roles resolve to one model identity unless the operator passes
-# `--allow-same-model` (see `ralph --resolve-models`).
+# `--allow-same-model` (see `ralph --resolve-models`). Ralph alternates the pair
+# across newly started stories (the first uses the order below, the next swaps
+# it); `alternate: false` keeps the roles fixed.
 models:
   profiles:
     - key: claude-opus
@@ -49,6 +51,7 @@ models:
   defaults:
     implementation: claude-opus
     review: codex-high
+  # alternate: true          # swap the pair on each newly started story (default: true)
 
 # Who to tag when the circuit breaker trips (needs-human).
 notify:

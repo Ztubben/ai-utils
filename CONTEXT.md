@@ -78,6 +78,10 @@ _Avoid_: progress log, patterns file (use "learnings" / "AGENTS.md")
 **Model Profile**:
 An allowlisted entry in the target repository's model catalog: a stable profile key, the provider adapter that runs it, and the exact configured model identifier. Roles are selected by profile key; the exact model identity is what gets persisted on the story.
 
+**Alternation**:
+Treating the two selected Model Profiles as a *pair* and swapping which one implements and which one reviews. The resolved role order (the committed defaults, or the operator's `--implementation` / `--review` order) is the first newly assigned story's order; each later newly assigned story swaps the pair, so authorship and review influence stay balanced over the backlog. Alternation advances **only** when a story carrying no assignment starts — a resume, a retried Attempt, and a further Negotiation Round all read their roles off the story's own labels, so no story ever swaps models midway. The alternation phase is loop-local state under the target repository's git dir (next to the tick lock), and `models.alternate: false` keeps the roles fixed.
+_Avoid_: rotation, round-robin (use "alternation")
+
 **Implementation Agent**:
 The provider-neutral role that implements a story — a fresh-context model process behind one adapter contract, whichever provider backs the assigned Model Profile. It is the only role permitted to edit, commit, and push, and it does so through Ralph's controlled workflow.
 _Avoid_: the coder, the implementer (use "Implementation Agent")

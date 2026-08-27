@@ -134,6 +134,32 @@ not HITL) and `docs/adr/0001–0005`.
   assignment rather than the current defaults. NOTE: `ralph_init.label_command` is the one
   idempotent `gh label create --force` spelling — assignment labels are created on demand
   (one per identity) rather than seeded by `ralph --init`, but reuse it.
+- **Role alternation** (#47, PRD #42) lives in `lib/ralph_alternation.py`: pure ordering
+  (`order_for(phase, impl, review)`, `swaps`, `advanced`, `enabled(config)`) plus a tiny
+  state store (`state_path` / `read_phase` / `write_phase`). `assign_plan(..., phase=,
+  fixed_roles=)` stays pure — it takes the phase, reports `plan.swapped` and
+  `plan.advances_alternation` — and `_cmd_assign` is the only place that reads the phase
+  and advances it. GOTCHAS: (1) alternation applies to a **fresh pair only** (both roles
+  newly assigned). A resume, a retry, a further review round, and a half-assigned story
+  healing forward all keep what the story carries and leave the phase alone — otherwise a
+  resume would consume the swap the next new story is owed, or worse, swap a story's model
+  midway. (2) The phase advances **after** `run_plan` succeeds, so a gh outage cannot burn a
+  swap. (3) The phase is loop-local state under the target repository's git dir (next to the
+  tick lock, `state_path` follows a `gitdir:` gitlink), never the working tree and never the
+  backlog; a missing/damaged file or a checkout with no git dir degrades to "start over" /
+  "never alternate" rather than failing a tick — it is a balance heuristic, not a
+  correctness invariant. (4) The swap happens before the labels are built, so what the story
+  records *is* the alternated order and every later stage reads it from #46's labels; the
+  same-model refusal is unaffected (a pair is one identity either way round). Fixed roles:
+  committed `models.alternate: false` (schema default true) or `--fixed-roles` on
+  `--assign-models` only — `--resolve-models` rejects the flag rather than ignoring it.
+- **Test harness gotcha**: the tick harnesses (`test/unit/test_orchestrate.py`,
+  `test/unit/test_freshness.py`, `test/bats/orchestration.bats`) inherit the ambient
+  environment. A Ralph iteration exports the provider binary overrides (`RALPH_CLAUDE` /
+  `RALPH_CODEX`), which beat the fakes on `PATH` (`AgentAdapter.binary()` prefers
+  `binary_env`) and make the suite launch a **real** agent — a hang, not a failure. Each
+  harness therefore strips every adapter's `binary_env` from the child env; keep that when
+  adding a harness that runs `bin/ralph.sh`.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from

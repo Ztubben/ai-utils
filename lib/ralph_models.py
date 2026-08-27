@@ -22,6 +22,13 @@ run that was actually made rather than the configuration that happens to be
 current. Independence is decided once, when the pair is chosen; re-litigating it
 on every resume would strand an in-flight Story on an unrelated config change.
 
+Alternation (#47) is the third layer: the two profiles are a *pair*, and a Story
+that carries no assignment at all takes its turn in swapping which one implements
+and which one reviews. `assign_plan` stays pure -- it takes the phase and reports
+whether it swapped and whether it consumed the phase -- while `ralph_alternation`
+owns the ordering and the loop-local phase state, and the CLI advances that state
+only once the assignment has actually been recorded.
+
 Catalog *well-formedness* (unknown adapter, duplicate key, a default naming an
 absent profile) belongs to `ralph_config`, so `ralph --check-config` is the one
 place a broken catalog is reported. This module trusts a validated config.
@@ -31,6 +38,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ralph_alternation  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_init  # noqa: E402
 import ralph_story  # noqa: E402
@@ -214,7 +222,8 @@ def roles_for_story(config, story, implementation=None, review=None,
 
 class AssignPlan:
     def __init__(self, ok, errors, commands, implementation=None, review=None,
-                 newly_assigned=None, same_model=False):
+                 newly_assigned=None, same_model=False, swapped=False,
+                 advances_alternation=False):
         self.ok = ok
         self.errors = errors
         self.commands = commands
@@ -222,10 +231,14 @@ class AssignPlan:
         self.review = review
         self.newly_assigned = newly_assigned or []
         self.same_model = same_model
+        # Alternation (#47): whether this plan runs the pair the other way
+        # round, and whether it consumed a phase the next Story must not reuse.
+        self.swapped = swapped
+        self.advances_alternation = advances_alternation
 
 
 def assign_plan(story, config, implementation=None, review=None,
-                allow_same_model=False):
+                allow_same_model=False, phase=0, fixed_roles=False):
     """Build the plan that records this Story's model assignment durably.
 
     Pure: computes commands, runs nothing. For each role with no assignment
@@ -235,6 +248,14 @@ def assign_plan(story, config, implementation=None, review=None,
     heals forward by recording only the missing role. With no catalog configured
     the plan is empty and `implementation`/`review` are None: there is no exact
     identity to persist.
+
+    `phase` is the alternation phase (#47): a Story that carries **no**
+    assignment is a fresh pair, so an odd phase records the resolved pair the
+    other way round and `plan.advances_alternation` tells the caller to advance
+    the phase once the plan has actually been applied. Every other Story --
+    assigned, or half-assigned and healing forward -- keeps what it carries and
+    leaves the phase alone. `fixed_roles` disables the swap for this invocation,
+    as the committed `models.alternate: false` does for every one.
     """
     if not profiles(config):
         # The catalog stays optional (#44): a target repository that declares no
@@ -250,13 +271,26 @@ def assign_plan(story, config, implementation=None, review=None,
         return AssignPlan(False, resolution.errors, [])
 
     newly_assigned = resolution.newly_assigned
-    labels = [(role, ralph_story.model_label(role, getattr(resolution, role).model))
+    chosen = {"implementation": resolution.implementation,
+              "review": resolution.review}
+
+    # Alternation applies to a *fresh pair* only: a Story that already carries
+    # either role keeps what it was assigned, so a resume, a retry, or a further
+    # review round can never swap models midway (#47).
+    fresh_pair = len(newly_assigned) == len(ralph_story.MODEL_ROLES)
+    alternating = (fresh_pair and not fixed_roles
+                   and ralph_alternation.enabled(config))
+    if alternating:
+        chosen["implementation"], chosen["review"] = ralph_alternation.order_for(
+            phase, resolution.implementation, resolution.review)
+
+    labels = [(role, ralph_story.model_label(role, chosen[role].model))
               for role in newly_assigned]
 
     commands = [
         ralph_init.label_command(
             label, ASSIGNMENT_LABEL_COLOR,
-            "%s Agent: %s" % (role.capitalize(), getattr(resolution, role).model))
+            "%s Agent: %s" % (role.capitalize(), chosen[role].model))
         for role, label in labels
     ]
     if labels:
@@ -266,31 +300,42 @@ def assign_plan(story, config, implementation=None, review=None,
         commands.append(edit)
 
     return AssignPlan(True, [], commands,
-                      implementation=resolution.implementation,
-                      review=resolution.review,
+                      implementation=chosen["implementation"],
+                      review=chosen["review"],
                       newly_assigned=newly_assigned,
-                      same_model=resolution.same_model)
+                      same_model=resolution.same_model,
+                      swapped=alternating and ralph_alternation.swaps(phase),
+                      advances_alternation=alternating)
 
 
 class _RoleOptions:
     """The role flags `--resolve-models` and `--assign-models` share."""
 
-    def __init__(self, positional, implementation, review, allow_same):
+    def __init__(self, positional, implementation, review, allow_same,
+                 fixed_roles=False):
         self.positional = positional
         self.implementation = implementation
         self.review = review
         self.allow_same = allow_same
+        self.fixed_roles = fixed_roles
 
 
-def _parse_role_options(rest):
-    """Return (_RoleOptions, None) or (None, exit code) on a bad flag."""
-    implementation, review, allow_same = None, None, False
+def _parse_role_options(rest, allow_fixed_roles=False):
+    """Return (_RoleOptions, None) or (None, exit code) on a bad flag.
+
+    `--fixed-roles` is an assignment-time choice (there is no alternation to
+    disable when only previewing the configured resolution), so `--resolve-models`
+    rejects it as an unknown option rather than accepting it and ignoring it.
+    """
+    implementation, review, allow_same, fixed_roles = None, None, False, False
     positional = []
     i = 0
     while i < len(rest):
         arg = rest[i]
         if arg == "--allow-same-model":
             allow_same = True
+        elif arg == "--fixed-roles" and allow_fixed_roles:
+            fixed_roles = True
         elif arg in ("--implementation", "--review"):
             if i + 1 >= len(rest):
                 sys.stderr.write("ralph: %s requires a profile key\n" % arg)
@@ -306,7 +351,8 @@ def _parse_role_options(rest):
         elif arg:
             positional.append(arg)
         i += 1
-    return _RoleOptions(positional, implementation, review, allow_same), None
+    return _RoleOptions(positional, implementation, review, allow_same,
+                        fixed_roles), None
 
 
 def _load_story(path):
@@ -318,8 +364,9 @@ def _load_story(path):
 
 def _cmd_assign(rest):
     """`ralph --assign-models STORY [CONFIG] [...]`: record the Story's exact
-    implementation and review model identities as durable labels (#46)."""
-    opts, rc = _parse_role_options(rest)
+    implementation and review model identities as durable labels (#46), in the
+    order this tick's alternation phase calls for (#47)."""
+    opts, rc = _parse_role_options(rest, allow_fixed_roles=True)
     if opts is None:
         return rc
     if not opts.positional:
@@ -345,10 +392,14 @@ def _cmd_assign(rest):
             sys.stderr.write("  - %s\n" % err)
         return 2
 
+    state = ralph_alternation.state_path(os.getcwd())
+    phase = ralph_alternation.read_phase(state)
+
     plan = assign_plan(story, validated.config,
                        implementation=opts.implementation,
                        review=opts.review,
-                       allow_same_model=opts.allow_same)
+                       allow_same_model=opts.allow_same,
+                       phase=phase, fixed_roles=opts.fixed_roles)
     if not plan.ok:
         sys.stderr.write("REFUSED: model assignment\n")
         for err in plan.errors:
@@ -363,6 +414,14 @@ def _cmd_assign(rest):
             sys.stderr.write(run.failed.output.rstrip() + "\n")
         return 1
 
+    # Advance only now: the phase tracks assignments that were actually
+    # recorded, so a gh outage cannot silently burn a swap (#47).
+    if plan.advances_alternation:
+        if not ralph_alternation.write_phase(state,
+                                             ralph_alternation.advanced(phase)):
+            sys.stderr.write("note: could not record the alternation phase; the "
+                             "next story may repeat this role order\n")
+
     if plan.implementation is None:
         print("assigned: no model-profile catalog is configured; nothing to record")
         return 0
@@ -371,6 +430,10 @@ def _cmd_assign(rest):
     print("review: %s" % plan.review.describe())
     if plan.newly_assigned:
         print("assigned: %s" % ", ".join(plan.newly_assigned))
+        # Only a fresh pair has a role *order* to report; a half-assigned story
+        # healing forward is filling one slot, not choosing a pair.
+        if len(plan.newly_assigned) == len(ralph_story.MODEL_ROLES):
+            print("role order: %s" % ("swapped" if plan.swapped else "resolved"))
     else:
         print("assigned: already recorded on the story; unchanged")
     if plan.same_model:

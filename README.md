@@ -258,6 +258,7 @@ models:
   defaults:
     implementation: claude-opus   # must name a profile above
     review: codex-high
+  alternate: true                 # swap the pair on each newly started story (default: true)
 
 # Who gets tagged when the circuit breaker trips (needs-human).
 notify:
@@ -334,6 +335,38 @@ the launcher so the iteration runs the assigned model:
 printf '%s' "$prompt" | ralph --launch-agent implementation --story story.json
 ```
 
+### The pair alternates across newly started stories
+
+The two profiles are a **pair**, and Ralph swaps which one implements and which
+one reviews so authorship and review influence stay balanced over the backlog.
+The resolved role order — the committed defaults, or the operator's
+`--implementation`/`--review` order — is the first newly assigned story's order;
+the next newly assigned story runs the same pair the other way round:
+
+```
+#61  impl claude-opus-5   review gpt-5-codex
+#62  impl gpt-5-codex     review claude-opus-5
+#63  impl claude-opus-5   review gpt-5-codex
+```
+
+Alternation advances **only when a story that carries no assignment starts**. A
+resumed checkpointed story, a retried failed Attempt, and a further review round
+all read their roles off the story's own labels, so no story ever swaps models
+midway — and a resume never consumes the swap the next new story is owed. The
+phase advances only once the assignment has actually been recorded, so a `gh`
+outage cannot silently burn a swap.
+
+The phase is loop-local durable state under the target repository's git dir, next
+to the tick lock: it survives across ticks, never enters the working tree or the
+backlog, and a missing or damaged file simply starts the alternation over.
+
+To keep the roles fixed, commit `models.alternate: false`, or pass
+`--fixed-roles` for one invocation:
+
+```sh
+ralph --assign-models story.json --fixed-roles   # this story keeps the resolved order
+```
+
 ## Authoring the backlog
 
 Stories are GitHub issues in a **canonical shape** so the selection engine can
@@ -390,7 +423,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --branch-name STORY [CONFIG]` | Print the story branch name from `branch_pattern`. |
 | `ralph --run-gating [CONFIG]` | Run the configured gating steps locally, in order, fail-fast. |
 | `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
-| `ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Record the story's implementation/review model identities as durable labels (`model:impl:<id>` / `model:review:<id>`, created on demand). Idempotent; an already-assigned story is never rewritten. |
+| `ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]` | Record the story's implementation/review model identities as durable labels (`model:impl:<id>` / `model:review:<id>`, created on demand). Idempotent; an already-assigned story is never rewritten. An unassigned story takes its turn in the role alternation unless `--fixed-roles` (or `models.alternate: false`) holds the order. |
 | `ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. With `--story`, the story's recorded assignment picks the model. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |

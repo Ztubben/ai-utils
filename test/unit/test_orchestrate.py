@@ -79,10 +79,11 @@ class TickHarness:
             with open(os.path.join(self.queue, "%d.json" % i), "w") as fh:
                 json.dump(backlog, fh)
 
-    def select_implementation(self, provider):
+    def select_implementation(self, provider, alternate=None):
         """Commit a model catalog whose implementation role resolves to
         `provider`; the review role gets the other one, so the two roles keep
-        their distinct model identities (#44)."""
+        their distinct model identities (#44). `alternate=False` commits the
+        fixed-role option (#47)."""
         other = "codex" if provider == "claude" else "claude"
         with open(os.path.join(self.tmp, ".ralph.yml"), "a") as fh:
             fh.write(textwrap.dedent("""\
@@ -98,10 +99,20 @@ class TickHarness:
                     implementation: impl
                     review: rev
                 """ % (provider, provider, other, other)))
+            if alternate is not None:
+                fh.write("  alternate: %s\n" % ("true" if alternate else "false"))
 
     def set_view_story(self, s):
         with open(os.path.join(self.queue, "story.json"), "w") as fh:
             json.dump(s, fh)
+
+    def set_view_stories(self, *stories):
+        """Answer `gh issue view N` per issue number, so a tick that works
+        several stories in sequence sees the right record for each."""
+        for s in stories:
+            with open(os.path.join(self.queue, "story-%d.json" % s["number"]),
+                      "w") as fh:
+                json.dump(s, fh)
 
     def _write_mocks(self):
         mb = os.path.join(self.tmp, "mockbin")
@@ -114,7 +125,9 @@ class TickHarness:
               f="$RALPH_GH_QUEUE_DIR/$n.json"
               if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
             elif [[ "$1 $2" == "issue view" ]]; then
-              cat "$RALPH_GH_QUEUE_DIR/story.json"
+              f="$RALPH_GH_QUEUE_DIR/story-$3.json"
+              [[ -f "$f" ]] || f="$RALPH_GH_QUEUE_DIR/story.json"
+              cat "$f"
             fi
             """))
         for provider in PROVIDERS:
@@ -136,6 +149,12 @@ class TickHarness:
     def env(self, agent_exit="0", agent_emit=""):
         e = dict(os.environ)
         e["PATH"] = os.path.join(self.tmp, "mockbin") + os.pathsep + e["PATH"]
+        # A tick that is itself running Ralph exports the provider binary
+        # overrides (RALPH_CLAUDE / RALPH_CODEX). Inherited, they would win over
+        # the fakes on PATH and this test would launch a *real* agent, so drop
+        # them: the mocks are the only providers a test may run.
+        for adapter in ralph_agent.PROVIDERS.values():
+            e.pop(adapter.binary_env, None)
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = SESSION_LIMIT_EXIT
@@ -472,6 +491,108 @@ class TheTickRecordsTheModelAssignmentOnTheStory(unittest.TestCase):
         log = h.log_lines()
         self.assertFalse(any("model:impl:" in ln for ln in log), log)
         self.assertTrue(h.agent_calls(), log)
+
+
+class TheTickAlternatesTheRolesAcrossNewlyStartedStories(unittest.TestCase):
+    """AC (#47): alternation across several consecutive newly started AFK and
+    HIL Stories, driven through the real tick.
+
+    The tick assigns each newly started Story before its iteration, so the
+    observable behavior is the sequence of `model:impl:` labels it applies: the
+    first Story runs the resolved order, and every following newly started Story
+    -- AFK or HIL, it makes no difference -- swaps the pair.
+    """
+
+    def harness(self, provider="claude", alternate=None):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        h = TickHarness(tmp)
+        h.select_implementation(provider, alternate=alternate)
+        return h
+
+    def _queue_in_sequence(self, h, stories):
+        """Backlogs for a tick that starts each story in turn: the engine pops
+        one backlog per --dry-run and one per --needs-freshness."""
+        backlogs = []
+        for i in range(len(stories)):
+            remaining = stories[i:]
+            backlogs.append(remaining)   # --dry-run -> start stories[i]
+            backlogs.append(remaining)   # --needs-freshness
+        backlogs.append([])              # --dry-run -> no-work, tick ends
+        h.set_backlogs(*backlogs)
+        h.set_view_stories(*stories)
+
+    def _assigned_impl(self, h):
+        """The implementation identity each `gh issue edit` recorded, in order."""
+        out = []
+        for line in h.log_lines():
+            if "issue edit" not in line:
+                continue
+            for token in line.split():
+                if token.startswith("model:impl:"):
+                    out.append(token[len("model:impl:"):])
+        return out
+
+    def test_consecutive_afk_and_hil_stories_alternate_the_pair(self):
+        h = self.harness("claude")
+        stories = [story(71, "ready", "afk", prio=1), story(72, "ready", "hil", prio=2),
+                   story(73, "ready", "afk", prio=3), story(74, "ready", "hil", prio=4)]
+        self._queue_in_sequence(h, stories)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(len(h.agent_calls()), 4, h.log_lines())
+        self.assertEqual(self._assigned_impl(h),
+                         ["claude-model", "codex-model",
+                          "claude-model", "codex-model"])
+
+    def test_the_review_role_takes_the_other_half_of_each_pair(self):
+        h = self.harness("claude")
+        stories = [story(71, "ready", "afk", prio=1), story(72, "ready", "hil", prio=2)]
+        self._queue_in_sequence(h, stories)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        first = [ln for ln in log if "issue edit 71" in ln and "model:impl:" in ln]
+        second = [ln for ln in log if "issue edit 72" in ln and "model:impl:" in ln]
+        self.assertTrue(first and second, log)
+        self.assertIn("model:review:codex-model", first[0])
+        self.assertIn("model:review:claude-model", second[0])
+
+    def test_the_alternation_continues_in_the_next_tick(self):
+        # AC: alternation state survives across ticks -- the second tick's first
+        # newly started Story swaps, it does not restart at the resolved order.
+        h = self.harness("claude")
+        self._queue_in_sequence(h, [story(71, "ready", "afk")])
+        self.assertEqual(h.run().returncode, 0)
+        os.remove(os.path.join(h.queue, "counter"))
+        self._queue_in_sequence(h, [story(72, "ready", "hil")])
+        self.assertEqual(h.run().returncode, 0)
+        self.assertEqual(self._assigned_impl(h), ["claude-model", "codex-model"])
+
+    def test_a_resumed_story_between_two_new_ones_keeps_its_roles(self):
+        # The middle story is already assigned: it neither gets relabelled nor
+        # consumes the swap the next newly started Story is owed.
+        h = self.harness("claude")
+        resumed = story(72, "in-progress", "afk", prio=2)
+        resumed["labels"] += [{"name": "model:impl:claude-model"},
+                              {"name": "model:review:codex-model"}]
+        stories = [resumed, story(73, "ready", "afk", prio=3)]
+        self._queue_in_sequence(h, stories)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(self._assigned_impl(h), ["claude-model"])
+        self.assertFalse(any("issue edit 72" in ln for ln in h.log_lines()),
+                         h.log_lines())
+
+    def test_the_fixed_role_option_holds_every_story_at_the_resolved_order(self):
+        h = self.harness("claude", alternate=False)
+        stories = [story(71, "ready", "afk", prio=1), story(72, "ready", "hil", prio=2),
+                   story(73, "ready", "afk", prio=3)]
+        self._queue_in_sequence(h, stories)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(self._assigned_impl(h),
+                         ["claude-model", "claude-model", "claude-model"])
 
 
 if __name__ == "__main__":
