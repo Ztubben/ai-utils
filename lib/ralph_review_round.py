@@ -28,12 +28,20 @@ ALREADY_REVIEWED = "already-reviewed"
 INVALID_OUTPUT = "invalid-output"
 REFUSED = "refused"
 
+# Output the wrapper would not publish is the provider's failure, not the
+# negotiation's: nothing was posted, so the head is still unjudged and no
+# Negotiation Round was spent.  It therefore needs a code of its own, distinct
+# from the flat refusal (2) that a bad config or an unmarked pull request
+# returns -- those would refuse identically on the next attempt, and this one
+# may not (#61).
+EXIT_INVALID_OUTPUT = 17
+
 # The tick reads a round's outcome as an exit code.  A provider outcome keeps
 # the code `--launch-agent` already uses for it, so the caller distinguishes a
 # reviewer that never finished from a review that was refused.
 EXIT_CODES = {
     PUBLISHED: 1,               # validated and rendered, but gh refused it
-    INVALID_OUTPUT: 2,
+    INVALID_OUTPUT: EXIT_INVALID_OUTPUT,
     REFUSED: 2,
     ralph_agent.SESSION_EXHAUSTED: ralph_agent.EXIT_SESSION_EXHAUSTED,
     ralph_agent.INFRASTRUCTURE_FAILURE: ralph_agent.EXIT_INFRASTRUCTURE_FAILURE,

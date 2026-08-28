@@ -308,6 +308,122 @@ def assign_plan(story, config, implementation=None, review=None,
                       advances_alternation=alternating)
 
 
+# Replacing a Story's assigned model is a *human* action (#61). Ralph never
+# substitutes one on its own: a provider outage is retried and resumed, and a
+# reviewer that keeps failing is a person's decision to make. The record lives
+# on the Story like every other durable loop fact, so an audit reads why the
+# run that was made differs from the one the assignment first chose.
+REASSIGNMENT_MARKER = "<!-- ralph-model-reassignment:v1 -->"
+
+
+def reassignment_record(payload):
+    """The Story comment recording a role's replacement, and the reason for it."""
+    return "\n".join([
+        REASSIGNMENT_MARKER,
+        "",
+        "**Model reassignment — %s agent**, by hand." % payload["role"],
+        "",
+        "- was: `%s`" % payload["from"],
+        "- now: `%s` (profile `%s`, provider `%s`)"
+        % (payload["to"], payload["profile"], payload["provider"]),
+        "- reason: %s" % payload["reason"],
+        "",
+        "```json",
+        json.dumps(payload, indent=2, sort_keys=True),
+        "```",
+    ])
+
+
+class ReassignPlan:
+    def __init__(self, ok, errors, commands, role=None, previous=None,
+                 replacement=None):
+        self.ok = ok
+        self.errors = errors
+        self.commands = commands
+        self.role = role
+        self.previous = previous
+        self.replacement = replacement
+
+
+def reassign_plan(story, config, role, profile_key, reason=None,
+                  allow_same_model=False):
+    """Build the plan replacing one role's durable assignment on this Story.
+
+    Pure: computes commands, runs nothing. Unlike `assign_plan`, which only ever
+    *fills* an empty role, this rewrites one that is already recorded -- which is
+    why nothing automated may call it. It refuses everything that would make the
+    record misleading: a role with no assignment to replace (that is
+    `assign_plan`'s job), a profile outside the allowlist, a replacement that is
+    already the assigned identity, a reason left blank, and a swap that would
+    quietly collapse both roles onto one model identity.
+    """
+    if role not in ralph_story.MODEL_ROLES:
+        return ReassignPlan(False, ["role: unknown role %r (roles: %s)"
+                                    % (role, ", ".join(ralph_story.MODEL_ROLES))],
+                            [])
+    catalog = profiles(config)
+    if not catalog:
+        return ReassignPlan(False, [
+            "models: no model-profile catalog is configured; there is no "
+            "allowlisted identity to reassign to"], [])
+    if not (reason or "").strip():
+        # An audit record without a reason records only that someone did it,
+        # which is the half that is already obvious from the labels.
+        return ReassignPlan(False, [
+            "reason: a reassignment must say why; it is the audit record"], [])
+
+    assignment, errors = ralph_story.model_assignment(story)
+    if errors:
+        return ReassignPlan(False, errors, [])
+    previous = assignment.get(role)
+    if not previous:
+        return ReassignPlan(False, [
+            "%s: story #%s has no %s assignment to replace; starting it records "
+            "one (--assign-models)"
+            % (ralph_story.MODEL_LABEL_PREFIXES[role], story.get("number", "?"),
+               role)], [])
+
+    replacement = catalog.get(profile_key)
+    if replacement is None:
+        return ReassignPlan(False, [
+            "profile: unknown profile key %r (catalog: %s)"
+            % (profile_key, ", ".join(sorted(catalog)))], [])
+    if replacement.model.strip() == previous.strip():
+        return ReassignPlan(False, [
+            "%s: story #%s is already assigned %r; nothing to replace"
+            % (ralph_story.MODEL_LABEL_PREFIXES[role], story.get("number", "?"),
+               previous)], [])
+
+    other = [r for r in ralph_story.MODEL_ROLES if r != role][0]
+    counterpart = assignment.get(other)
+    if (counterpart and replacement.model.strip() == counterpart.strip()
+            and not allow_same_model):
+        return ReassignPlan(False, [
+            "models: reassigning %s to %r would leave both roles on one model "
+            "identity; pass --allow-same-model to accept it"
+            % (role, replacement.model)], [])
+
+    new_label = ralph_story.model_label(role, replacement.model)
+    old_label = ralph_story.model_label(role, previous)
+    number = str(story["number"])
+    commands = [
+        ralph_init.label_command(
+            new_label, ASSIGNMENT_LABEL_COLOR,
+            "%s Agent: %s" % (role.capitalize(), replacement.model)),
+        ["gh", "issue", "edit", number,
+         "--add-label", new_label, "--remove-label", old_label],
+        # The record comes last, so a crash leaves the assignment correct and
+        # the record missing. A record of a swap that never happened is the
+        # worse of the two failures: it is the thing an audit trusts.
+        ["gh", "issue", "comment", number, "--body", reassignment_record({
+            "story": story["number"], "role": role, "from": previous,
+            "to": replacement.model, "profile": replacement.key,
+            "provider": replacement.provider, "reason": reason.strip()})],
+    ]
+    return ReassignPlan(True, [], commands, role=role, previous=previous,
+                        replacement=replacement)
+
+
 class _RoleOptions:
     """The role flags `--resolve-models` and `--assign-models` share."""
 
@@ -441,6 +557,73 @@ def _cmd_assign(rest):
     return 0
 
 
+def _cmd_reassign(rest):
+    """`ralph --reassign-model STORY ROLE PROFILE [CONFIG] --reason TEXT`.
+
+    Human-only (#61): nothing in the unattended tick calls this. Ralph retries
+    an outage and resumes; replacing the model a Story was assigned is a
+    person's decision, and it leaves a record saying so.
+    """
+    reason, allow_same, positional = None, False, []
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg == "--allow-same-model":
+            allow_same = True
+        elif arg == "--reason":
+            if i + 1 >= len(rest):
+                sys.stderr.write("ralph: --reason requires TEXT\n")
+                return 2
+            i += 1
+            reason = rest[i]
+        elif arg.startswith("--"):
+            sys.stderr.write("ralph: unknown option: %s\n" % arg)
+            return 2
+        elif arg:
+            positional.append(arg)
+        i += 1
+    if not 3 <= len(positional) <= 4:
+        sys.stderr.write("usage: ralph --reassign-model STORY ROLE PROFILE "
+                         "[CONFIG] --reason TEXT [--allow-same-model]\n")
+        return 2
+    story_path, role, profile_key = positional[:3]
+    config_path = positional[3] if len(positional) > 3 else ".ralph.yml"
+
+    try:
+        story = _load_story(story_path)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+
+    validated = ralph_config.load_and_validate(config_path)
+    if not validated.ok:
+        sys.stderr.write("INVALID CONFIG: %s\n" % config_path)
+        for err in validated.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    plan = reassign_plan(story, validated.config, role, profile_key,
+                         reason=reason, allow_same_model=allow_same)
+    if not plan.ok:
+        sys.stderr.write("REFUSED: model reassignment\n")
+        for err in plan.errors:
+            sys.stderr.write("  - %s\n" % err)
+        return 2
+
+    run = ralph_init.run_plan(plan.commands, cwd=os.getcwd())
+    if not run.ok:
+        sys.stderr.write("FAILED: reassign-model (exit %d): %s\n"
+                         % (run.failed.returncode, " ".join(run.failed.args)))
+        if run.failed.output.strip():
+            sys.stderr.write(run.failed.output.rstrip() + "\n")
+        return 1
+
+    print("reassigned: %s agent on #%s" % (plan.role, story["number"]))
+    print("  was: %s" % plan.previous)
+    print("  now: %s" % plan.replacement.describe())
+    return 0
+
+
 def _cmd_resolve(rest):
     opts, rc = _parse_role_options(rest)
     if opts is None:
@@ -487,6 +670,8 @@ def main(argv):
         return _cmd_resolve(rest)
     if mode == "assign":
         return _cmd_assign(rest)
+    if mode == "reassign":
+        return _cmd_reassign(rest)
     sys.stderr.write("ralph_models.py: unknown mode: %s\n" % mode)
     return 2
 

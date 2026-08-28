@@ -14,6 +14,8 @@
 #                                 Resolve the implementation/review model profiles.
 #   ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
 #                                 Record the story's implementation/review model identities as labels.
+#   ralph --reassign-model STORY ROLE PROFILE [CONFIG] --reason TEXT [--allow-same-model]
+#                                 Replace one role's recorded model assignment (human-only, audited).
 #   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
 #   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
@@ -54,6 +56,7 @@ usage: ralph --init [CONFIG]
        ralph --run-gating [CONFIG]
        ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
+       ralph --reassign-model STORY ROLE PROFILE [CONFIG] --reason TEXT [--allow-same-model]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --classify-session RC
        ralph --implementation-green STORY [CONFIG] [PRD]
@@ -150,6 +153,19 @@ usage: ralph --init [CONFIG]
                           --fixed-roles or models.alternate: false holds the
                           roles fixed. Exits 0 on success, 1 on a gh failure,
                           2 on bad config or a refused resolution.
+  --reassign-model STORY  Replace one role's recorded model assignment on a
+       ROLE PROFILE       story (gh --json shape; - for stdin). Human-only: the
+       [CONFIG]           loop never substitutes a model on its own -- an
+       --reason TEXT      outage is retried and resumed with the negotiation
+       [--allow-same-     round intact. Moves model:impl:<id> / model:review:<id>
+        model]            to the new identity and records an audit comment
+                          carrying the previous identity, the new one and the
+                          reason. Refuses a role with no assignment to replace,
+                          a profile outside the allowlist, a no-op replacement,
+                          a missing reason, and a swap collapsing both roles
+                          onto one identity unless --allow-same-model
+                          acknowledges it. Exits 0 on success, 1 on a gh
+                          failure, 2 on bad config or a refusal.
   --launch-agent ROLE     Launch one role's agent (implementation | review) in a
        [CONFIG]           fresh process through its provider adapter, resolved
        [--story PATH]     from the target repository's model-profile catalog
@@ -455,6 +471,10 @@ main() {
     --assign-models)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_models.py" assign "$@"
+      ;;
+    --reassign-model)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_models.py" reassign "$@"
       ;;
     --launch-agent)
       shift

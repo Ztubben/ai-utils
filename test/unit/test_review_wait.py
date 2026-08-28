@@ -321,7 +321,7 @@ class AwaitReview(unittest.TestCase):
         self.acts.append(step)
         self.state["pr"] = pull_request(reviews=[
             {"body": ralph_review.review_marker(HEAD)}])
-        return True, []
+        return True, [], False
 
     def await_(self, window=100, first_poll=30):
         return ralph_review_wait.await_review(
@@ -365,7 +365,7 @@ class AwaitReview(unittest.TestCase):
                      "findings": [{"id": "F-1", "blocking": True}]})}]
             else:
                 self.state["pr"] = pull_request(head=answered)
-            return True, []
+            return True, [], False
 
         self.act = act
         result = self.await_(window=100, first_poll=30)
@@ -396,7 +396,11 @@ class AwaitReview(unittest.TestCase):
         self.assertEqual(result.invocations, 0)
 
     def test_a_step_that_failed_is_left_for_the_next_tick_not_retried(self):
-        self.act = lambda step, pr: (False, ["review agent infrastructure-failure"])
+        # A step that failed on its own terms rather than the provider's -- gh
+        # refused the review here -- gets one retry on the next tick, not one
+        # per poll. (An outage is the other case, and #61 rides that one out
+        # inside the window instead.)
+        self.act = lambda step, pr: (False, ["gh refused the review"], False)
 
         result = self.await_()
 

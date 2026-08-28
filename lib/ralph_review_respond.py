@@ -39,9 +39,13 @@ REFUSED = "refused"
 
 # The tick reads the outcome as an exit code, the same contract the review
 # round uses: a provider that never finished is distinguishable from an answer
-# that was refused.
+# that was refused.  An answer the wrapper would not publish is the provider's
+# failure and shares the review round's retryable code; rewritten history is
+# not -- that is the model breaking the append-only protocol, and relaunching it
+# every poll would spend an invocation each time on a branch it already
+# stranded (#61).
 EXIT_CODES = {
-    INVALID_OUTPUT: 2,
+    INVALID_OUTPUT: ralph_review_round.EXIT_INVALID_OUTPUT,
     NOT_APPEND_ONLY: 2,
     REFUSED: 2,
     ralph_agent.SESSION_EXHAUSTED: ralph_agent.EXIT_SESSION_EXHAUSTED,

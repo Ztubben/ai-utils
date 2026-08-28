@@ -393,6 +393,31 @@ not HITL) and `docs/adr/0001–0005`.
   The tick-level lock guarantee is tested with a `RALPH_LOCK_PROBE` `flock -n` probe fired
   from inside the mock `gh` — it reports "free" when nothing holds the lock, so the
   assertion is not vacuous.
+- **Infrastructure failures never spend a round** (#61, PRD #42) is two small changes,
+  not a module. (1) `ralph_review_wait.act` now returns `(ok, errors, retryable)` —
+  built by the new `step_outcome(rc, what)` — and `await_review` rides a *retryable*
+  failure out inside the window (counting `WaitResult.retries`) instead of ending on
+  it. `RETRYABLE_EXITS` is exactly two codes: `ralph_agent.EXIT_INFRASTRUCTURE_FAILURE`
+  (12) and the new `ralph_review_round.EXIT_INVALID_OUTPUT` (**17**), which INVALID_OUTPUT
+  needed because it used to share the flat refusal code 2 — and a refusal (bad config,
+  unmarked PR, refused role resolution) would refuse identically on the next poll, so
+  retrying it is a launch storm. `ralph_review_respond` maps its own INVALID_OUTPUT to
+  the same 17, but keeps NOT_APPEND_ONLY at 2: an amend or force-push is the *model*
+  breaking the protocol, not the provider failing. A session limit (10) is not retryable
+  either — the budget a retry would spend is the thing that ran out. No round is spent
+  by any of them because a round is a **published review stamp**, and nothing published.
+  (2) `ralph_models.reassign_plan` + `ralph --reassign-model STORY ROLE PROFILE [CONFIG]
+  --reason TEXT [--allow-same-model]` is the human-only reassignment: label create →
+  `issue edit --add-label/--remove-label` → `issue comment` carrying
+  `REASSIGNMENT_MARKER` + the payload. GOTCHAS: (a) the record is written **last** — a
+  crash then leaves the labels right and the record missing, which beats a record of a
+  swap that never happened. (b) `--reason` is required: an audit record without one
+  records only that someone did it, which the labels already say. (c) It refuses a role
+  with no assignment to replace (that is `assign_plan`'s job, and it only ever *fills*),
+  a replacement equal to the identity already recorded, and a swap collapsing both roles
+  onto one identity. (d) A test drift-guards that `bin/ralph.sh` never names
+  `--reassign-model`: "human-only" is enforced by nothing else. Covered by
+  `test/unit/test_infrastructure.py`.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

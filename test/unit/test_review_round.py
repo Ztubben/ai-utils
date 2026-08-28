@@ -447,7 +447,7 @@ notify:
 
         proc, calls = self.run_round()
 
-        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.returncode, ralph_review_round.EXIT_INVALID_OUTPUT)
         # Reading the Story's rounds is a read; nothing was written anywhere.
         self.assertNotIn("--method POST", calls)
         self.assertIn("verdict", proc.stderr)
@@ -460,7 +460,7 @@ notify:
 
         proc, calls = self.run_round()
 
-        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.returncode, ralph_review_round.EXIT_INVALID_OUTPUT)
         self.assertNotIn("--method POST", calls)
         self.assertIn("lib/never.py", proc.stderr)
 

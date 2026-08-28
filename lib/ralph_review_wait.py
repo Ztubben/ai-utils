@@ -10,6 +10,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_complete  # noqa: E402
@@ -52,15 +53,36 @@ EXIT_COMPLETED = 16
 MAX_POLL_SECONDS = 300
 
 
+# A step can fail because the negotiation went wrong, or because the provider
+# did.  Only the first is this tick's answer: a provider outage, a quota or
+# authentication refusal, and output the wrapper would not publish all leave the
+# pull request exactly as it was -- no review posted, so no Negotiation Round
+# spent -- and the next poll may well find the outage over.  So they are retried
+# inside the window rather than ending it (#61).
+RETRYABLE_EXITS = (ralph_agent.EXIT_INFRASTRUCTURE_FAILURE,
+                   ralph_review_round.EXIT_INVALID_OUTPUT)
+
+
+def step_outcome(rc, what):
+    """The ``(ok, errors, retryable)`` verdict on one step's exit code."""
+    if rc == 0:
+        return True, [], False
+    return False, ["%s exited %d" % (what, rc)], rc in RETRYABLE_EXITS
+
+
 class WaitResult:
     """How the wait ended, and what it cost."""
 
-    def __init__(self, kind, errors=None, polls=0, invocations=0, elapsed=0):
+    def __init__(self, kind, errors=None, polls=0, invocations=0, elapsed=0,
+                 retries=0):
         self.kind = kind
         self.errors = errors or []
         self.polls = polls
         self.invocations = invocations
         self.elapsed = elapsed
+        # Provider failures ridden out inside the window. They cost invocations
+        # but no Negotiation Round, so the two are counted separately.
+        self.retries = retries
 
 
 def next_step(pull_request, comments=None, max_rounds=None, protected=()):
@@ -165,7 +187,8 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
     """
     read_comments = read_comments or (lambda: [])
     read_protected = read_protected or (lambda pull_request: ())
-    started, polls, invocations = now(), 0, 0
+    started, polls, invocations, retries = now(), 0, 0, 0
+    last_errors = []
     while True:
         pull_request = fetch()
         polls += 1
@@ -175,29 +198,37 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
         elapsed = now() - started
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
-                              elapsed=elapsed)
+                              elapsed=elapsed, retries=retries)
         if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE, COMPLETE, HOLD):
             # Escalation is Ralph's own bookkeeping -- a comment, a review
             # request, a label -- so it costs no model invocation. Arbitration
             # may or may not launch one, depending on what the human decided.
             if step not in (ESCALATE, ARBITRATE, COMPLETE, HOLD):
                 invocations += 1
-            ok, errors = act(step, pull_request)
-            if not ok:
-                # Retrying a failed step every poll would spend an invocation
-                # each time; the next tick retries it once instead.
+            ok, errors, retryable = act(step, pull_request)
+            if not ok and not retryable:
+                # Retrying a step that failed on its own terms every poll would
+                # spend an invocation each time; the next tick retries it once.
                 return WaitResult(FAILED, errors=errors, polls=polls,
-                                  invocations=invocations, elapsed=elapsed)
-            if step in (ESCALATE, COMPLETE):
+                                  invocations=invocations, elapsed=elapsed,
+                                  retries=retries)
+            if not ok:
+                # The provider failed, not the negotiation: the pull request is
+                # untouched, so this is simply a poll that achieved nothing.
+                # The backoff between polls is what keeps it from being a storm.
+                retries += 1
+                last_errors = errors
+            elif step in (ESCALATE, COMPLETE):
                 # Nothing is left to wait for. Either the Story is blocked with
                 # a human asked, or it is finished. Sitting out the rest of the
                 # window would hold the tick's lock over work that has stopped.
                 return WaitResult(step, polls=polls, invocations=invocations,
-                                  elapsed=now() - started)
+                                  elapsed=now() - started, retries=retries)
             elapsed = now() - started
         if policy.expired(elapsed):
-            return WaitResult(EXPIRED, polls=polls, invocations=invocations,
-                              elapsed=elapsed)
+            return WaitResult(EXPIRED, errors=last_errors, polls=polls,
+                              invocations=invocations, elapsed=elapsed,
+                              retries=retries)
         sleep(policy.sleep_for(polls - 1, elapsed))
 
 
@@ -259,29 +290,29 @@ def _cmd_await(rest):
                 protected = ralph_review_complete.protected_for(
                     pull_request, validated.config, root)
             except (OSError, ValueError, RuntimeError) as exc:
-                return False, ["could not read the reviewed diff: %s" % exc]
+                return False, ["could not read the reviewed diff: %s" % exc], False
             rc = ralph_review_complete.hold(story, pull_request,
                                             validated.config, root, protected)
-            return rc == 0, [] if rc == 0 else ["control-plane hold exited %d" % rc]
+            return step_outcome(rc, "control-plane hold")
         if step == COMPLETE:
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root)
-            return rc == 0, [] if rc == 0 else ["completion exited %d" % rc]
+            return step_outcome(rc, "completion")
         if step == ARBITRATE:
             rc = ralph_review_human.arbitrate(story, pull_request,
                                               validated.config, root)
-            return rc == 0, [] if rc == 0 else ["arbitration exited %d" % rc]
+            return step_outcome(rc, "arbitration")
         if step == ESCALATE:
             rc = ralph_review_deadlock.escalate(story, pull_request,
                                                 validated.config, root)
-            return rc == 0, [] if rc == 0 else ["escalation exited %d" % rc]
+            return step_outcome(rc, "escalation")
         if step == RESPOND:
             rc = ralph_review_respond.respond_to_review(
                 story, pull_request, validated.config, root)
-            return rc == 0, [] if rc == 0 else ["response round exited %d" % rc]
+            return step_outcome(rc, "response round")
         rc = ralph_review_round.run_round(story, pull_request,
                                           validated.config, root)
-        return rc == 0, [] if rc == 0 else ["review round exited %d" % rc]
+        return step_outcome(rc, "review round")
 
     def read_protected(pull_request):
         # The control-plane policy is read from the diff of whatever head the
@@ -309,6 +340,15 @@ def _cmd_await(rest):
               % (result.elapsed, number, result.polls,
                  "" if result.polls == 1 else "s", result.invocations,
                  "" if result.invocations == 1 else "s"))
+        if result.retries:
+            # Named, because a window spent entirely on outages looks exactly
+            # like a quiet one in the log otherwise -- and the two call for
+            # very different operator attention.
+            print("note: %d invocation%s failed on infrastructure and consumed "
+                  "no Negotiation Round; the next tick resumes the same round"
+                  % (result.retries, "" if result.retries == 1 else "s"))
+            for error in result.errors:
+                print("  - %s" % error)
         return EXIT_WINDOW_EXPIRED
     if result.kind == ESCALATE:
         print("OK: #%s is blocked after a deadlocked negotiation; a human was "
