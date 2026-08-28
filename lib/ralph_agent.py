@@ -93,8 +93,9 @@ class AgentAdapter:
     default_binary = None
     session_env = ()       # inherited session state stripped from the child
 
-    def __init__(self, model=None):
+    def __init__(self, model=None, role="implementation"):
         self.model = model
+        self.role = role
 
     def binary(self):
         return os.environ.get(self.binary_env) or self.default_binary
@@ -112,6 +113,11 @@ class AgentAdapter:
         env = dict(os.environ)
         for name in self.session_env:
             env.pop(name, None)
+        if self.role == "review":
+            # Review is evidence-only.  Even if a provider somehow escapes its
+            # local read-only tool policy, it receives no GitHub credential.
+            for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
+                env.pop(name, None)
         return env
 
     def classify(self, exit_code, output):
@@ -151,7 +157,11 @@ class ClaudeAdapter(AgentAdapter):
                    "CLAUDE_CODE_SSE_PORT", "CLAUDE_SESSION_ID")
 
     def argv(self):
-        argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
+        if self.role == "review":
+            argv = [self.binary(), "--print", "--safe-mode",
+                    "--permission-mode", "plan", "--no-session-persistence"]
+        else:
+            argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
         if self.model:
             argv += ["--model", self.model]
         return argv
@@ -164,8 +174,12 @@ class CodexAdapter(AgentAdapter):
     session_env = ("CODEX_SESSION_ID", "CODEX_THREAD_ID")
 
     def argv(self):
-        argv = [self.binary(), "exec",
-                "--dangerously-bypass-approvals-and-sandbox"]
+        if self.role == "review":
+            argv = [self.binary(), "exec", "--sandbox", "read-only",
+                    "--ephemeral", "--ignore-user-config"]
+        else:
+            argv = [self.binary(), "exec",
+                    "--dangerously-bypass-approvals-and-sandbox"]
         if self.model:
             argv += ["--model", self.model]
         argv.append("-")            # read the prompt from stdin
@@ -195,7 +209,7 @@ def adapter_for_role(config, role, implementation=None, review=None,
         return None, ["role: unknown role %r (roles: %s)"
                       % (role, ", ".join(ROLES))]
     if not ralph_models.profiles(config):
-        return PROVIDERS[DEFAULT_PROVIDER](), []
+        return PROVIDERS[DEFAULT_PROVIDER](role=role), []
 
     if story is None:
         resolved = ralph_models.resolve_roles(
@@ -208,7 +222,7 @@ def adapter_for_role(config, role, implementation=None, review=None,
     if not resolved.ok:
         return None, resolved.errors
     profile = getattr(resolved, role)
-    return PROVIDERS[profile.provider](profile.model), []
+    return PROVIDERS[profile.provider](profile.model, role=role), []
 
 
 def launch_role(config, role, prompt, implementation=None, review=None,

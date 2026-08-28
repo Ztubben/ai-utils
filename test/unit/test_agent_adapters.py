@@ -198,6 +198,29 @@ class AdaptersLaunchTheirModelInAFreshProcess(unittest.TestCase):
         _, rec = self.launch("codex", "gpt-5-codex", RALPH_CODEX="/opt/codex")
         self.assertEqual(rec.argv[0], "/opt/codex")
 
+    def test_review_role_has_enforced_read_only_repository_access(self):
+        claude = ralph_agent.ClaudeAdapter("claude-opus-5", role="review")
+        codex = ralph_agent.CodexAdapter("gpt-5-codex", role="review")
+        self.assertIn("plan", claude.argv())
+        self.assertNotIn("--dangerously-skip-permissions", claude.argv())
+        self.assertEqual(codex.argv()[codex.argv().index("--sandbox") + 1],
+                         "read-only")
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", codex.argv())
+
+    def test_review_role_receives_no_github_credential(self):
+        rec = Recorder()
+        old = dict(os.environ)
+        os.environ.update(GH_TOKEN="gh", GITHUB_TOKEN="github",
+                          GH_ENTERPRISE_TOKEN="enterprise")
+        try:
+            ralph_agent.CodexAdapter("gpt-5-codex", role="review").launch(
+                "prompt", run=rec)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
+            self.assertNotIn(name, rec.env)
+
 
 class AdaptersClassifyTheOutcome(unittest.TestCase):
     """AC: each adapter classifies normal completion, session exhaustion, and

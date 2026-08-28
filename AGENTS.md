@@ -118,6 +118,28 @@ not HITL) and `docs/adr/0001–0005`.
   `state:in-review`. It never merges, closes, or emits `state:awaiting-bench`, and refuses
   `main` and an unmarked existing PR. `bin/ralph.sh` calls `--implementation-green` for the
   done signal; the older AFK/HIL completion modules are no longer implementation-green paths.
+- `lib/ralph_review_context.py` builds the diff-first, commit-bound evidence bundle for one
+  Negotiation Round (#50, PRD #42): pure `build_context(...) -> ContextResult` plus the
+  `--review-context STORY PR ROUND [ROOT]` CLI (exit 2 on incomplete evidence). It refuses
+  unless the PR carries `ralph_review`'s managed marker and an exact `baseRefOid`/`headRefOid`,
+  and the CLI `rev-parse`s the head and asserts it resolves to itself **before** reading the
+  base/head diff — a bundle bound to a moving ref would have the reviewer judging a head that
+  no longer exists. GOTCHAS: (1) the bundle is evidence, never a Handoff — `durable_discussion`
+  admits only the *pull request's* comments and reviews, because Story comments are exactly
+  where Handoffs, Attempts, and implementation session notes live; `HANDOFF_MARKER` bodies are
+  dropped on top of that as belt-and-braces. (2) `_section` strips the trailing canonical
+  `Parent:`/`Depends on:` metadata off the Acceptance Criteria — that is selection state, not
+  acceptance evidence. (3) `repository_evidence` is deliberately **scoped, not the checkout**:
+  root `AGENTS.md` plus every `AGENTS.md` nearest-first up from each changed path, then
+  `CONTEXT.md` + `docs/adr/*.md` — an unrelated sibling directory never enters the prompt (the
+  reviewer reads the rest of the tree itself, read-only). (4) The read-only half of the AC is
+  **not** in this module and is not asked for in the prompt: `ralph_agent` adapters take a
+  `role`, and `role="review"` launches `claude --safe-mode --permission-mode plan
+  --no-session-persistence` / `codex exec --sandbox read-only --ephemeral
+  --ignore-user-config` instead of the implementation role's bypass flags, and strips
+  `GH_TOKEN`/`GITHUB_TOKEN`/`GH_ENTERPRISE_TOKEN` from the child env. Enforced at launch, so a
+  model that ignores its instructions still cannot mutate the checkout or reach GitHub — which
+  is what CONTEXT.md's Review Agent ("is read-only, and holds no GitHub credential") promises.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

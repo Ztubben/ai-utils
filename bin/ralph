@@ -18,6 +18,7 @@
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
 #   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
 #   ralph --implementation-green STORY [CONFIG] [PRD]  Open/update the marked review PR.
+#   ralph --review-context STORY PR ROUND [ROOT]  Print exact-head review evidence.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -47,6 +48,7 @@ usage: ralph --init [CONFIG]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --classify-session RC
        ralph --implementation-green STORY [CONFIG] [PRD]
+       ralph --review-context STORY PR ROUND [ROOT]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -157,6 +159,15 @@ usage: ralph --init [CONFIG]
                           targets main. PRD is required for a Feature Story.
                           Exits 0 on success, 1 on git/gh failure, and 2 on bad
                           config or refusal (including an unmarked existing PR).
+  --review-context        Print the diff-first evidence bundle for one fresh
+       STORY PR ROUND     Review Agent round. STORY and PR are gh-shaped JSON
+       [ROOT]             files; PR must carry exact baseRefOid/headRefOid,
+                          statusCheckRollup, comments/reviews, and Ralph's
+                          managed marker. Includes scoped AGENTS.md guidance,
+                          CONTEXT.md/ADRs, CI and durable PR discussion, but no
+                          implementation session or Handoff. ROOT defaults to
+                          the checkout. The head is resolved exactly before the
+                          base/head diff is read. Exits 2 on incomplete evidence.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -304,6 +315,10 @@ main() {
     --implementation-green)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_implementation.py" green "$@"
+      ;;
+    --review-context)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_context.py" bundle "$@"
       ;;
     --complete-afk)
       shift
