@@ -163,6 +163,27 @@ not HITL) and `docs/adr/0001–0005`.
   are asserted equal by a test — keep them in step. (6) Error rendering is
   `ralph_config.format_error` (renamed from private for this reuse), so both
   validators name the offending field path identically.
+- `lib/ralph_review_render.py` turns a validated result into ordinary GitHub review
+  artifacts (#52, PRD #42): pure `review_body` / `inline_comments` / `review_payload` /
+  `check_command` / `render_plan(result, pr, payload_path) -> Plan`, plus `run_plan` and
+  the `--render-review REVIEW PR [DIFF]` CLI (0 posted, 1 gh failure, 2 refusal).
+  GOTCHAS: (1) the review is **always** `event: COMMENT` — GitHub refuses APPROVE and
+  REQUEST_CHANGES on a pull request the same account authored, and Ralph's PRs are
+  opened with the operator's own credential, so a verdict-shaped event would 422 exactly
+  when it matters. The verdict rides on the one stable commit-status context
+  `ralph/model-review` (request_changes → failure, otherwise success), which is what a
+  target repository requires in branch protection. (2) A **stale head refuses before any
+  request**: nothing posted, check untouched, both commits named — stale findings
+  describe code that is no longer there. Same for an unmarked PR. (3) The CLI re-runs
+  `ralph_review_result.validate_review` at the posting site, so the #51 gate holds even
+  if a caller skips `--validate-review`; pass DIFF and a location the diff never touched
+  is caught here rather than as a whole-review 422. (4) Inline threads anchor on the new
+  side: a range is `start_line`..`line` (GitHub addresses a multi-line thread by its last
+  line), and a single-line finding sends **no** `start_line` — `start_line == line` is
+  rejected. (5) The nested `comments[]` body cannot be expressed with `gh api -f`, so the
+  CLI writes the payload to a temp file and the plan carries `--input PATH`; the plan
+  stays a pure argv list and `run_plan` is unchanged (contrast: do not teach the shared
+  Plan/run_plan shape about stdin for one caller).
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

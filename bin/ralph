@@ -20,6 +20,7 @@
 #   ralph --implementation-green STORY [CONFIG] [PRD]  Open/update the marked review PR.
 #   ralph --review-context STORY PR ROUND [ROOT]  Print exact-head review evidence.
 #   ralph --validate-review PAYLOAD [DIFF]  Validate a structured review result.
+#   ralph --render-review REVIEW PR [DIFF]  Post a validated review + its required check.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -51,6 +52,7 @@ usage: ralph --init [CONFIG]
        ralph --implementation-green STORY [CONFIG] [PRD]
        ralph --review-context STORY PR ROUND [ROOT]
        ralph --validate-review PAYLOAD [DIFF]
+       ralph --render-review REVIEW PR [DIFF]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -183,6 +185,19 @@ usage: ralph --init [CONFIG]
                           diff never touched. Exits 0 when the result may be
                           posted, 1 (naming the offending fields) when it may
                           not, 2 on unreadable input.
+  --render-review         Render a validated review result onto its pull
+       REVIEW PR [DIFF]   request: located findings as inline threads on the
+                          reviewed commit, cross-cutting ones in the review
+                          body, under a header naming the reviewing model, the
+                          round and that commit. The review is posted as a
+                          COMMENT (GitHub refuses APPROVE/REQUEST_CHANGES on a
+                          self-authored PR); the verdict is carried by the one
+                          stable required check ralph/model-review. REVIEW and
+                          PR are JSON files (- for stdin); the result is
+                          re-validated first, so unvalidated output is never
+                          posted. A result whose head is no longer the PR's
+                          head posts nothing and updates no check. Exits 0 on
+                          success, 1 on a gh failure, 2 on a refusal.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -338,6 +353,10 @@ main() {
     --validate-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_result.py" validate "$@"
+      ;;
+    --render-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_render.py" render "$@"
       ;;
     --complete-afk)
       shift

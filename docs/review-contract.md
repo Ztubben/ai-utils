@@ -102,6 +102,30 @@ margin to Ralph's own framing, and above 50 findings. Individual fields carry
 their own caps in the schema. A reviewer that restates the diff back at the
 author hits these limits; one that reports what it found does not.
 
+## How a validated result is rendered
+
+`ralph --render-review REVIEW PR [DIFF]` re-validates the result and then posts
+it. Located findings become inline review threads anchored on the new side of
+the reviewed commit; a multi-line finding is anchored at its last line with
+`start_line` above it. Cross-cutting findings are written into the review body
+under the header naming the reviewing model, the round, and the reviewed
+commit. Nothing appears twice: a located finding is never repeated in the body.
+
+The review is always posted with `event: COMMENT`. GitHub refuses APPROVE and
+REQUEST_CHANGES on a pull request the same account authored, and Ralph's pull
+requests are opened with the operator's own credential, so a verdict-shaped
+event would fail exactly when Ralph needs it most. The verdict is carried
+instead by one stable commit-status context, **`ralph/model-review`**:
+`request_changes` sets it to `failure`, `approve` and `comment` set it to
+`success`, and its description repeats the round, the model, and the number of
+blocking findings. A target repository requires that one context in branch
+protection and never has to track a per-round or per-model check name.
+
+A result is bound to the commit it judged. If the pull request head has moved
+on, the rendering is refused before any request is made: nothing is posted, the
+check is left alone, and the reason names both commits. Stale findings describe
+code that is no longer there.
+
 ## Validating a payload
 
 ```
