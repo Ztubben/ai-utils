@@ -228,6 +228,15 @@ class FreshnessTickHarness:
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = "91"
+        # The tick is often launched *by* a Ralph iteration, whose environment
+        # names the real CLI (RALPH_CLAUDE) and its in-flight story. Inheriting
+        # those would make this harness drive the live claude binary instead of
+        # the mock on PATH, so pin/strip them.
+        e["RALPH_CLAUDE"] = "claude"
+        for leaked in ("RALPH_ITERATION_ACTION", "RALPH_ITERATION_ISSUE",
+                       "RALPH_SESSION_LIMIT_MARKER", "RALPH_CONFIG",
+                       "RALPH_MAX_ITERATIONS", "RALPH_CLI"):
+            e.pop(leaked, None)
         e["RALPH_CLAUDE_EXIT"] = claude_exit
         e["RALPH_CLAUDE_EMIT"] = claude_emit
         return e
