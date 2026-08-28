@@ -307,7 +307,7 @@ class EveryInvocationEmitsOneEvent(unittest.TestCase):
         return ralph_review_round.conduct(
             self.story(), pull_request or self.pull_request(),
             "# Ralph Review Context v1\n", launch=launch,
-            publish=lambda review: (True, []))
+            publish=lambda review, usage_event=None: (True, []))
 
     def test_a_published_round_reports_what_the_reviewer_cost(self):
         event = self.conduct(self.launcher()).usage_event

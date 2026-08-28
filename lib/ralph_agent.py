@@ -30,6 +30,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_ledger  # noqa: E402
 import ralph_models  # noqa: E402
 import ralph_session  # noqa: E402
 import ralph_usage  # noqa: E402
@@ -392,12 +393,16 @@ def _cmd_launch(rest):
     # The tick launches the Implementation Agent straight through here, so this
     # is where that invocation is accounted for (#62). On stderr, deliberately:
     # stdout is the agent's own words, and the tick reads its done-signal there.
-    ralph_usage.emit(ralph_usage.invocation_event(
+    event = ralph_usage.invocation_event(
         outcome.usage, role=role,
         phase=(ralph_usage.REVIEW if role == "review"
                else ralph_usage.IMPLEMENTATION),
         model=outcome.model, provider=outcome.provider,
-        story=(story or {}).get("number")))
+        story=(story or {}).get("number"))
+    ralph_usage.emit(event)
+    # And durably, on the Story's ledger (#63) -- best-effort, so a gh blip
+    # costs a row and never the iteration that row described.
+    ralph_ledger.record((story or {}).get("number"), event)
     return outcome.cli_exit
 
 

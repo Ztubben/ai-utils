@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - environment guard
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
 import ralph_review_render  # noqa: E402
@@ -214,7 +215,7 @@ def reply_commands(response, review_comments, pull_number):
     return commands
 
 
-def response_comment(response, new_head):
+def response_comment(response, new_head, usage_event=None):
     """The consolidated answer: prose for people, the record for the loop."""
     lines = [
         "Ralph implementation response — round %s" % response["round"],
@@ -228,6 +229,9 @@ def response_comment(response, new_head):
     ]
     for disposition in response["dispositions"]:
         lines += [disposition_body(disposition), ""]
+    footer = ralph_ledger.usage_footer(usage_event)
+    if footer:
+        lines += ["---", "", footer, ""]
     lines += ["", ralph_review.response_record(response)]
     return "\n".join(lines)
 
@@ -260,7 +264,7 @@ def conduct(story, pull_request, result, context, launch, publish, checkout):
         return RespondResult(False, errors, NOT_APPEND_ONLY, head=head,
                              new_head=new_head, response=answer,
                              usage_event=event)
-    ok, errors = publish(answer, new_head)
+    ok, errors = publish(answer, new_head, event)
     return RespondResult(ok, errors, RESPONDED, head=head, new_head=new_head,
                          response=answer, usage_event=event)
 
@@ -410,7 +414,7 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         return ralph_agent.launch_role(config, "implementation", prompt,
                                        story=story)
 
-    def publish(answer, new_head):
+    def publish(answer, new_head, usage_event=None):
         # The push comes first: until the fix is on the remote there is no new
         # head for CI and the next review round to judge, and the replies would
         # describe commits nobody else can see. Never --force -- the invariant
@@ -430,7 +434,8 @@ def respond_to_review(story, pull_request, config, root, comments=None):
             return False, ["could not read the review threads: %s" % exc]
         commands = reply_commands(answer, threads, number)
         commands.append(["gh", "pr", "comment", str(number), "--body",
-                         response_comment(answer, new_head)])
+                         response_comment(answer, new_head,
+                                          usage_event=usage_event)])
         run = ralph_review_render.run_plan(commands, cwd=root)
         if not run.ok:
             return False, ["%s: exit %d" % (" ".join(run.failed.args),
@@ -440,6 +445,8 @@ def respond_to_review(story, pull_request, config, root, comments=None):
     outcome = conduct(story, pull_request, result, context.text, launch,
                       publish, Checkout(root))
     ralph_usage.emit(outcome.usage_event)
+    ralph_ledger.record(story.get("number"), outcome.usage_event, cwd=root,
+                        comments=comments)
     if outcome.ok:
         print("OK: answered round %s of #%s; %s is now %s"
               % (result.get("round"), story["number"], outcome.head,

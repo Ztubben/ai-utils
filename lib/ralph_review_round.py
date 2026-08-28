@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
 import ralph_review_render  # noqa: E402
@@ -180,7 +181,9 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
             False, ["head: the reviewer judged %s, not the pull request head %s"
                     % (validation.review["head"], head)],
             INVALID_OUTPUT, head=head, invocations=1, usage_event=event)
-    ok, errors = publish(validation.review)
+    # The review carries its own invocation's cost as a footer (#63), so
+    # publishing has to know it -- hence the second argument.
+    ok, errors = publish(validation.review, event)
     return RoundResult(ok, errors, PUBLISHED, round_no=validation.review["round"],
                        head=head, invocations=1, review=validation.review,
                        usage_event=event)
@@ -360,10 +363,11 @@ def run_round(story, pull_request, config, root, comments=None):
     # withdrawal to be inferred from silence.
     prior_findings = ralph_review.previous_findings(comments)
 
-    def publish(review):
+    def publish(review, usage_event):
         posted = ralph_review_render.publish(review, pull_request, cwd=root,
                                              story_number=story.get("number"),
-                                             prior_findings=prior_findings)
+                                             prior_findings=prior_findings,
+                                             usage_event=usage_event)
         return posted.ok, posted.errors
 
     result = conduct(story, pull_request, context.text, launch, publish,
@@ -372,6 +376,8 @@ def run_round(story, pull_request, config, root, comments=None):
     # Emitted here rather than inside `conduct`, which stays pure. One line per
     # invocation, whatever the invocation produced (#62).
     ralph_usage.emit(result.usage_event)
+    ralph_ledger.record(story.get("number"), result.usage_event, cwd=root,
+                        comments=comments)
     number = pull_request.get("number", "?")
     if result.kind == ALREADY_REVIEWED:
         print("OK: %s is already reviewed on PR #%s; no invocation spent"

@@ -420,6 +420,28 @@ not HITL) and `docs/adr/0001–0005`.
   emits it — and an invocation that produced nothing publishable is still accounted for,
   because a ledger counting only successes understates exactly the weeks worth
   understanding. `RALPH_RUN_ID` is exported once per tick so one run's events group.
+- `lib/ralph_ledger.py` is the **per-Story token ledger and the PR usage footers**
+  (#63, PRD #42): pure `ledger_body` / `parse_payload` / `find_ledger` / `comment_id` /
+  `usage_footer` / `ledger_plan(story, comments, event) -> LedgerPlan`, plus the live
+  best-effort `record(story, event, cwd=, comments=)`. One machine-managed Story comment
+  carries a readable table *and* the versioned `ralph-usage-ledger/v1` payload; the first
+  invocation creates it (`gh issue comment`), every later one edits that same comment
+  (`gh api --method PATCH .../issues/comments/{id}`). GOTCHAS: (1) the id that endpoint
+  needs is the **database** id, and `gh issue view --json comments` reports `id` as a
+  GraphQL node id — the database id only survives in the comment's `url`, which is where
+  `comment_id` reads it. A ledger with no addressable id is *reported*, never duplicated:
+  two comments both claiming to be canonical is the worse outcome. (2) `record` is
+  best-effort by construction and takes `comments=` from callers that already read them
+  (the round and the response both do), so recording a row costs no extra `gh issue view`.
+  (3) `ledger_body` trims the **oldest** rows past `MAX_BODY` (60000, GitHub's 65536 minus
+  framing) and states the dropped count in both views — a Story can outrun one comment,
+  and silently posting fewer rows would make the ledger quietly wrong. (4) The footer goes
+  on both agent responses (`review_body(..., usage_event=)` and `response_comment(...,
+  usage_event=)`), which is why `conduct`'s injected `publish` now takes the event as a
+  second argument in both stages. (5) A provider that reported nothing gets one honest
+  sentence, not "unavailable" five times; a reported `0` still prints as `0`. (6) The
+  implementation role's row is written by `ralph_agent._cmd_launch`, because the tick
+  launches that role directly rather than through a round.
 - **Infrastructure failures never spend a round** (#61, PRD #42) is two small changes,
   not a module. (1) `ralph_review_wait.act` now returns `(ok, errors, retryable)` —
   built by the new `step_outcome(rc, what)` — and `await_review` rides a *retryable*

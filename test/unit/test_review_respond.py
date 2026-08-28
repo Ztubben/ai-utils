@@ -81,7 +81,7 @@ class Agent:
         return ralph_agent.Outcome(self.kind, "claude", "claude-opus-5", 0,
                                    self.output), []
 
-    def publish(self, answer, head):
+    def publish(self, answer, head, usage_event=None):
         self.published.append((answer, head))
         return self.publish_ok, [] if self.publish_ok else ["gh: boom"]
 

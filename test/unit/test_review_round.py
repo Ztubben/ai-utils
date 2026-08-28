@@ -60,14 +60,16 @@ class Recorder:
         self.publish_ok = publish_ok
         self.prompts = []
         self.published = []
+        self.usage_events = []
 
     def launch(self, prompt):
         self.prompts.append(prompt)
         return ralph_agent.Outcome(self.kind, "claude", "claude-opus-5", 0,
                                    self.output), []
 
-    def publish(self, result):
+    def publish(self, result, usage_event=None):
         self.published.append(result)
+        self.usage_events.append(usage_event)
         return self.publish_ok, [] if self.publish_ok else ["gh: boom"]
 
 
@@ -365,8 +367,15 @@ notify:
         proc, calls = self.run_round()
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(len([ln for ln in calls.splitlines()
-                              if ln.startswith("gh issue comment 53")]), 1, calls)
+        # Two Story comments, each with its own job: the machine-readable
+        # review record, and the token ledger (#63).
+        posted = [ln for ln in calls.splitlines()
+                  if ln.startswith("gh issue comment 53")]
+        self.assertEqual(len(posted), 2, calls)
+        self.assertEqual(
+            len([ln for ln in posted
+                 if ralph_review.RESULT_MARKER_TEMPLATE.split("%s")[0] in ln]),
+            1, calls)
         # The record is recovered from the log exactly the way a later round
         # recovers it from the Story's comments.
         recorded = ralph_review.latest_result([{"body": calls}], self.head)

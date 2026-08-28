@@ -30,6 +30,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
+import ralph_failure  # noqa: E402
+import ralph_handoff  # noqa: E402
 
 PROVIDERS = sorted(ralph_agent.PROVIDERS)
 RALPH_SH = os.path.join(REPO_ROOT, "bin", "ralph.sh")
@@ -948,7 +950,11 @@ class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
         log = h.log_lines()
         self.assertEqual(len(h.agent_calls("codex")), 1, log)
         self.assertFalse(any("pr merge" in ln or "pr create" in ln for ln in log), log)
-        self.assertFalse(any("issue comment" in ln for ln in log), log)
+        # No Handoff and no Attempt: the story is simply left where it is. The
+        # token ledger (#63) is not either of those -- it records that the
+        # invocation happened, which it did.
+        self.assertFalse(any(ralph_handoff.HANDOFF_MARKER in ln for ln in log), log)
+        self.assertFalse(any(ralph_failure.ATTEMPT_MARKER in ln for ln in log), log)
 
 
 class TheTickRecordsTheModelAssignmentOnTheStory(unittest.TestCase):

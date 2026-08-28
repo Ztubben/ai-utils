@@ -10,6 +10,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_result  # noqa: E402
 
@@ -48,7 +49,7 @@ def _finding_block(finding):
     ])
 
 
-def review_body(result, prior_findings=None):
+def review_body(result, prior_findings=None, usage_event=None):
     """The pull-request review body: what reviewed what, then the prose.
 
     Located findings are deliberately absent: they are rendered as inline
@@ -79,6 +80,12 @@ def review_body(result, prior_findings=None):
     if findings:
         lines += ["", "## Cross-cutting findings", ""]
         lines.append("\n\n".join(_finding_block(f) for f in findings))
+    footer = ralph_ledger.usage_footer(usage_event)
+    if footer:
+        # This round's own cost, on this round's own review (#63): the ledger
+        # on the Story is the aggregate, and nobody reading a pull request
+        # should have to open it to see what the review in front of them cost.
+        lines += ["", "---", "", footer]
     return "\n".join(lines)
 
 
@@ -105,12 +112,13 @@ def inline_comments(result):
     return comments
 
 
-def review_payload(result, prior_findings=None):
+def review_payload(result, prior_findings=None, usage_event=None):
     """The exact JSON body for `POST /repos/{owner}/{repo}/pulls/{n}/reviews`."""
     return {
         "commit_id": result["head"],
         "event": REVIEW_EVENT,
-        "body": review_body(result, prior_findings=prior_findings),
+        "body": review_body(result, prior_findings=prior_findings,
+                            usage_event=usage_event),
         "comments": inline_comments(result),
     }
 
@@ -230,7 +238,7 @@ class PublishResult:
 
 
 def publish(result, pull_request, cwd=None, story_number=None,
-            prior_findings=None):
+            prior_findings=None, usage_event=None):
     """Post *result* onto *pull_request* and update the required check.
 
     The nested ``comments[]`` body cannot be expressed as `gh api -f`, so the
@@ -240,8 +248,8 @@ def publish(result, pull_request, cwd=None, story_number=None,
     payload = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="ralph-review-", delete=False)
     try:
-        json.dump(review_payload(result, prior_findings=prior_findings),
-                  payload, indent=2)
+        json.dump(review_payload(result, prior_findings=prior_findings,
+                                 usage_event=usage_event), payload, indent=2)
         payload.close()
         plan = render_plan(result, pull_request, payload.name,
                            story_number=story_number)
