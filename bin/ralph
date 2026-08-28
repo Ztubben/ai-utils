@@ -16,6 +16,7 @@
 #                                 Record the story's implementation/review model identities as labels.
 #   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
+#   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
 #   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
 #   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
@@ -45,6 +46,7 @@ usage: ralph --init [CONFIG]
        ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
+       ralph --classify-session RC
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -137,6 +139,14 @@ usage: ralph --init [CONFIG]
        [--allow-same-     is the outcome: 0 normal completion, 10 session
         model]            exhaustion, 12 infrastructure failure, 2 on a bad
                           config or a refused role resolution.
+  --classify-session RC   Decide whether a launched agent hit its session
+                          limit, given its exit code RC and its output on
+                          stdin. Detection is layered (an exit-code set, a
+                          family of wording patterns, and an additive
+                          RALPH_SESSION_LIMIT_MARKER override), anchored to the
+                          tail of the output so an agent *writing about* limits
+                          is not mistaken for a limit notice. Exits 10 on
+                          session exhaustion, 0 otherwise, 2 on bad input.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -276,6 +286,10 @@ main() {
     --launch-agent)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_agent.py" launch "$@"
+      ;;
+    --classify-session)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_session.py" classify "$@"
       ;;
     --complete-afk)
       shift

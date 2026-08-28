@@ -31,6 +31,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_models  # noqa: E402
+import ralph_session  # noqa: E402
 
 # The three outcomes an adapter distinguishes.
 NORMAL = "normal"
@@ -48,30 +49,12 @@ _CLI_EXIT = {NORMAL: EXIT_NORMAL,
              SESSION_EXHAUSTED: EXIT_SESSION_EXHAUSTED,
              INFRASTRUCTURE_FAILURE: EXIT_INFRASTRUCTURE_FAILURE}
 
-# Session-exhaustion signals, env-overridable per target repository because each
-# provider CLI spells the limit its own way and may change it.
-DEFAULT_SESSION_LIMIT_EXIT = 91
-DEFAULT_SESSION_LIMIT_MARKER = "usage limit reached"
-
 ROLES = ("implementation", "review")
 
 # Compatibility default for a target repository that has not declared a
 # `models:` catalog (it stays optional, #44): keep ticking on the provider Ralph
 # shipped with, at whatever model that CLI defaults to.
 DEFAULT_PROVIDER = "claude"
-
-
-def _session_limit_exit():
-    raw = os.environ.get("RALPH_SESSION_LIMIT_EXIT")
-    try:
-        return int(raw) if raw else DEFAULT_SESSION_LIMIT_EXIT
-    except ValueError:
-        return DEFAULT_SESSION_LIMIT_EXIT
-
-
-def _session_limit_marker():
-    return (os.environ.get("RALPH_SESSION_LIMIT_MARKER")
-            or DEFAULT_SESSION_LIMIT_MARKER).lower()
 
 
 def _run_process(argv, prompt, env):
@@ -132,8 +115,18 @@ class AgentAdapter:
         return env
 
     def classify(self, exit_code, output):
-        text = (output or "").lower()
-        if exit_code == _session_limit_exit() or _session_limit_marker() in text:
+        """The three-way verdict for one launch.
+
+        The session-limit half is deliberately not decided here:
+        `lib/ralph_session.py` owns that detection (#65) so the tick and every
+        provider adapter read one answer, layered across an exit-code set, a
+        family of wording patterns, and an operator marker -- and anchored to
+        the tail of the output, so an agent *writing about* limits is not
+        mistaken for a limit notice. This adds only the distinction that module
+        leaves to its caller: a clean exit finished, a dirty one is
+        infrastructure.
+        """
+        if ralph_session.classify(exit_code, output) == ralph_session.SESSION_EXHAUSTED:
             return SESSION_EXHAUSTED
         return NORMAL if exit_code == 0 else INFRASTRUCTURE_FAILURE
 

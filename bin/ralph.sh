@@ -43,6 +43,12 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 : "${RALPH_LOCK_DIR:=.git}"                 # flock lives in the superproject's .git/
 : "${RALPH_CONFIG:=.ralph.yml}"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
+# Session-limit detection lives in lib/ralph_session.py (#65), so the tick and
+# the provider adapters read one answer. The tick never classifies directly: the
+# adapter behind `ralph --launch-agent` calls that module and reports the verdict
+# as its exit code. The knobs (RALPH_SESSION_LIMIT_EXIT,
+# RALPH_SESSION_LIMIT_MARKER) are read from the environment there; no defaults
+# are pinned here.
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
 
 log() { printf 'ralph: %s\n' "$*"; }
@@ -86,8 +92,9 @@ sync_branch() {
 # `ralph --launch-agent` resolves the configured implementation Model Profile,
 # runs it in a fresh process, and reports the outcome as its exit code -- so the
 # provider is named nowhere in this script. Returns:
-#   RC_SESSION_LIMIT (10) when the agent signalled session-limit exhaustion --
-#                         the story gets checkpointed;
+#   RC_SESSION_LIMIT (10) when the agent signalled session-limit exhaustion (the
+#                         adapter's verdict, from lib/ralph_session.py) -- the
+#                         story gets checkpointed;
 #   RC_STORY_COMPLETE (11) when the iteration emitted the done-signal marker,
 #                         meaning the gate is green and every acceptance criterion
 #                         is checked -- the story gets promoted;
@@ -128,6 +135,9 @@ run_iteration() {
   rm -f "$story_file"
   [[ -n "$out" ]] && printf '%s\n' "$out"
 
+  # Session-limit takes priority over the done-signal: a truncated run is never
+  # complete. The adapter already classified the run through lib/ralph_session.py
+  # and returned RC_SESSION_LIMIT (10) on exhaustion, so the tick just reads it.
   if [[ "$rc" -eq "$RC_SESSION_LIMIT" ]]; then
     return "$RC_SESSION_LIMIT"
   fi

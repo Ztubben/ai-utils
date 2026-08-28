@@ -37,6 +37,9 @@ FULL_CONFIG = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid", "fu
 
 SESSION_LIMIT_EXIT = "91"
 STORY_COMPLETE_MARKER = "RALPH-STORY-COMPLETE"
+# The line the claude CLI actually emits at its session limit (#65). It carries
+# neither exit 91 nor the legacy "usage limit reached" marker.
+CURRENT_SESSION_LIMIT_OUTPUT = ("You've hit your session limit \u00b7 resets 9pm (Europe/Stockholm)")
 
 
 def story(number, state, type_="afk", prio=1, needs_human=False):
@@ -158,6 +161,12 @@ class TickHarness:
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = SESSION_LIMIT_EXIT
+        # The same tick also leaks its own in-flight story and knobs into the
+        # environment; inherited, they would steer the tick under test.
+        for leaked in ("RALPH_ITERATION_ACTION", "RALPH_ITERATION_ISSUE",
+                       "RALPH_SESSION_LIMIT_MARKER", "RALPH_CONFIG",
+                       "RALPH_MAX_ITERATIONS", "RALPH_CLI"):
+            e.pop(leaked, None)
         e["RALPH_AGENT_EXIT"] = agent_exit
         e["RALPH_AGENT_EMIT"] = agent_emit
         return e
@@ -246,6 +255,33 @@ class OrchestrationTest(unittest.TestCase):
         self.assertTrue(any("issue view 5" in ln for ln in log), log)
         self.assertTrue(any("issue comment 5" in ln for ln in log), log)
         self.assertIn("session limit", proc.stdout.lower())
+
+    def test_session_limit_wording_ends_the_tick_without_retrying(self):
+        # AC (#65): a session-limit hit on the *first* iteration of a tick ends
+        # the tick via checkpoint_story/RC_SESSION_LIMIT with no retry of the
+        # same story -- even when the CLI signals it only in its output, with an
+        # ordinary failure exit code rather than the legacy 91.
+        h = self.harness()
+        h.set_backlogs([story(5, "in-progress")])
+        h.set_view_story(story(5, "in-progress"))
+        proc = h.run(agent_exit="1", agent_emit=CURRENT_SESSION_LIMIT_OUTPUT)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        claude_calls = [ln for ln in log if ln.startswith("claude ")]
+        self.assertEqual(len(claude_calls), 1, log)          # no retry-storm
+        self.assertTrue(any("issue comment 5" in ln for ln in log), log)
+        self.assertIn("session limit", proc.stdout.lower())
+
+    def test_legacy_session_limit_marker_still_ends_the_tick(self):
+        # AC (#65): no regression on the old "usage limit reached" wording.
+        h = self.harness()
+        h.set_backlogs([story(5, "in-progress")])
+        h.set_view_story(story(5, "in-progress"))
+        proc = h.run(agent_exit="0", agent_emit="Claude usage limit reached.")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertEqual(len([ln for ln in log if ln.startswith("claude ")]), 1, log)
+        self.assertTrue(any("issue comment 5" in ln for ln in log), log)
 
     def test_halt_on_needs_human(self):
         # AC: the loop halts (needs-human) without launching an iteration.
