@@ -221,6 +221,41 @@ class AdaptersLaunchTheirModelInAFreshProcess(unittest.TestCase):
         for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
             self.assertNotIn(name, rec.env)
 
+    def test_review_role_cannot_reach_ghs_file_based_credential(self):
+        # Unsetting the token variables leaves `gh`'s config file behind
+        # (`~/.config/gh/hosts.yml`), which a logged-in operator has and which
+        # no environment strip reaches. `GH_CONFIG_DIR` overrides the whole
+        # lookup, so pointing it at an empty directory closes it (#64).
+        rec = Recorder()
+        old = dict(os.environ)
+        os.environ.update(GH_CONFIG_DIR="/home/operator/.config/gh",
+                          XDG_CONFIG_HOME="/home/operator/.config")
+        try:
+            ralph_agent.ClaudeAdapter("claude-opus-5", role="review").launch(
+                "prompt", run=rec)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        config_dir = rec.env["GH_CONFIG_DIR"]
+        self.assertNotEqual(config_dir, "/home/operator/.config/gh")
+        self.assertTrue(os.path.isdir(config_dir), config_dir)
+        self.assertEqual(os.listdir(config_dir), [],
+                         "the reviewer's gh config dir must hold no credential")
+
+    def test_implementation_role_keeps_its_github_credential(self):
+        # It is the only role permitted to commit and push, and it does so
+        # through Ralph's controlled workflow.
+        rec = Recorder()
+        old = dict(os.environ)
+        os.environ.update(GH_TOKEN="gh", GH_CONFIG_DIR="/home/operator/.config/gh")
+        try:
+            ralph_agent.ClaudeAdapter("claude-opus-5").launch("prompt", run=rec)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        self.assertEqual(rec.env.get("GH_TOKEN"), "gh")
+        self.assertEqual(rec.env.get("GH_CONFIG_DIR"), "/home/operator/.config/gh")
+
 
 class AdaptersClassifyTheOutcome(unittest.TestCase):
     """AC: each adapter classifies normal completion, session exhaustion, and

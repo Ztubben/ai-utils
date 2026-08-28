@@ -32,6 +32,7 @@ models:
 # merges, whatever its type. The mechanism must not approve changes to itself.
 control_plane:
   protected:
+    - .github/workflows/**
     - prompts/**
     - schema/**
     - lib/ralph_review*.py

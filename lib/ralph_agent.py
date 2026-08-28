@@ -23,10 +23,13 @@ exit-code contract (`EXIT_*`) that `ralph --launch-agent` returns and the tick
 reads. Session exhaustion outranks infrastructure failure: a truncated run is
 checkpointed and resumed, never counted as a crash.
 """
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
@@ -57,6 +60,30 @@ ROLES = ("implementation", "review")
 # `models:` catalog (it stays optional, #44): keep ticking on the provider Ralph
 # shipped with, at whatever model that CLI defaults to.
 DEFAULT_PROVIDER = "claude"
+
+
+# `gh` finds its credential in two places: the token environment variables, and
+# a config file -- `$GH_CONFIG_DIR/hosts.yml`, else `$XDG_CONFIG_HOME/gh`, else
+# `~/.config/gh`. Unsetting the variables leaves a logged-in operator's file
+# behind, so the review role points `GH_CONFIG_DIR` (which overrides the whole
+# lookup) at an empty directory instead (#64). That is what makes "the reviewer
+# holds no GitHub credential" true of the environment rather than only of the
+# read-only tool policy it is also held to.
+_CREDENTIAL_FREE_CONFIG_DIR = None
+
+
+def credential_free_config_dir():
+    """An empty directory to point a credential-free `gh` at.
+
+    Created once per process and removed at exit: it holds nothing worth
+    keeping, so every review launch can share the one directory.
+    """
+    global _CREDENTIAL_FREE_CONFIG_DIR
+    if _CREDENTIAL_FREE_CONFIG_DIR is None:
+        path = tempfile.mkdtemp(prefix="ralph-review-gh-")
+        atexit.register(shutil.rmtree, path, True)
+        _CREDENTIAL_FREE_CONFIG_DIR = path
+    return _CREDENTIAL_FREE_CONFIG_DIR
 
 
 def _run_process(argv, prompt, env):
@@ -121,9 +148,12 @@ class AgentAdapter:
             env.pop(name, None)
         if self.role == "review":
             # Review is evidence-only.  Even if a provider somehow escapes its
-            # local read-only tool policy, it receives no GitHub credential.
+            # local read-only tool policy, it receives no GitHub credential:
+            # neither the token variables, nor the config file `gh` would
+            # otherwise fall back to (#64).
             for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
                 env.pop(name, None)
+            env["GH_CONFIG_DIR"] = credential_free_config_dir()
         return env
 
     def unwrap(self, output):

@@ -26,6 +26,7 @@ its own backlog (ADR-0001 amendment). Either way, Ralph **never touches `main`**
 - [The `ralph` CLI](#the-ralph-cli)
 - [Failure handling](#failure-handling)
 - [Memory & learnings](#memory--learnings)
+- [Self-hosting: ai-utils' own deployment](#self-hosting-ai-utils-own-deployment)
 - [Project layout](#project-layout)
 - [Running the tests](#running-the-tests)
 - [Design decisions](#design-decisions)
@@ -556,6 +557,63 @@ on the issue instead). There is deliberately **no `progress.txt`**.
 > harness used to *construct* ai-utils itself — it does use a `progress.txt`.
 > Don't confuse it with the tool being built, which ships none.
 
+## Self-hosting: ai-utils' own deployment
+
+When ai-utils is the checkout root it is its own target repository (ADR-0001
+amendment), so it commits the same things any other target repository does. What
+follows is **an instance of the public contracts, not a default** — a repository
+that mounts ai-utils as a submodule inherits none of it and supplies its own.
+
+| What | Where | ai-utils' choice |
+| --- | --- | --- |
+| Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`claude-opus-5`) implements, `codex-high` (`gpt-5-codex`) reviews, alternating |
+| Quality gate | `.ralph.yml` `gating` | one step, `test`, running `test/run.sh` |
+| CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `develop`; job named `test` so its check matches the gating step |
+| Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
+| Base branch | `.ralph.yml` `branching.base` | `develop`; promoting `develop` → `master` is human-owned |
+
+**Branch protection on `develop`.** Two checks are required — `test` (CI) and
+`ralph/model-review` (the verdict Ralph publishes) — and **no** approving reviews
+are. Ralph opens its pull requests with the operator's own credential and cannot
+approve them, so requiring an approval would turn every AFK Story into a
+human-gated one; human approval where it genuinely matters (a protected-path
+change, a deadlock, an override) is enforced by Ralph itself, not by GitHub.
+Administrators stay outside the restriction, so a human can still merge a
+feature-integration pull request (ADR-0006), which carries no model review of its
+own. To reproduce the setting:
+
+```sh
+gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
+  --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": false,
+    "contexts": ["test", "ralph/model-review"]
+  },
+  "required_pull_request_reviews": null,
+  "enforce_admins": false,
+  "restrictions": null
+}
+JSON
+```
+
+**The pushing credential needs `workflow` scope.** GitHub refuses a push that
+creates or updates anything under `.github/workflows/` from a token without it,
+so once a target repository carries CI, the credential Ralph pushes with must
+have it or a Story touching CI cannot land its own branch:
+
+```sh
+gh auth refresh -h github.com -s workflow
+```
+
+**The reviewer's credential boundary.** The Review Agent is launched read-only
+and holds no GitHub identity: the adapter strips `GH_TOKEN`, `GITHUB_TOKEN` and
+`GH_ENTERPRISE_TOKEN` from its environment *and* points `GH_CONFIG_DIR` at an
+empty directory, so `gh`'s file-based credential (`~/.config/gh/hosts.yml`) is
+out of reach too. Everything the reviewer says reaches GitHub through the trusted
+wrapper, which validates it first. This part is shipped behaviour, not an
+ai-utils setting — every target repository gets it.
+
 ## Project layout
 
 ```
@@ -580,6 +638,7 @@ skills/          Authoring skills shipped with the tool (ralph-story + examples)
 scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
 docs/adr/        Architecture Decision Records (0001–0005).
 test/            Green gate: test/run.sh, unit tests, fixtures, optional bats.
+.github/workflows/  ai-utils' own CI (self-hosting only — not inherited by a submodule mount).
 .ralph.yml.sample  Documented sample config (a test asserts it validates).
 ```
 

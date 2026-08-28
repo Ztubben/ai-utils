@@ -140,6 +140,12 @@ not HITL) and `docs/adr/0001–0005`.
   `GH_TOKEN`/`GITHUB_TOKEN`/`GH_ENTERPRISE_TOKEN` from the child env. Enforced at launch, so a
   model that ignores its instructions still cannot mutate the checkout or reach GitHub — which
   is what CONTEXT.md's Review Agent ("is read-only, and holds no GitHub credential") promises.
+  (5) Unsetting those variables is only half of it (#64): `gh` also authenticates from
+  `$GH_CONFIG_DIR/hosts.yml`, else `$XDG_CONFIG_HOME/gh`, else `~/.config/gh` — a logged-in
+  operator's file, which no environment strip reaches. The review role therefore *sets*
+  `GH_CONFIG_DIR` to `ralph_agent.credential_free_config_dir()`, an empty per-process
+  directory (`GH_CONFIG_DIR` overrides the whole lookup, so one variable closes all three
+  paths). The implementation role keeps its credential — it pushes.
 - `lib/ralph_review_result.py` + `schema/review.schema.json` are the versioned
   structured-review contract and its validator (#51, PRD #42): pure
   `changed_lines(diff)` / `validate_review(payload, changed=, raw=) ->
@@ -361,6 +367,24 @@ not HITL) and `docs/adr/0001–0005`.
   would merge a control-plane change on a model review alone. (5) `ai-utils`'s own
   `.ralph.yml` declares its review machinery protected — it is its own target repository
   (ADR-0001 amendment), and dogfooding the rule is the point of it.
+- **`ai-utils`' own deployment** (#64, PRD #42) is an *instance* of the public contracts,
+  never a default a submodule mount inherits: `.ralph.yml` (profiles, defaults, protected
+  paths, `notify`), `.github/workflows/test.yml` (CI — the same `test/run.sh` the gating
+  step runs, job named `test` so the check name matches the gating step name), and
+  `develop`'s branch protection. README's *Self-hosting* section carries the protection
+  settings as a reproducible `gh api` call. GOTCHAS: (1) `develop` requires the `test` and
+  `ralph/model-review` contexts but **no approving reviews** — Ralph opens its pull requests
+  with the operator's own credential and cannot approve them, so a required approval would
+  human-gate every AFK Story; the approvals that matter (protected path, deadlock, override)
+  are Ralph's own gate, not GitHub's. (2) `enforce_admins` stays **false** so a human can
+  merge a feature-integration pull request (ADR-0006), which carries no `ralph/model-review`
+  check of its own and would otherwise be unmergeable. (3) `.github/workflows/**` is itself
+  protected: the CI the gate reads must not be weakenable by an unattended Story. (4) Once a
+  target repository carries CI, the credential the Implementation Agent pushes with needs
+  GitHub's **`workflow` scope** — a push that creates or updates anything under
+  `.github/workflows/` is rejected without it (`gh auth refresh -h github.com -s workflow`).
+  The push fails at the git layer, so it looks like an ordinary Attempt failure rather than
+  a permissions problem; check the scope before chasing the diff.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the
