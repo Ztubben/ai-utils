@@ -1,15 +1,16 @@
 """Pure story-selection engine for the Ralph Loop (US-004, ADR-0002).
 
 Given the superproject backlog (GitHub issues in `gh --json` shape), decide the
-single next action Ralph should take -- resume an in-progress story, start a
+single next action Ralph should take -- resume active work, start a
 ready one, do nothing, or halt -- and change nothing. The decision is a pure
 function over a normalized story list (no network, no LLM) so the crown-jewel
 logic stays deterministic and unit-testable; the CLI wrapper (`ralph --dry-run`)
 does the live gh scan and the printing.
 
 Rules (ADR-0002, CONTEXT.md):
-  - Resume-first: any state:in-progress story is chosen before any state:ready
-    scan (a prior iteration checkpointed it via Handoff).
+  - Resume-first: any active story (`state:in-progress` or `state:in-review`)
+    is chosen before any `state:ready` scan. In Review remains active for the
+    whole model-review negotiation and is never offered as fresh work.
   - Ordering: key is (prio, afk-before-hil, issue#) ascending. Within the same
     prio:N -- and among prio-less stories -- type:afk sorts ahead of type:hil,
     with lowest issue number (FIFO) as the final tiebreak. An explicit prio:N
@@ -122,9 +123,9 @@ def _deps_satisfied(story, by_number):
     """A `Depends on:` edge (own or inherited from the PRD) is satisfied only
     when the referenced issue is Passing (closed) *and* its code is reachable
     from the dependent. A dep absent from the scanned backlog is treated as
-    already done. Any open dependency (ready/in-progress/awaiting-bench/
-    blocked) -- including an unverified HIL story -- leaves the dependent
-    ineligible.
+    already done. Any open dependency (ready/in-progress/in-review/
+    awaiting-bench/blocked) -- including an unverified HIL story -- leaves the
+    dependent ineligible.
     """
     for dep in _effective_deps(story, by_number):
         target = by_number.get(dep)
@@ -176,10 +177,11 @@ def select_next(stories):
     # carries, it must not come back as a start or resume action.
     open_stories = [s for s in open_stories if not s.get("is_prd")]
 
-    in_progress = [s for s in open_stories
-                   if s["state"] == "in-progress" and not s["is_blocker"]]
-    if in_progress:
-        return Action(RESUME, sorted(in_progress, key=_order_key)[0])
+    active = [s for s in open_stories
+              if s["state"] in ("in-progress", "in-review")
+              and not s["is_blocker"]]
+    if active:
+        return Action(RESUME, sorted(active, key=_order_key)[0])
 
     by_number = {s["number"]: s for s in stories if s["number"] is not None}
     ready = [s for s in open_stories
@@ -188,7 +190,7 @@ def select_next(stories):
     if ready:
         return Action(START, sorted(ready, key=_order_key)[0])
 
-    return Action(NO_WORK, reason="no eligible ready or in-progress stories")
+    return Action(NO_WORK, reason="no eligible ready or active stories")
 
 
 def next_action(raw_issues):

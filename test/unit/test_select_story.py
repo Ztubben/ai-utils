@@ -56,6 +56,19 @@ def action_for(*stories):
 
 
 class ResumeFirst(unittest.TestCase):
+    def test_in_review_is_resumed_before_any_ready_scan(self):
+        act = action_for(
+            story(1, state="ready", type_="afk", prio=1),
+            story(48, state="in-review", type_="afk", prio=9),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.RESUME, 48))
+
+    def test_in_review_is_active_work_not_a_fresh_start(self):
+        act = action_for(
+            story(48, state="in-review", type_="afk", prio=1),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.RESUME, 48))
+
     def test_in_progress_is_chosen_before_any_ready_scan(self):
         act = action_for(
             story(1, state="ready", type_="afk", prio=1),

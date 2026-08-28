@@ -61,7 +61,7 @@ For an AFK story: CI is green. For a HIL story: CI is green **and** the human ha
 _Avoid_: complete, finished, closed (use "passing" / "Done")
 
 **Tick**:
-One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes any story already in `state:in-progress` (from a prior checkpoint) before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Only one tick per superproject runs at a time, guarded by a `flock` lockfile in `.git/`; an overlapping tick exits immediately. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
+One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes active work — a Story in `state:in-progress` from an implementation checkpoint or in `state:in-review` during model-review negotiation — before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Only one tick per superproject runs at a time, guarded by a `flock` lockfile in `.git/`; an overlapping tick exits immediately. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
 _Avoid_: run, cron run (use "tick")
 
 **Iteration**:

@@ -3,7 +3,11 @@
 Ralph reads the superproject's backlog from GitHub Issues. The authoritative, machine-readable encoding is **labels + issue-body conventions**, queried with `gh` over REST. A GitHub Projects v2 board, if used, is only a human-facing view derived from the labels — it is never what Ralph reads.
 
 Encoding:
-- **State** (mutually exclusive): `state:ready` → `state:in-progress` → `state:awaiting-bench` → closed (= Done).
+- **State** (mutually exclusive): `state:ready` → `state:in-progress` →
+  `state:in-review` → `state:awaiting-bench` → closed (= Done). An AFK
+  Story closes directly from In Review once CI and review are satisfied; a HIL
+  Story first moves to Awaiting Bench Verification. A Story stays In Review
+  throughout reviewer waiting, implementation fixes, disputes, and adjudication.
 - **Type**: `type:afk` / `type:hil`.
 - **Priority**: an **optional** `prio:N` label (lower = higher priority), at most one per story. Not issue-number ordering, so stories can be reprioritized without renumbering. Ties within a `prio:N` break by **lowest issue number (pure FIFO)** — deterministic and predictable, deliberately avoiding fan-out/AFK-first heuristics so Ralph never second-guesses the encoded priority. A story that carries **no** `prio:N` sorts as lowest priority (behind every prioritized story) and falls back to pure FIFO among other prio-less stories — so priority is a deliberate override you add only when a story must jump the queue, not a tax on every issue.
 

@@ -34,7 +34,9 @@ not HITL) and `docs/adr/0001–0005`.
   `Action`). It reuses `ralph_story`'s field extraction but owns ordering (optional prio
   ascending — absent prio sorts last — ties by lowest issue number, FIFO) and dependency
   satisfaction. The scan must request the
-  gh `state` field: a `Depends on:` edge is satisfied only when the referenced issue is
+  gh `state` field. Active Stories (`state:in-progress` or `state:in-review`) resume
+  before any Ready Story starts. A `Depends on:` edge is satisfied only when the
+  referenced issue is
   closed (an AFK dep once merged, a HIL dep once bench-verified — both surface as closed).
   Don't confuse gh's `state` (OPEN/CLOSED) with the `state:` label (ready/in-progress/…).
   Backlog fixtures (JSON arrays of gh-shaped issues) live under `test/fixtures/backlogs/`.

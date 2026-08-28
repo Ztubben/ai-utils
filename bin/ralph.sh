@@ -7,7 +7,8 @@
 #      overlapping tick exits immediately (lockfile in .git/, ADR: Tick).
 #   2. validates .ralph.yml at tick start (fails loud, ADR-0001).
 #   3. drives the pure selection engine (`ralph --dry-run`) which is resume-first:
-#      any state:in-progress story is resumed before scanning for new state:ready
+#      any active Story (state:in-progress or state:in-review) is resumed before
+#      scanning for new state:ready
 #      work.
 #   4. launches a fresh-context Implementation Agent iteration per selected
 #      story -- through the provider-neutral adapter interface, so which
@@ -339,7 +340,7 @@ tick() {
         log "$kind #$issue"
         # `start` moves a state:ready story into state:in-progress up front, so a
         # checkpoint/partial pass/completion all see the expected state. `resume`
-        # is already in-progress (a prior tick moved it), so it is left alone.
+        # is already active (in-progress or in-review), so it is left alone.
         if [[ "$kind" == "start" ]]; then
           begin_story "$issue"
         fi

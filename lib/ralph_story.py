@@ -24,7 +24,7 @@ A design-decision Blocker (carries `ready-for-human`) is not a third story
 type: it is kept out of `state:ready` so the loop never picks it up, and is
 exempt from the state/type/acceptance rules until a human reclassifies it.
 Otherwise a workable story additionally requires:
-  - exactly one state:* label (ready|in-progress|awaiting-bench|blocked)
+  - exactly one state:* label (ready|in-progress|in-review|awaiting-bench|blocked)
   - exactly one type:* label (afk|hil)
   - a `## Acceptance Criteria` checklist with at least one `- [ ]` item
   - HIL stories also carry a `## Bench Test Procedure` section
@@ -33,7 +33,7 @@ import json
 import re
 import sys
 
-STATES = ("ready", "in-progress", "awaiting-bench", "blocked")
+STATES = ("ready", "in-progress", "in-review", "awaiting-bench", "blocked")
 TYPES = ("afk", "hil")
 BLOCKER_LABEL = "ready-for-human"
 PRD_LABEL = "prd"

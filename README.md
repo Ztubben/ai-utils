@@ -70,7 +70,10 @@ The backlog lives entirely in GitHub Issue **labels + body conventions** — thi
 is what Ralph reads, not a Projects board. The scheme is **mandated and not
 configurable**:
 
-- **State** (exactly one): `state:ready` → `state:in-progress` → `state:awaiting-bench` → *closed* (= Done).
+- **State** (exactly one): `state:ready` → `state:in-progress` →
+  `state:in-review` → `state:awaiting-bench` → *closed* (= Done). AFK
+  Stories close directly from In Review; HIL Stories pass through Awaiting
+  Bench Verification.
 - **Type** (exactly one): `type:afk` or `type:hil`.
 - **Priority** (optional, at most one): `prio:N`, lower = higher priority. A story with no `prio:N` sorts as lowest priority; ties (and prio-less stories) break by lowest issue number (FIFO). Add `prio:N` only to jump the queue.
 - **Dependencies**: a `Depends on: #12, #34` line in the body. A story is
@@ -212,8 +215,9 @@ crontab -e
 #   0 */5 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
 ```
 
-Once installed, Ralph wakes every 5 hours, resumes any in-progress story, works
-as many ready stories as the session budget allows, then sleeps until the next
+Once installed, Ralph wakes every 5 hours, resumes any active Story
+(`state:in-progress` or `state:in-review`), works as many Ready Stories as the
+session budget allows, then sleeps until the next
 tick. Run `ai-utils/bin/ralph.sh` by hand once first to confirm the config and
 auth are good before leaving it unattended.
 

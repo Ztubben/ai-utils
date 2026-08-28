@@ -22,7 +22,8 @@ instead (see the handoff prompt); that does not spend the Attempt budget.
 After `limits.max_attempts` (default 3) failed Attempts, `--record-attempt` moves
 the story to **state:blocked** with one terse comment. A blocked story is set aside;
 do not keep hammering it. Continue with other non-blocked eligible work — the
-selection engine will hand you the next `state:ready`/`state:in-progress` story.
+selection engine will hand the loop the next active (`state:in-progress` or
+`state:in-review`) Story before any `state:ready` Story.
 
 ## Circuit breaker
 

@@ -33,6 +33,8 @@ DEFAULT_PRIO_MAX = 5
 FIXED_LABELS = [
     ("state:ready", "0e8a16", "Ready for Ralph to start"),
     ("state:in-progress", "fbca04", "Ralph is actively working this story"),
+    ("state:in-review", "6f42c1",
+     "Story is in model-review negotiation"),
     ("state:awaiting-bench", "d93f0b",
      "HIL story: PR open, awaiting human bench verification"),
     ("state:blocked", "b60205",
