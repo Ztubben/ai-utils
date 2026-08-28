@@ -123,6 +123,14 @@ scheduler (every ~5h)
         │                          │           defect or safety regression, and never
         │                          │           extends the round limit.
         │                          │
+        │                          ├── human Approve ─► gate released over any
+        │                          │   open findings, escalation cleared, the
+        │                          │   override recorded on the Story
+        │                          ├── human Request changes ─► back to
+        │                          │   state:in-review, implementation model
+        │                          │   launched with the human's own words
+        │                          │   (prompts/arbitration.v1.md)
+        │                          │
         │                          ├── rounds spent, still disagreeing ─►
         │                          │   ralph --escalate-review (both sides'
         │                          │   arguments on the PR, native review
@@ -469,6 +477,8 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
+| `ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH]` | Act on the human's native GitHub review. **Approve** is authoritative: it releases the `ralph/model-review` check on the reviewed head even over unresolved model findings, clears any escalation (`state:blocked` → `state:in-review`), and records the override on the Story naming the reviewer and what it overrode. **Request changes** is authoritative feedback: the Story returns to `state:in-review` and the assigned implementation model is launched with the human's own words, append-only like any fix round. An ordinary comment changes no label, check, or state. Each native review is acted on exactly once. |
+| `ralph --blocked-stories [BACKLOG]` | Print the open `state:blocked` story numbers — the Stories a human may have arbitrated since the last tick. |
 | `ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]` | End automated negotiation for one deadlocked Story: summarize every unsettled blocking finding on the pull request with both sides' arguments, request a native GitHub review from `notify.github`, and move the Story from `state:in-review` to `state:blocked`. One Story only — unrelated Stories stay selectable, and whether the loop halts remains `limits.circuit_breaker`'s decision, which this newly blocked Story now counts toward. |
 | `ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]` | Answer a round that requested changes: launch the assigned implementation model with the open findings, verify the answer covers every one of them and that the new head is a *descendant* of the reviewed commit (an amend or force-push is refused, nothing posted), then push the appended fixes, reply in each finding's thread, and record one consolidated machine-readable response. A finding may be **disputed** with evidence instead of obeyed; a dispute changes no code, and the same commit goes back to a fresh reviewer to withdraw or uphold the finding. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |

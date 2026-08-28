@@ -235,9 +235,26 @@ def _load_backlog(path):
         return json.load(fh)
 
 
+def blocked_stories(raw_issues):
+    """Open story numbers currently at `state:blocked`, ascending.
+
+    A blocked Story is by definition never selected, so the tick cannot learn
+    from selection that a human has since arbitrated one.  This is the scan
+    that lets it look: few Stories are ever blocked at once (the circuit
+    breaker halts the loop before many are), so checking each for a native
+    review is cheap.
+    """
+    return sorted(s["number"] for s in normalize(raw_issues)
+                  if not s.get("closed") and not s.get("is_prd")
+                  and s.get("state") == "blocked" and s["number"] is not None)
+
+
 def main(argv):
     mode = "dry-run"
-    if argv and argv[0] == "ready-features":
+    if argv and argv[0] == "blocked-stories":
+        mode = "blocked-stories"
+        argv = argv[1:]
+    elif argv and argv[0] == "ready-features":
         mode = "ready-features"
         argv = argv[1:]
     elif argv and argv[0] == "needs-freshness":
@@ -275,6 +292,11 @@ def main(argv):
 
     if mode == "ready-features":
         for number in ready_features(raw):
+            print(number)
+        return 0
+
+    if mode == "blocked-stories":
+        for number in blocked_stories(raw):
             print(number)
         return 0
 

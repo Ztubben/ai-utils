@@ -99,6 +99,10 @@ One reviewer objection, carrying a stable identifier, a blocking classification,
 **Negotiation Round**:
 One review-and-respond cycle against an immutable pull-request head: a fresh Review Agent reviews, the Implementation Agent responds, and a fresh Review Agent adjudicates the new head. Round one is a full in-scope review; later rounds adjudicate open Findings and may raise a new blocker only for a fix-induced regression or a serious missed correctness/safety defect. Infrastructure failures and invalid provider output never consume a round. Exhausting the round limit (default 2) moves that story to `state:blocked` and requests native human review.
 
+**Human Arbitration**:
+The human settling a Story through GitHub's own review controls — there are no commands to learn. An **Approve** is authoritative: it releases the model-review gate on the commit it approved, even while model Findings remain unresolved, clears any escalation, and is recorded on the Story naming the reviewer and the Findings it overrode. A **Request changes** is authoritative feedback: the Story returns to In Review and the assigned Implementation Agent is launched with the human's own words, appending its work like any fix round. An ordinary comment enriches the review context and changes no label, check, or state. Each native review is acted on exactly once. A model never holds authority over a human decision.
+_Avoid_: manual override, human approval command (use "Human Arbitration")
+
 **Control Plane**:
 The parts of the target repository that govern Ralph's own review gate — review workflows, prompts, schemas, configuration, and override policy. Each target repository declares its control-plane categories or path patterns; a story touching them always requires native human approval and is never auto-merged, even when it began as an AFK Story.
 

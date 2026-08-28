@@ -354,6 +354,40 @@ class FeatureCompletionScan(unittest.TestCase):
         self.assertEqual(eligible, [10, 20])
 
 
+class BlockedStoryScan(unittest.TestCase):
+    """The Stories a human may have arbitrated since the last tick (#58).
+
+    A blocked Story is never *selected* -- that is what blocked means -- so the
+    tick needs its own way to find the ones whose pull request may now carry a
+    human's Approve or Request changes.
+    """
+
+    def test_it_lists_every_open_blocked_story(self):
+        numbers = ralph_select.blocked_stories([
+            story(1, "blocked", "afk"), story(2, "ready", "afk"),
+            story(3, "blocked", "hil")])
+
+        self.assertEqual(numbers, [1, 3])
+
+    def test_a_closed_blocked_story_is_finished_with(self):
+        self.assertEqual(ralph_select.blocked_stories(
+            [story(1, "blocked", "afk", closed=True)]), [])
+
+    def test_a_prd_is_not_a_story_to_arbitrate(self):
+        self.assertEqual(ralph_select.blocked_stories(
+            [story(9, "blocked", prd=True)]), [])
+
+    def test_the_cli_prints_them_one_per_line(self):
+        backlog = json.dumps([story(1, "blocked", "afk"),
+                              story(2, "ready", "afk")])
+        proc = subprocess.run([RALPH, "--blocked-stories", "-"],
+                              cwd=REPO_ROOT, input=backlog.encode(),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout.decode())
+        self.assertEqual(proc.stdout.decode().split(), ["1"])
+
+
 class CliReadyFeatures(unittest.TestCase):
     def _run(self, path):
         return subprocess.run(

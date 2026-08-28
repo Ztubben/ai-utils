@@ -25,6 +25,8 @@
 #   ralph --await-review STORY [CONFIG] [ROOT]  Wait out one bounded review window, polling durable state.
 #   ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]  Answer a round's findings with append-only fixes.
 #   ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH] Block a deadlocked Story and ask a human to arbitrate.
+#   ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH] Act on a human Approve / Request changes.
+#   ralph --blocked-stories [BACKLOG]  List open state:blocked story numbers.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -61,6 +63,8 @@ usage: ralph --init [CONFIG]
        ralph --await-review STORY [CONFIG] [ROOT]
        ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]
+       ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH]
+       ralph --blocked-stories [BACKLOG]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -271,6 +275,27 @@ usage: ralph --init [CONFIG]
                           only the open findings; a blocker raised late must be
                           a defect or a safety regression, and never resets the
                           round count.
+  --arbitrate-review      Act on the human's native GitHub review of a Story's
+       STORY [CONFIG]     marked pull request. An Approve is authoritative: it
+       [ROOT]             releases the ralph/model-review check on the reviewed
+       [--pr PATH]        head even while model findings are unresolved, clears
+                          any escalation (state:blocked -> state:in-review), and
+                          records the override on the Story naming the reviewer
+                          and the findings it overrode. A Request changes is
+                          authoritative feedback: the Story returns to
+                          state:in-review and the assigned implementation model
+                          is launched with the human's own words, append-only
+                          like any fix round. An ordinary comment changes no
+                          label, check or state. Each native review is acted on
+                          exactly once, recorded on the Story by its review id.
+                          Exits 0 on success (including "nothing to arbitrate"),
+                          1 on a git/gh failure, 2 on a refusal, 10/12 on a
+                          model session limit or infrastructure failure.
+  --blocked-stories       Print, one per line, the open story numbers currently
+       [BACKLOG]          at state:blocked -- the Stories a human may have
+                          arbitrated since the last tick. Reads a JSON backlog
+                          from BACKLOG (or - for stdin); with no BACKLOG, scans
+                          live via gh. Exits 0, or 2 on bad input.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -445,6 +470,14 @@ main() {
     --escalate-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_deadlock.py" escalate "$@"
+      ;;
+    --arbitrate-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_human.py" arbitrate "$@"
+      ;;
+    --blocked-stories)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_select.py" blocked-stories "$@"
       ;;
     --respond-review)
       shift

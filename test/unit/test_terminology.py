@@ -98,7 +98,7 @@ class ContextGlossaryDefinesTheVocabulary(unittest.TestCase):
     def test_defines_the_review_vocabulary(self):
         for term in ("Model Profile", "Implementation Agent", "Review Agent",
                      "In Review", "Finding", "Negotiation Round",
-                     "Control Plane", "Token Ledger"):
+                     "Human Arbitration", "Control Plane", "Token Ledger"):
             self.assertIn(term, self.terms,
                           "CONTEXT.md must define %s" % term)
 

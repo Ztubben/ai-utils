@@ -213,9 +213,19 @@ class TickHarness:
                 [[ -n "${RALPH_AGENT_EMIT:-}" ]] && printf '%%s\\n' "$RALPH_AGENT_EMIT"
                 exit "${RALPH_AGENT_EXIT:-0}"
                 """ % provider))
+        # `git` answers only what a tick actually asks it, and only when the
+        # test has pinned an answer: a resolvable head is what lets the review
+        # bundle be assembled against this fake checkout.
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
+            if [[ "$1" == "rev-parse" ]]; then
+              case "$2" in
+                --*) ;;
+                HEAD) cat "$RALPH_GH_QUEUE_DIR/head.txt" 2>/dev/null || true ;;
+                *) [[ -f "$RALPH_GH_QUEUE_DIR/head.txt" ]] && echo "$2" ;;
+              esac
+            fi
             exit 0
             """))
 
@@ -614,6 +624,91 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         self.assertTrue(any("needs-human" in ln for ln in log), log)
+
+    def arbitrated_pull_request(self, h, issue=7, head="a" * 40, review=None):
+        """A marked, reviewed pull request plus whatever the human did to it."""
+        with open(os.path.join(h.queue, "head.txt"), "w") as fh:
+            fh.write(head + "\n")
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % issue
+        reviews = [{"body": "<!-- ralph-review:v1 head=%s -->" % head,
+                    "state": "COMMENTED", "id": "R-0",
+                    "author": {"login": "ralph"}}]
+        if review is not None:
+            reviews.append(review)
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": head, "baseRefOid": "b" * 40, "comments": [],
+             "reviews": reviews})
+
+    def test_a_human_approval_releases_the_gate_on_a_blocked_story(self):
+        # AC (#58): Approve is authoritative -- it releases the model-review
+        # gate over unresolved findings and clears the escalation.
+        h = self.harness()
+        blocked = dict(story(7, "blocked", "afk"))
+        # dry-run (no-work: a blocked Story is never selected), then the
+        # completion pass, then the arbitration pass's own scan.
+        h.set_backlogs([blocked], [], [blocked])
+        h.set_view_stories(blocked)
+        self.arbitrated_pull_request(h, review={
+            "id": "R-1", "state": "APPROVED", "body": "Ship it.",
+            "author": {"login": "carl"}})
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        status = [ln for ln in log if "statuses/" + "a" * 40 in ln]
+        self.assertTrue(status, log)
+        self.assertIn("state=success", status[0])
+        self.assertTrue(any("issue edit 7" in ln and "state:in-review" in ln
+                            and "state:blocked" in ln for ln in log), log)
+        self.assertTrue(any("ralph-human-arbitration:v1" in ln for ln in log), log)
+
+    def test_an_ordinary_human_comment_changes_no_label_check_or_state(self):
+        # AC (#58): comments enrich the record and decide nothing.
+        h = self.harness()
+        blocked = dict(story(7, "blocked", "afk"))
+        # dry-run (no-work: a blocked Story is never selected), then the
+        # completion pass, then the arbitration pass's own scan.
+        h.set_backlogs([blocked], [], [blocked])
+        h.set_view_stories(blocked)
+        self.arbitrated_pull_request(h, review={
+            "id": "R-1", "state": "COMMENTED", "body": "Reads well.",
+            "author": {"login": "carl"}})
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("issue edit 7" in ln for ln in log), log)
+        self.assertFalse(any("statuses/" in ln for ln in log), log)
+        self.assertFalse(any("ralph-human-arbitration:v1" in ln for ln in log), log)
+        self.assertEqual(h.agent_calls(), [], log)
+
+    def test_requested_changes_reopens_the_story_and_launches_the_model(self):
+        # AC (#58): authoritative feedback goes back to the implementation
+        # model, with the human's own words.
+        h = self.harness()
+        blocked = dict(story(7, "blocked", "afk"))
+        # dry-run (no-work: a blocked Story is never selected), then the
+        # completion pass, then the arbitration pass's own scan.
+        h.set_backlogs([blocked], [], [blocked])
+        h.set_view_stories(blocked)
+        self.arbitrated_pull_request(h, review={
+            "id": "R-1", "state": "CHANGES_REQUESTED",
+            "body": "Move the guard into the caller.",
+            "author": {"login": "carl"}})
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("issue edit 7" in ln and "state:in-review" in ln
+                            for ln in log), log)
+        self.assertEqual(len(h.agent_calls()), 1, log)
+        # No check was released: only an Approve does that.
+        self.assertFalse(any("statuses/" in ln for ln in log), log)
 
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()

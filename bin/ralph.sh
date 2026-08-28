@@ -311,6 +311,36 @@ complete_story() {
   return "$rc"
 }
 
+# Act on any human arbitration that arrived since the last tick (#58).
+#
+# A Story that deadlocked is state:blocked, and a blocked Story is by definition
+# never selected -- so the work loop above can never notice that a human has
+# since clicked Approve or Request changes on its pull request. This pass is
+# where that is noticed: it scans the blocked Stories and hands each one to
+# `ralph --arbitrate-review`, which does nothing at all unless there is a native
+# review it has not already acted on.
+#
+# It runs at the end of the tick, next to the Feature completion pass, because
+# it is reconciliation with what happened *between* ticks rather than part of
+# working the backlog. A human's Request changes still gets its implementation
+# round here and now; only the review of that new head waits for the next tick.
+# A human deciding while the Story is still In Review needs none of this -- the
+# bounded wait sees the decision on its next poll and acts on it immediately.
+arbitration_pass() {
+  local issue story_file
+  while IFS= read -r issue; do
+    [[ -z "$issue" ]] && continue
+    story_file="$(mktemp)"
+    if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+      "$RALPH_BIN" --arbitrate-review "$story_file" "$RALPH_CONFIG" \
+        || log "could not act on a human decision for #$issue; the next tick retries"
+    else
+      log "cannot fetch blocked #$issue to check for a human decision; continuing"
+    fi
+    rm -f "$story_file"
+  done < <("$RALPH_BIN" --blocked-stories 2>/dev/null)
+}
+
 # Run the Feature completion pass for a single eligible PRD (ADR-0006, US-029).
 # Fetches the PRD issue, then delegates to `ralph --complete-feature`.
 complete_feature() {
@@ -351,7 +381,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --check-breaker; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --arbitrate-review --blocked-stories --check-breaker; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -488,6 +518,9 @@ tick() {
     complete_feature "$prd_number" \
       || log "completion pass for PRD #$prd_number failed (see above); continuing"
   done < <("$RALPH_BIN" --ready-features 2>/dev/null)
+
+  # --- arbitration pass: act on human decisions made between ticks (#58) ---
+  arbitration_pass
 
   return 0
 }

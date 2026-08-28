@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_deadlock  # noqa: E402
+import ralph_review_human  # noqa: E402
 import ralph_review_respond  # noqa: E402
 import ralph_review_round  # noqa: E402
 
@@ -20,6 +21,8 @@ import ralph_review_round  # noqa: E402
 REVIEW = "review"      # the head has no review yet: launch a Negotiation Round
 RESPOND = "respond"    # the review requested changes: answer it with a fix round
 ESCALATE = "escalate"  # the rounds are spent and it is still unsettled: ask a human
+ARBITRATE = "arbitrate"  # a human decided; act on it before anything else
+SETTLED = "settled"    # a human released the gate: the models are finished here
 WAIT = "wait"          # nothing Ralph can act on; keep polling, spend nothing
 GONE = "gone"          # no marked pull request, or it is no longer open
 
@@ -69,6 +72,16 @@ def next_step(pull_request, comments=None, max_rounds=None):
     if (pull_request.get("state") or "OPEN").upper() != "OPEN":
         return GONE
     head = pull_request.get("headRefOid")
+    # A human's decision outranks everything the two models owe each other, so
+    # it is read first -- and it is read from GitHub's own review controls,
+    # which is the whole point: there are no commands to learn.
+    decision = ralph_review_human.human_decision(pull_request)
+    if decision is not None and not ralph_review.arbitrated(comments, decision.id):
+        return ARBITRATE
+    if ralph_review_human.approval_for(comments, head):
+        # The gate is released on this exact commit. Open model findings do not
+        # reopen it: a model never holds authority over a human decision.
+        return SETTLED
     # Reviews and answers alternate, so which side owes a move is simply which
     # of them is behind.  A dispute leaves the head where it was, which is why
     # this counts rounds at the head rather than asking whether the head has
@@ -146,10 +159,14 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None):
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
                               elapsed=elapsed)
-        if step in (REVIEW, RESPOND, ESCALATE):
+        if step == SETTLED:
+            return WaitResult(SETTLED, polls=polls, invocations=invocations,
+                              elapsed=elapsed)
+        if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE):
             # Escalation is Ralph's own bookkeeping -- a comment, a review
-            # request, a label -- so it costs no model invocation.
-            if step != ESCALATE:
+            # request, a label -- so it costs no model invocation. Arbitration
+            # may or may not launch one, depending on what the human decided.
+            if step not in (ESCALATE, ARBITRATE):
                 invocations += 1
             ok, errors = act(step, pull_request)
             if not ok:
@@ -224,6 +241,10 @@ def _cmd_await(rest):
             return []
 
     def act(step, pull_request):
+        if step == ARBITRATE:
+            rc = ralph_review_human.arbitrate(story, pull_request,
+                                              validated.config, root)
+            return rc == 0, [] if rc == 0 else ["arbitration exited %d" % rc]
         if step == ESCALATE:
             rc = ralph_review_deadlock.escalate(story, pull_request,
                                                 validated.config, root)
@@ -251,6 +272,10 @@ def _cmd_await(rest):
         print("OK: #%s is blocked after a deadlocked negotiation; a human was "
               "asked to arbitrate. Unrelated Stories keep running." % number)
         return EXIT_ESCALATED
+    if result.kind == SETTLED:
+        print("OK: a human released the model-review gate on #%s; the models "
+              "have nothing further to negotiate" % number)
+        return 0
     if result.kind == GONE:
         print("OK: nothing to negotiate for #%s; the pull request is not open "
               "for automated review" % number)

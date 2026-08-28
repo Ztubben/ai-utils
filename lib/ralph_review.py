@@ -24,12 +24,21 @@ RESULT_MARKER_TEMPLATE = "<!-- ralph-review-result:v1 head=%s round=%s -->"
 # reads what happened instead of inferring it from replies.
 RESPONSE_MARKER_TEMPLATE = "<!-- ralph-review-response:v1 head=%s round=%s -->"
 
+# A human's Approve or Request changes, recorded the same way and keyed by the
+# review it acted on.  Ralph must act on one native review exactly once -- twice
+# would relaunch a model over feedback already answered -- and GitHub offers no
+# "handled" flag, so the fact lives on the Story like every other loop fact.
+ARBITRATION_MARKER_TEMPLATE = "<!-- ralph-human-arbitration:v1 review=%s -->"
+
 _RECORD_PATTERN = (
     r"<!--\s*%s\s+head=(\S+)\s+round=(\S+)\s*-->\s*```json\s*(.*?)```")
 _RESULT_PATTERN = re.compile(_RECORD_PATTERN % "ralph-review-result:v1",
                              re.DOTALL)
 _RESPONSE_PATTERN = re.compile(_RECORD_PATTERN % "ralph-review-response:v1",
                                re.DOTALL)
+_ARBITRATION_PATTERN = re.compile(
+    r"<!--\s*ralph-human-arbitration:v1\s+review=(\S+)\s*-->\s*```json\s*(.*?)```",
+    re.DOTALL)
 
 # A published review stamps the exact commit it judged.  That stamp, carried on
 # the pull request itself, is what makes "one review invocation per head" hold
@@ -158,6 +167,32 @@ def response_records(comments, head):
 def result_records(comments, head):
     """Every recorded review result for *head*, oldest first."""
     return _records(_RESULT_PATTERN, comments, head)
+
+
+def arbitration_record(payload):
+    """The Story comment body recording what a human decided, and over what."""
+    return "%s\n\n```json\n%s\n```" % (
+        ARBITRATION_MARKER_TEMPLATE % payload["review"],
+        json.dumps(payload, indent=2, sort_keys=True))
+
+
+def arbitrations(comments):
+    """Every human decision Ralph has already acted on, oldest first."""
+    found = []
+    for comment in comments or []:
+        body = comment if isinstance(comment, str) else (comment or {}).get("body")
+        for review_id, payload in _ARBITRATION_PATTERN.findall(body or ""):
+            try:
+                found.append(json.loads(payload))
+            except ValueError:
+                found.append({"review": review_id})
+    return found
+
+
+def arbitrated(comments, review_id):
+    """Has Ralph already acted on this native review?"""
+    return any(record.get("review") == review_id
+               for record in arbitrations(comments))
 
 
 def negotiation_history(comments):

@@ -287,6 +287,32 @@ not HITL) and `docs/adr/0001–0005`.
   a human answering a finding directly before escalation is recorded, and the next fresh
   round must not re-litigate what a human already settled. `_author` therefore reads
   `user.login` (REST) as well as `author.login` (`gh --json`).
+- `lib/ralph_review_human.py` is human arbitration through GitHub's own controls (#58,
+  PRD #42): pure `human_decision(pr) -> Decision|None`, `approval_for(comments, head)`,
+  `approval_plan`, `reopen_plan`, `arbitration_prompt`, plus live
+  `arbitrate(story, pr, config, root)` and the `--arbitrate-review STORY [CONFIG] [ROOT]
+  [--pr PATH]` CLI. Judgement half: the drift-guarded `prompts/arbitration.v1.md`.
+  GOTCHAS: (1) Ralph's own reviews are filtered out **by the durable review marker**, not
+  by author or event — Ralph posts with the operator's own credential, so "who wrote it"
+  cannot tell them apart. Only `APPROVED`/`CHANGES_REQUESTED` decide anything;
+  `COMMENTED` is deliberately inert (an AC). (2) An approval is bound to the commit it
+  approved (`approval_for(comments, head)`); treating it as blanket permission would let
+  anything pushed afterwards merge behind one click. (3) One native review is acted on
+  **exactly once**, recorded on the Story by its review id
+  (`ralph_review.arbitration_record`/`arbitrated`) — GitHub has no "handled" flag, so the
+  fact lives where every other loop fact does. The record is written **last** in the
+  Request-changes path, so a launch that never happened is retried rather than marked
+  answered; the label move is written **first**, so a crash leaves the Story In Review
+  rather than stranded in `state:blocked` with work on the branch. (4) `next_step` reads
+  the decision **before** everything else and returns `ARBITRATE`; a recorded approval of
+  the current head returns the new `SETTLED`, which ends the wait at exit 0 — open model
+  findings never reopen a gate a human released. (5) A blocked Story is never *selected*,
+  so the tick could not otherwise notice a human decision on one: `ralph_select.
+  blocked_stories` + `--blocked-stories` feed `arbitration_pass`, which runs at the **end**
+  of the tick beside the Feature completion pass. Ordering there is load-bearing for the
+  queue-driven tick harnesses — every pass consuming a `gh issue list` shifts the mock
+  backlog queue, which is why a new pass goes last. A human deciding while the Story is
+  still In Review needs none of it: the bounded wait sees it on the next poll.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the

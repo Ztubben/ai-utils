@@ -146,6 +146,58 @@ class NextStep(unittest.TestCase):
                 max_rounds=2),
             ralph_review_wait.WAIT)
 
+    def approving(self, ident="R-1"):
+        return {"id": ident, "state": "APPROVED", "body": "Ship it.",
+                "author": {"login": "carl"}}
+
+    def acted_on(self, ident="R-1", decision="APPROVED", head=HEAD):
+        return {"body": ralph_review.arbitration_record(
+            {"review": ident, "decision": decision, "reviewer": "carl",
+             "head": head, "overrode": ["F-1"]})}
+
+    def test_a_human_decision_outranks_anything_the_models_are_owed(self):
+        # AC (#58): a human review is acted on before another round or answer.
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}, self.approving()])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                reviewed, comments=[self.changes_requested()], max_rounds=2),
+            ralph_review_wait.ARBITRATE)
+
+    def test_an_approval_already_acted_on_settles_the_negotiation(self):
+        # AC (#58): the gate is released, so the models have nothing left to do
+        # even though a blocking finding is still on the record.
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}, self.approving()])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                reviewed,
+                comments=[self.changes_requested(), self.acted_on()],
+                max_rounds=2),
+            ralph_review_wait.SETTLED)
+
+    def test_an_approval_of_an_older_head_does_not_settle_the_new_one(self):
+        moved = pull_request(head="c" * 40, reviews=[self.approving()])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                moved, comments=[self.acted_on()], max_rounds=2),
+            ralph_review_wait.REVIEW)
+
+    def test_an_ordinary_human_comment_changes_nothing(self):
+        # AC (#58): a comment is a comment; the negotiation carries on.
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)},
+            {"id": "R-1", "state": "COMMENTED", "body": "Nice.",
+             "author": {"login": "carl"}}])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                reviewed, comments=[self.changes_requested()], max_rounds=2),
+            ralph_review_wait.RESPOND)
+
     def test_a_closed_pull_request_ends_the_negotiation(self):
         self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),
                          ralph_review_wait.GONE)
