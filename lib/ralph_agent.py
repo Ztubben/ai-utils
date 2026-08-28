@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_models  # noqa: E402
 import ralph_session  # noqa: E402
+import ralph_usage  # noqa: E402
 
 # The three outcomes an adapter distinguishes.
 NORMAL = "normal"
@@ -68,12 +69,16 @@ def _run_process(argv, prompt, env):
 class Outcome:
     """What one agent launch produced."""
 
-    def __init__(self, kind, provider, model, exit_code, output):
+    def __init__(self, kind, provider, model, exit_code, output, usage=None):
         self.kind = kind
         self.provider = provider
         self.model = model
         self.exit_code = exit_code
         self.output = output
+        # What the provider said this cost, in the neutral categories (#62).
+        # Never None: a launch that reported nothing reports it as unavailable.
+        self.usage = usage if usage is not None else ralph_usage.normalize(
+            provider, None)
 
     @property
     def cli_exit(self):
@@ -120,6 +125,30 @@ class AgentAdapter:
                 env.pop(name, None)
         return env
 
+    def unwrap(self, output):
+        """Split the provider's raw output into (the agent's words, its usage).
+
+        A provider CLI can be asked for a machine-readable transcript that
+        carries the token counts (#62); this is where that shape is understood,
+        so nothing downstream has to know a provider ever spoke JSON.  The
+        default is a provider that offers no such thing.
+        """
+        return output, None
+
+    def _unwrap(self, output):
+        """`unwrap`, but incapable of failing a run.
+
+        Accounting is telemetry: a provider that changed its transcript format,
+        truncated it, or wrote an error before it starts must cost the run
+        nothing at all.  The raw output is then passed through whole -- losing
+        the counts, never the agent's words.
+        """
+        try:
+            text, raw = self.unwrap(output)
+        except Exception:                       # noqa: BLE001 - see docstring
+            return output, None
+        return (output if text is None else text), raw
+
     def classify(self, exit_code, output):
         """The three-way verdict for one launch.
 
@@ -145,8 +174,13 @@ class AgentAdapter:
             # An unavailable provider CLI is infrastructure, not a failed story.
             return Outcome(INFRASTRUCTURE_FAILURE, self.provider, self.model,
                            None, "%s: %s" % (self.binary(), exc))
-        return Outcome(self.classify(exit_code, output), self.provider,
-                       self.model, exit_code, output)
+        # Unwrapped first, so every later reader -- the session-limit verdict
+        # included -- sees the agent's own words rather than the transport
+        # around them.
+        text, raw_usage = self._unwrap(output)
+        return Outcome(self.classify(exit_code, text), self.provider,
+                       self.model, exit_code, text,
+                       usage=ralph_usage.normalize(self.provider, raw_usage))
 
 
 class ClaudeAdapter(AgentAdapter):
@@ -162,9 +196,20 @@ class ClaudeAdapter(AgentAdapter):
                     "--permission-mode", "plan", "--no-session-persistence"]
         else:
             argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
+        # The envelope is the only place this CLI states what a run cost (#62).
+        # It wraps the same text `--print` prints on its own, and `unwrap` puts
+        # that text back, so asking for it changes nothing a caller sees.
+        argv += ["--output-format", "json"]
         if self.model:
             argv += ["--model", self.model]
         return argv
+
+    def unwrap(self, output):
+        envelope = json.loads((output or "").strip())
+        if not isinstance(envelope, dict) or not isinstance(
+                envelope.get("result"), str):
+            return output, None
+        return envelope["result"], envelope.get("usage")
 
 
 class CodexAdapter(AgentAdapter):
@@ -180,10 +225,42 @@ class CodexAdapter(AgentAdapter):
         else:
             argv = [self.binary(), "exec",
                     "--dangerously-bypass-approvals-and-sandbox"]
+        # This CLI states what a run cost on its event stream and nowhere else
+        # (#62); `unwrap` turns the stream back into the agent's messages.
+        argv.append("--json")
         if self.model:
             argv += ["--model", self.model]
         argv.append("-")            # read the prompt from stdin
         return argv
+
+    def unwrap(self, output):
+        """Recover the agent's messages and the turn's usage from the stream."""
+        messages, usage, events = [], None, 0
+        for line in (output or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                # A line this does not understand -- a warning printed ahead of
+                # the stream, say -- is skipped rather than taken as proof the
+                # output is not a stream at all.
+                continue
+            if not isinstance(event, dict):
+                continue
+            events += 1
+            item = event.get("item") or {}
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                messages.append(item.get("text") or "")
+            if event.get("type") == "turn.completed":
+                usage = event.get("usage")
+        if not events:
+            return output, None
+        # Usage without messages still counts: the run happened. Passing the
+        # raw stream through then is better than reporting the agent said
+        # nothing at all.
+        return ("\n".join(messages) if messages else output), usage
 
 
 # Every provider the schema allows in a Model Profile has an adapter here, so a
@@ -312,6 +389,15 @@ def _cmd_launch(rest):
         sys.stdout.write(outcome.output)
         if not outcome.output.endswith("\n"):
             sys.stdout.write("\n")
+    # The tick launches the Implementation Agent straight through here, so this
+    # is where that invocation is accounted for (#62). On stderr, deliberately:
+    # stdout is the agent's own words, and the tick reads its done-signal there.
+    ralph_usage.emit(ralph_usage.invocation_event(
+        outcome.usage, role=role,
+        phase=(ralph_usage.REVIEW if role == "review"
+               else ralph_usage.IMPLEMENTATION),
+        model=outcome.model, provider=outcome.provider,
+        story=(story or {}).get("number")))
     return outcome.cli_exit
 
 

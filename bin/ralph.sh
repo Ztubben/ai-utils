@@ -51,6 +51,10 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 # RALPH_SESSION_LIMIT_MARKER) are read from the environment there; no defaults
 # are pinned here.
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
+# The identity every token-usage event of this tick is stamped with (#62), so a
+# later script can group one run's invocations across the Stories it worked.
+: "${RALPH_RUN_ID:=tick-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+export RALPH_RUN_ID
 
 log() { printf 'ralph: %s\n' "$*"; }
 

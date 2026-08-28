@@ -18,6 +18,7 @@
 #                                 Replace one role's recorded model assignment (human-only, audited).
 #   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
+#   ralph --normalize-usage PROVIDER [PATH]  Print one provider's reported token usage, normalized.
 #   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
 #   ralph --implementation-green STORY [CONFIG] [PRD]  Open/update the marked review PR.
 #   ralph --review-context STORY PR ROUND [ROOT]  Print exact-head review evidence.
@@ -58,6 +59,7 @@ usage: ralph --init [CONFIG]
        ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
        ralph --reassign-model STORY ROLE PROFILE [CONFIG] --reason TEXT [--allow-same-model]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
+       ralph --normalize-usage PROVIDER [PATH]
        ralph --classify-session RC
        ralph --implementation-green STORY [CONFIG] [PRD]
        ralph --review-context STORY PR ROUND [ROOT]
@@ -177,6 +179,13 @@ usage: ralph --init [CONFIG]
        [--allow-same-     is the outcome: 0 normal completion, 10 session
         model]            exhaustion, 12 infrastructure failure, 2 on a bad
                           config or a refused role resolution.
+  --normalize-usage       Read one provider's reported token usage (JSON on
+       PROVIDER [PATH]    stdin, or at PATH) and print it in the neutral
+                          categories -- input, cached input, reasoning, output,
+                          total -- each marked reported or unavailable. A
+                          category the provider does not expose is never
+                          estimated or zero-filled. Exits 0, or 2 on unreadable
+                          input.
   --classify-session RC   Decide whether a launched agent hit its session
                           limit, given its exit code RC and its output on
                           stdin. Detection is layered (an exit-code set, a
@@ -479,6 +488,10 @@ main() {
     --launch-agent)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_agent.py" launch "$@"
+      ;;
+    --normalize-usage)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_usage.py" normalize "$@"
       ;;
     --classify-session)
       shift

@@ -24,6 +24,7 @@ import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
 import ralph_review_render  # noqa: E402
 import ralph_review_round  # noqa: E402
+import ralph_usage  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESPOND_PROMPT = os.path.join(REPO_ROOT, "prompts", "respond.v1.md")
@@ -60,13 +61,15 @@ DISPOSITIONS = (ACCEPTED, DISPUTED, UNRESOLVED)
 
 class RespondResult:
     def __init__(self, ok, errors, kind, head=None, new_head=None,
-                 response=None):
+                 response=None, usage_event=None):
         self.ok = ok
         self.errors = errors
         self.kind = kind
         self.head = head
         self.new_head = new_head
         self.response = response
+        # What this answer's invocation cost (#62), or None when it made none.
+        self.usage_event = usage_event
 
 
 def open_findings(result):
@@ -235,22 +238,31 @@ def conduct(story, pull_request, result, context, launch, publish, checkout):
     outcome, errors = launch(respond_prompt(result, context))
     if outcome is None:
         return RespondResult(False, errors, REFUSED, head=head)
+    # Accounted for the moment the invocation happened, whatever it produced
+    # -- an answer that could not be published still spent the tokens (#62).
+    event = ralph_usage.invocation_event(
+        outcome.usage, role="implementation", phase=ralph_usage.RESPONSE,
+        model=outcome.model, provider=outcome.provider,
+        story=story.get("number"), pull_request=pull_request.get("number"),
+        round_no=(result or {}).get("round"), head=head)
     if outcome.kind != ralph_agent.NORMAL:
         return RespondResult(False, ["implementation agent %s (exit %s)"
                                      % (outcome.kind, outcome.exit_code)],
-                             outcome.kind, head=head)
+                             outcome.kind, head=head, usage_event=event)
     answer = ralph_review_round.extract_result(outcome.output)
     errors = validate_response(answer, result)
     if errors:
-        return RespondResult(False, errors, INVALID_OUTPUT, head=head)
+        return RespondResult(False, errors, INVALID_OUTPUT, head=head,
+                             usage_event=event)
     new_head = checkout.head()
     errors = append_only_errors(answer, head, new_head, checkout)
     if errors:
         return RespondResult(False, errors, NOT_APPEND_ONLY, head=head,
-                             new_head=new_head, response=answer)
+                             new_head=new_head, response=answer,
+                             usage_event=event)
     ok, errors = publish(answer, new_head)
     return RespondResult(ok, errors, RESPONDED, head=head, new_head=new_head,
-                         response=answer)
+                         response=answer, usage_event=event)
 
 
 class Checkout:
@@ -427,6 +439,7 @@ def respond_to_review(story, pull_request, config, root, comments=None):
 
     outcome = conduct(story, pull_request, result, context.text, launch,
                       publish, Checkout(root))
+    ralph_usage.emit(outcome.usage_event)
     if outcome.ok:
         print("OK: answered round %s of #%s; %s is now %s"
               % (result.get("round"), story["number"], outcome.head,

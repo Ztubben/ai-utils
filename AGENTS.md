@@ -393,6 +393,33 @@ not HITL) and `docs/adr/0001–0005`.
   The tick-level lock guarantee is tested with a `RALPH_LOCK_PROBE` `flock -n` probe fired
   from inside the mock `gh` — it reports "free" when nothing holds the lock, so the
   assertion is not vacuous.
+- `lib/ralph_usage.py` normalizes **provider-reported token usage** (#62, PRD #42):
+  pure `normalize(provider, raw) -> Usage`, `invocation_event(...)`, `emit(event)` and the
+  `--normalize-usage PROVIDER [PATH]` CLI. Five neutral `CATEGORIES` (input, cached_input,
+  reasoning, output, total), each carrying a value *and* a `REPORTED`/`UNAVAILABLE` status.
+  The counts are obtained by asking each provider for its machine-readable transcript and
+  unwrapping it in the adapter: `AgentAdapter.unwrap(output) -> (the agent's words, raw
+  usage)`, so `Outcome.output` is still prose and nothing downstream knows a provider ever
+  spoke JSON. Claude gets `--output-format json` (envelope: `result` + `usage`); Codex gets
+  `--json` (JSONL: `item.completed`/`agent_message` texts + `turn.completed`/`usage`).
+  GOTCHAS: (1) the two mappings are **deliberately asymmetric** — Claude's `input_tokens`
+  *excludes* cache reads and writes, so normalized input sums all three; Codex's *includes*
+  the cached part, so it is taken as-is. Erasing that difference is the whole job; leaving
+  it would make "input" mean two things in one ledger. (2) `total` is unavailable for both
+  providers because neither states one, and deriving it would double-count (reasoning ⊆
+  output, cached ⊆ input) — the AC is to record the gap, not fill it. (3) A category is
+  reported only when **every** provider key it sums is present and an int: a partial sum is
+  the invented number this exists to avoid, and `0` is a *reading*, which is why the status
+  rides alongside. (4) `_unwrap` and `emit` swallow every exception on purpose — accounting
+  is telemetry and may never fail a run; a provider that changed its transcript format
+  passes its raw output through whole and reports nothing. (5) Unwrapping happens **before**
+  `classify`, so the session-limit verdict reads the agent's words, not the JSON around
+  them. (6) Emission is on **stderr** (`EVENT_MARKER` + one JSON line): stdout is the
+  agent's own words, and `bin/ralph.sh` greps it for the done-signal. (7) `conduct` in the
+  round and the response stays pure — it *returns* `usage_event` and the live entry point
+  emits it — and an invocation that produced nothing publishable is still accounted for,
+  because a ledger counting only successes understates exactly the weeks worth
+  understanding. `RALPH_RUN_ID` is exported once per tick so one run's events group.
 - **Infrastructure failures never spend a round** (#61, PRD #42) is two small changes,
   not a module. (1) `ralph_review_wait.act` now returns `(ok, errors, retryable)` —
   built by the new `step_outcome(rc, what)` — and `await_review` rides a *retryable*

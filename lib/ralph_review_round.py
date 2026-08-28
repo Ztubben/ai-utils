@@ -18,6 +18,7 @@ import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
 import ralph_review_render  # noqa: E402
 import ralph_review_result  # noqa: E402
+import ralph_usage  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REVIEW_PROMPT = os.path.join(REPO_ROOT, "prompts", "review.v1.md")
@@ -50,7 +51,7 @@ EXIT_CODES = {
 
 class RoundResult:
     def __init__(self, ok, errors, kind, round_no=None, head=None,
-                 invocations=0, review=None):
+                 invocations=0, review=None, usage_event=None):
         self.ok = ok
         self.errors = errors
         self.kind = kind
@@ -58,6 +59,9 @@ class RoundResult:
         self.head = head
         self.invocations = invocations
         self.review = review
+        # What this round's invocation cost (#62), or None when it made none.
+        # Carried out rather than written here, so `conduct` stays pure.
+        self.usage_event = usage_event
 
 
 def extract_result(output):
@@ -140,23 +144,33 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
     # though the commit has not moved, because that is what a dispute is.
     if not ralph_review.needs_review(pull_request, comments):
         return RoundResult(True, [], ALREADY_REVIEWED, head=head)
+    round_no = next_round(pull_request)
     outcome, errors = launch(review_prompt(context))
     if outcome is None:
         return RoundResult(False, errors, REFUSED, head=head)
+    # The invocation happened, so it is accounted for -- whatever came back.
+    # A ledger that counted only the rounds that published would understate
+    # exactly the weeks worth understanding (#62).
+    event = ralph_usage.invocation_event(
+        outcome.usage, role="review", phase=ralph_usage.REVIEW,
+        model=outcome.model, provider=outcome.provider,
+        story=story.get("number"), pull_request=pull_request.get("number"),
+        round_no=round_no, head=head)
     if outcome.kind != ralph_agent.NORMAL:
         # The reviewer never finished, so there is no judgement to reject.
         # Reporting the provider outcome verbatim keeps that distinction
         # available to the caller deciding whether a round was consumed.
         return RoundResult(False, ["review agent %s (exit %s)"
                                    % (outcome.kind, outcome.exit_code)],
-                           outcome.kind, head=head, invocations=1)
+                           outcome.kind, head=head, invocations=1,
+                           usage_event=event)
     payload = extract_result(outcome.output)
     validation = ralph_review_result.validate_review(
         payload, changed=changed,
         prior_findings=ralph_review.previous_findings(comments))
     if not validation.ok:
         return RoundResult(False, validation.errors, INVALID_OUTPUT, head=head,
-                           invocations=1)
+                           invocations=1, usage_event=event)
     if validation.review["head"] != head:
         # The published review stamps the commit it names, and that stamp is
         # what marks this head reviewed.  Accepting a result for another commit
@@ -165,10 +179,11 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
         return RoundResult(
             False, ["head: the reviewer judged %s, not the pull request head %s"
                     % (validation.review["head"], head)],
-            INVALID_OUTPUT, head=head, invocations=1)
+            INVALID_OUTPUT, head=head, invocations=1, usage_event=event)
     ok, errors = publish(validation.review)
     return RoundResult(ok, errors, PUBLISHED, round_no=validation.review["round"],
-                       head=head, invocations=1, review=validation.review)
+                       head=head, invocations=1, review=validation.review,
+                       usage_event=event)
 
 
 def _load(path):
@@ -354,6 +369,9 @@ def run_round(story, pull_request, config, root, comments=None):
     result = conduct(story, pull_request, context.text, launch, publish,
                      changed=ralph_review_result.changed_lines(diff),
                      comments=comments)
+    # Emitted here rather than inside `conduct`, which stays pure. One line per
+    # invocation, whatever the invocation produced (#62).
+    ralph_usage.emit(result.usage_event)
     number = pull_request.get("number", "?")
     if result.kind == ALREADY_REVIEWED:
         print("OK: %s is already reviewed on PR #%s; no invocation spent"
