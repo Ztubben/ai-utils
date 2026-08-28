@@ -147,6 +147,60 @@ story() {
   grep -q 'issue comment 5' "$RALPH_LOG"
 }
 
+# Point $RALPH_CLI at a `ralph` that has lost one subcommand; everything else
+# delegates to the real bin/ralph. $2=hide it from --help too (what the tick's
+# preflight reads). lib/schema/prompts are linked beside it because bin/ralph
+# and read_base_branch resolve them relative to their own location.
+break_subcommand() {
+  local sub="$1" hide="${2:-false}" home="$SP/fakehome"
+  mkdir -p "$home/bin"
+  local shared
+  for shared in lib schema prompts; do
+    [[ -e "$home/$shared" ]] || ln -s "$REPO_ROOT/$shared" "$home/$shared"
+  done
+  cat >"$home/bin/ralph" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "$sub" ]]; then
+  echo "ralph: unknown command: $sub" >&2
+  exit 2
+fi
+out="\$("$REPO_ROOT/bin/ralph" "\$@")"; rc=\$?
+if $hide && [[ "\$1" == "--help" || "\$1" == "-h" || -z "\${1:-}" ]]; then
+  printf '%s\n' "\$out" | grep -vF -- "$sub"
+else
+  printf '%s\n' "\$out"
+fi
+exit "\$rc"
+EOF
+  chmod +x "$home/bin/ralph"
+  export RALPH_CLI="$home/bin/ralph"
+}
+
+@test "a ralph missing --launch-agent refuses to tick before labelling a story" {
+  break_subcommand --launch-agent true
+  echo "[$(story 7 ready)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--launch-agent"* ]]
+  [[ "$output" == *"refusing to tick"* ]]
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
+  ! grep -q 'gh issue edit' "$RALPH_LOG" 2>/dev/null
+}
+
+@test "a launcher that cannot run an agent ends the tick instead of spinning" {
+  break_subcommand --launch-agent
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/1.json"
+  echo "[]" > "$SP/ghq/2.json"
+  story 5 in-progress > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ending tick"* ]]
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
+  [ "$(grep -c 'ralph: resume #5' <<<"$output")" -eq 1 ]
+}
+
 @test "halt on needs-human without launching an iteration" {
   printf '[{"number":9,"title":"S","labels":[{"name":"type:afk"},{"name":"prio:1"},{"name":"state:ready"},{"name":"needs-human"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"}]' > "$SP/ghq/0.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"

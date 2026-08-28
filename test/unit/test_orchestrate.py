@@ -67,6 +67,7 @@ class TickHarness:
 
     def __init__(self, tmp):
         self.tmp = tmp
+        self.ralph_cli = None
         self.log = os.path.join(tmp, "ralph.log")
         self.queue = os.path.join(tmp, "ghq")
         os.makedirs(self.queue)
@@ -76,6 +77,44 @@ class TickHarness:
             with open(os.path.join(tmp, ".ralph.yml"), "w") as out:
                 out.write(fh.read())
         self._write_mocks()
+
+    def break_subcommand(self, sub, hide_from_help=False):
+        """Point `$RALPH_CLI` at a `ralph` that has lost one subcommand.
+
+        Everything else delegates to the real `bin/ralph`, so this reproduces the
+        actual 2026-08-28 failure -- a checkout whose `ralph` predates a
+        subcommand `bin/ralph.sh` calls -- rather than a wholly fake CLI.
+        `hide_from_help` also drops it from the usage text, which is what the
+        tick's preflight reads; leaving it listed simulates the subtler case
+        where the subcommand is advertised but fails at the point of use.
+        """
+        # `read_base_branch` resolves lib/ as `dirname($RALPH_BIN)/../lib`, so the
+        # wrapper has to sit in a bin/ with a lib/ beside it.
+        home = os.path.join(self.tmp, "fakehome")
+        os.makedirs(os.path.join(home, "bin"), exist_ok=True)
+        for shared in ("lib", "schema", "prompts"):
+            link = os.path.join(home, shared)
+            if not os.path.exists(link):
+                os.symlink(os.path.join(REPO_ROOT, shared), link)
+        path = os.path.join(home, "bin", "ralph")
+        _write_exec(path, textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "%(sub)s" ]]; then
+              echo "ralph: unknown command: %(sub)s" >&2
+              exit 2
+            fi
+            out="$("%(real)s" "$@")"; rc=$?
+            if %(hide)s && [[ "$1" == "--help" || "$1" == "-h" || -z "${1:-}" ]]; then
+              printf '%%s\\n' "$out" | grep -vF -- "%(sub)s"
+            else
+              printf '%%s\\n' "$out"
+            fi
+            exit "$rc"
+            """ % {"sub": sub,
+                   "real": os.path.join(REPO_ROOT, "bin", "ralph"),
+                   "hide": "true" if hide_from_help else "false"}))
+        self.ralph_cli = path
+        return path
 
     def set_backlogs(self, *backlogs):
         for i, backlog in enumerate(backlogs):
@@ -169,6 +208,8 @@ class TickHarness:
             e.pop(leaked, None)
         e["RALPH_AGENT_EXIT"] = agent_exit
         e["RALPH_AGENT_EMIT"] = agent_emit
+        if self.ralph_cli:
+            e["RALPH_CLI"] = self.ralph_cli
         return e
 
     def run(self, agent_exit="0", agent_emit=""):
@@ -282,6 +323,40 @@ class OrchestrationTest(unittest.TestCase):
         log = h.log_lines()
         self.assertEqual(len([ln for ln in log if ln.startswith("claude ")]), 1, log)
         self.assertTrue(any("issue comment 5" in ln for ln in log), log)
+
+    def test_a_ralph_missing_launch_agent_refuses_to_tick(self):
+        # A tick checks out branches, so `$RALPH_BIN` can end up older than this
+        # script. Caught at tick start, before the backlog is touched: on
+        # 2026-08-28 the tick got as far as labelling #48 state:in-progress and
+        # then failed to launch 24 times, leaving the story wrongly in-progress.
+        h = self.harness()
+        h.break_subcommand("--launch-agent", hide_from_help=True)
+        h.set_backlogs([story(7, "ready")], [])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("--launch-agent", proc.stdout)
+        self.assertIn("refusing to tick", proc.stdout)
+        log = h.log_lines()
+        self.assertEqual(h.agent_calls(), [], log)
+        # crucially: no story was moved to in-progress on the way out
+        self.assertFalse([ln for ln in log if "issue edit" in ln], log)
+
+    def test_a_failed_launch_ends_the_tick_instead_of_spinning(self):
+        # The same story is selected first on every pass (resume-first), so a
+        # launch that cannot run re-runs identically until RALPH_MAX_ITERATIONS.
+        # It must end the tick, and non-zero, so the scheduler can see it: the
+        # 2026-08-28 tick spun 24 times launching nothing and still exited 0.
+        h = self.harness()
+        h.break_subcommand("--launch-agent")  # still advertised, fails in use
+        h.set_backlogs([story(5, "in-progress")], [story(5, "in-progress")], [])
+        h.set_view_story(story(5, "in-progress"))
+        proc = h.run()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("ending tick", proc.stdout)
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
+        # one selection, not a storm: the story is never re-selected this tick
+        resumes = [ln for ln in proc.stdout.splitlines() if ln.startswith("ralph: resume #5")]
+        self.assertEqual(len(resumes), 1, proc.stdout)
 
     def test_halt_on_needs_human(self):
         # AC: the loop halts (needs-human) without launching an iteration.

@@ -106,6 +106,9 @@ sync_branch() {
 RC_SESSION_LIMIT=10
 RC_STORY_COMPLETE=11
 RC_INFRA_FAILURE=12
+# Not part of that contract: the launcher never got as far as running an agent,
+# so the same call will fail identically on the next pass. This one ends the tick.
+RC_LAUNCH_UNAVAILABLE=13
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -146,6 +149,17 @@ run_iteration() {
   fi
   if [[ "$rc" -eq "$RC_INFRA_FAILURE" ]]; then
     return "$RC_INFRA_FAILURE"
+  fi
+  # Only a clean exit is partial progress. Any other code means the launcher
+  # itself refused -- a bad config, a refused role resolution, or a `ralph` that
+  # does not know the subcommand (exit 2) -- so no agent ran at all. That is
+  # distinct from RC_INFRA_FAILURE, where the provider did start and may have
+  # done work before dying. Reporting it as progress re-selects the same story
+  # every pass and spins the tick to its iteration bound having launched nothing,
+  # which is how a 13-minute no-op tick still exited 0 (observed 2026-08-28).
+  if (( rc != 0 )); then
+    log "the launcher refused to run the agent for #$issue (exit $rc)"
+    return "$RC_LAUNCH_UNAVAILABLE"
   fi
   return 0
 }
@@ -275,6 +289,24 @@ tick() {
     return 2
   fi
 
+  # --- the tick's own tooling must be complete (ADR-0001: fail loud) ---
+  # `$RALPH_BIN` is re-read from disk on every call, and a tick checks out
+  # branches -- so it can end up pointing at a `ralph` older than this script.
+  # That happened on 2026-08-28: promoting a story moved the checkout to a branch
+  # without `--launch-agent`, and every later iteration launched nothing. Checked
+  # here, before any story is labelled state:in-progress, so a mismatch cannot
+  # leave the backlog half-edited the way that tick did.
+  local sub usage missing=()
+  usage="$("$RALPH_BIN" --help 2>&1 || true)"
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --complete-afk; do
+    grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
+  done
+  if (( ${#missing[@]} )); then
+    log "$RALPH_BIN does not support: ${missing[*]}"
+    log "the checkout providing bin/ralph is out of step with this bin/ralph.sh; refusing to tick"
+    return 2
+  fi
+
   # --- read the base branch once (for freshness merges) ---
   local base_branch
   base_branch="$(read_base_branch)"
@@ -319,8 +351,18 @@ tick() {
         case "$rc" in
           0)  # partial progress: resume the same story on the next pass
             ;;
-          "$RC_INFRA_FAILURE")  # the launch failed; no progress to promote
+          "$RC_INFRA_FAILURE")  # the provider ran and died; no progress to promote
             log "agent launch failed for #$issue (infrastructure); resuming it on a later pass"
+            ;;
+          "$RC_LAUNCH_UNAVAILABLE")
+            # Ending the tick is not pessimism, it is the only useful move: no
+            # agent ran, the story stays state:in-progress, and resume-first
+            # selects it again on the very next pass -- so continuing re-runs the
+            # identical refusal until the iteration bound. A non-zero exit also
+            # lets the scheduler surface it: a tick that launched nothing must
+            # not look like a clean one. The next tick retries from scratch.
+            log "no agent could be launched for #$issue; ending tick (next tick retries)"
+            return 1
             ;;
           "$RC_STORY_COMPLETE")  # green: promote it off the backlog
             complete_story "$issue" \

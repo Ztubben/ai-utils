@@ -186,7 +186,18 @@ not HITL) and `docs/adr/0001–0005`.
   three outcomes: session-limit (checkpoint via `ralph --checkpoint -` and end), the story
   done-signal marker `RALPH_STORY_COMPLETE_MARKER` (**promote**: `complete_story` reads the
   `type:` label and dispatches to `ralph --complete-afk`/`--complete-hil`), or partial progress
-  (loop back; the now-in-progress story is `resume`d next pass). Every knob is an env var so
+  (loop back; the now-in-progress story is `resume`d next pass). GOTCHA (tick spin) — "partial
+  progress" is `rc == 0` **only**. A launcher that refuses (bad config, refused role
+  resolution, or a `ralph` that does not know the subcommand — exit 2) never ran an agent, so
+  the same call fails identically on the next pass; it returns `RC_LAUNCH_UNAVAILABLE` (13) and
+  ends the tick non-zero. Do not fold it into `RC_INFRA_FAILURE` (12), which means the provider
+  *did* start and may have done work before dying — that one legitimately resumes on a later
+  pass. Treating a refusal as progress is how a tick spun to `RALPH_MAX_ITERATIONS` launching
+  nothing and still exited 0 (2026-08-28): the checkout had moved to a branch whose `ralph`
+  predated `--launch-agent`. `$RALPH_BIN` is re-read from disk on every call and a tick checks
+  out branches, so the tick now preflights the subcommands it needs right after
+  `--check-config`, *before* `begin_story` can label anything — that tick left #48 stranded in
+  `state:in-progress`. Every knob is an env var so
   tests/superprojects override without editing the script. Covered by
   `test/bats/orchestration.bats` (run by `test/run.sh` when bats is present) AND
   `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving the
