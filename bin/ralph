@@ -88,9 +88,11 @@ usage: ralph --init [CONFIG]
                           (default .ralph.yml). Safe to re-run. Exits 0 on
                           success, 1 on a git/gh failure, 2 on bad config.
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
-                          JSON-schema (default: ./.ralph.yml). Exits 0 on a
-                          valid config, non-zero (reporting the offending
-                          fields) otherwise.
+                          JSON-schema (default: ./.ralph.yml), including the
+                          declared control_plane.protected path patterns, which
+                          must be repository-relative. Exits 0 on a valid
+                          config, non-zero (reporting the offending fields)
+                          otherwise.
   --lint-story PATH       Validate a story issue (gh --json shape; PATH may be
                           - for stdin) against the canonical Ralph backlog
                           format. Exits 0 when canonical, non-zero (reporting

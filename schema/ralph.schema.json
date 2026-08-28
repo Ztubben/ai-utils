@@ -167,6 +167,19 @@
         }
       }
     },
+    "control_plane": {
+      "description": "The parts of this repository that govern Ralph's own review gate — review workflows, prompts, schemas, configuration, override policy. A change touching any of them always requires a native human approval before it merges or is parked for the bench, whatever the Story's type, so the mechanism can never approve changes to itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protected": {
+          "description": "Repository-relative path patterns. A bare directory protects everything under it; * and ** glob. A change touching a match is never completed on a model review alone.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        }
+      }
+    },
     "notify": {
       "description": "Who to tag when the circuit breaker trips (needs-human).",
       "type": "object",

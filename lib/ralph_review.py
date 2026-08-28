@@ -195,6 +195,30 @@ def arbitrated(comments, review_id):
                for record in arbitrations(comments))
 
 
+# A change to Ralph's own control plane is held for a human even when every
+# model gate is satisfied.  The hold is recorded per head so the notice is
+# posted once, not on every poll of the review window.
+CONTROL_PLANE_HOLD_TEMPLATE = "<!-- ralph-control-plane-hold:v1 head=%s -->"
+
+
+def control_plane_hold_record(head, protected):
+    """The Story comment recording that this head is held for a human."""
+    return "%s\n\n```json\n%s\n```" % (
+        CONTROL_PLANE_HOLD_TEMPLATE % head,
+        json.dumps({"head": head, "protected": list(protected)}, indent=2,
+                   sort_keys=True))
+
+
+def control_plane_held(comments, head):
+    """Has the control-plane notice already been posted for *head*?"""
+    marker = CONTROL_PLANE_HOLD_TEMPLATE % head
+    for comment in comments or []:
+        body = comment if isinstance(comment, str) else (comment or {}).get("body")
+        if marker in (body or ""):
+            return True
+    return False
+
+
 def negotiation_history(comments):
     """Every recorded round of the negotiation, oldest first.
 

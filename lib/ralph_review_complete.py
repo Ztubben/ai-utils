@@ -9,8 +9,10 @@ Passing.  A HIL Story with exactly the same approvals is not merged: it moves to
 Awaiting Bench Verification and stays open, because model review never replaces
 physical verification.  Neither path ever targets `main`.
 """
+import fnmatch
 import json
 import os
+import posixpath
 import subprocess
 import sys
 
@@ -19,6 +21,7 @@ import ralph_afk  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_review  # noqa: E402
+import ralph_review_context  # noqa: E402
 import ralph_review_human  # noqa: E402
 import ralph_review_render  # noqa: E402
 import ralph_review_round  # noqa: E402
@@ -36,14 +39,51 @@ PASSING_CONCLUSIONS = ("SUCCESS", "NEUTRAL", "SKIPPED")
 PASSING_STATES = ("SUCCESS", "EXPECTED")
 
 
+def protected_paths(changed_paths, patterns):
+    """Which of *changed_paths* the declared control-plane patterns cover.
+
+    A bare directory protects everything under it, which is how a repository
+    says "all of `schema/`" without thinking about globs; otherwise the pattern
+    is an ordinary glob, and `*` deliberately crosses `/` so `prompts/**` means
+    what a reader expects it to mean.
+    """
+    matched = []
+    for path in changed_paths or []:
+        normalized = posixpath.normpath(path)
+        for pattern in patterns or []:
+            bare = pattern.rstrip("/")
+            if (fnmatch.fnmatch(normalized, pattern)
+                    or normalized == bare
+                    or normalized.startswith(bare + "/")):
+                matched.append(path)
+                break
+    return matched
+
+
+def protected_for(pull_request, config, root):
+    """The control-plane paths this head touches, per the committed policy.
+
+    Git is only consulted when the target repository actually declares a
+    control plane: a repository that protects nothing pays nothing for the
+    rule, on every poll of every review window.
+    """
+    patterns = ((config or {}).get("control_plane") or {}).get("protected") or []
+    if not patterns:
+        return []
+    _diff, changed = ralph_review_context.head_diff(pull_request, root)
+    return protected_paths(changed, patterns)
+
+
 class Gate:
     def __init__(self, ok, errors, ci_green=False, review_ok=False,
-                 review_source=None):
+                 review_source=None, protected=(), held_for_human=False):
         self.ok = ok
         self.errors = errors
         self.ci_green = ci_green
         self.review_ok = review_ok
         self.review_source = review_source
+        self.protected = list(protected)
+        self.held_for_human = held_for_human
 
 
 def _rollup(pull_request):
@@ -74,7 +114,7 @@ def _verdict(entry):
     return "failing"
 
 
-def gate_for(pull_request, comments):
+def gate_for(pull_request, comments, protected=()):
     """Is this head allowed to complete, and if not, why not.
 
     Two independent halves.  CI is every check the head ran *except* Ralph's own
@@ -84,6 +124,11 @@ def gate_for(pull_request, comments):
     recorded human approval of this exact commit.  The second path exists
     because a human's decision is authoritative on its own: a status write that
     never landed must not be able to veto it.
+
+    `protected` names the control-plane paths this head touches.  When it is
+    non-empty the review half must be satisfied *by the human*, whatever the
+    Story's type: a change to the review gate approved by the review gate is
+    the mechanism approving changes to itself.
     """
     head = (pull_request or {}).get("headRefOid")
     errors = []
@@ -101,13 +146,27 @@ def gate_for(pull_request, comments):
     for entry in _rollup(pull_request):
         if _name(entry) == CHECK_CONTEXT and _verdict(entry) == "passing":
             review_ok, source = True, "review check"
-    if not review_ok and ralph_review_human.approval_for(comments, head):
+    human_ok = ralph_review_human.approval_for(comments, head) is not None
+    if human_ok:
         review_ok, source = True, "human approval"
     if not review_ok:
         errors.append("checks/%s: the model-review gate is not satisfied for %s"
                       % (CHECK_CONTEXT, head))
-    return Gate(ci_green and review_ok, errors, ci_green=ci_green,
-                review_ok=review_ok, review_source=source)
+
+    protected = list(protected)
+    needs_human = bool(protected) and not human_ok
+    if needs_human:
+        errors.append(
+            "control_plane: %s is protected, so this change needs a native "
+            "human approval before it completes, whatever the Story's type"
+            % ", ".join(protected))
+    ok = ci_green and review_ok and not needs_human
+    # The notice is only worth posting once everything else is ready: asking a
+    # human to approve work CI has not finished checking wastes their attention
+    # on a head that may not survive.
+    held = needs_human and ci_green and review_ok
+    return Gate(ok, errors, ci_green=ci_green, review_ok=review_ok,
+                review_source=source, protected=protected, held_for_human=held)
 
 
 class Plan:
@@ -122,8 +181,57 @@ class Plan:
         self.gate = gate
 
 
+def hold_notice(story, protected):
+    """Why this pull request is waiting on a person, in the pull request."""
+    return "\n".join([
+        "## This change needs a human approval",
+        "",
+        "Story #%s touches the repository's **protected control plane** — the "
+        "parts that govern Ralph's own review gate:" % story.get("number", "?"),
+        "",
+    ] + ["- `%s`" % path for path in protected] + [
+        "",
+        "Model review is satisfied and CI is green, but that is deliberately "
+        "not enough here: a change to the review mechanism approved by the "
+        "review mechanism is the mechanism approving changes to itself. This "
+        "holds whatever the Story's type — an AFK Story is not merged and a "
+        "HIL Story is not parked for the bench until a person approves.",
+        "",
+        "**Approve** this pull request to release it. Nothing else is needed; "
+        "there is no command to run.",
+    ])
+
+
+def hold_plan(story, pull_request, protected, handle):
+    """Say why the change is held, and ask the configured human to look.
+
+    The Story is *not* blocked and not closed: nothing has gone wrong, and the
+    negotiation is over. It is simply waiting on the one approval that a model
+    is not permitted to give.
+    """
+    errors = []
+    if not ralph_review.is_managed_pr(pull_request):
+        errors.append("pull_request: #%s is not Ralph-managed"
+                      % (pull_request or {}).get("number", "?"))
+    if not protected:
+        errors.append("control_plane: nothing protected was touched")
+    if not handle:
+        errors.append("notify/github: no handle to request a review from")
+    if errors:
+        return ralph_review_render.Plan(False, errors, [])
+    number = pull_request["number"]
+    head = pull_request.get("headRefOid")
+    return ralph_review_render.Plan(True, [], [
+        ["gh", "pr", "comment", str(number), "--body",
+         hold_notice(story, protected)],
+        ["gh", "pr", "edit", str(number), "--add-reviewer", handle],
+        ["gh", "issue", "comment", str(story["number"]), "--body",
+         ralph_review.control_plane_hold_record(head, protected)],
+    ], head=head)
+
+
 def completion_plan(story, pull_request, comments, base="develop",
-                    afk_merge="squash", prd=None,
+                    afk_merge="squash", prd=None, protected=(),
                     branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
                     feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN):
     """The ordered plan that completes one review-approved Story.
@@ -156,7 +264,7 @@ def completion_plan(story, pull_request, comments, base="develop",
     except ValueError as exc:
         errors.append("branch: %s" % exc)
 
-    gate = gate_for(pull_request, comments)
+    gate = gate_for(pull_request, comments, protected=protected)
     if not gate.ok:
         errors.extend(gate.errors)
     if errors:
@@ -224,8 +332,35 @@ def fetch_prd(story, root):
     return json.loads(proc.stdout)
 
 
-def complete(story, pull_request, config, root, comments=None, prd=None):
+def hold(story, pull_request, config, root, protected):
+    """Post the control-plane notice and ask a human; return an exit code."""
+    handle = ((config or {}).get("notify") or {}).get("github")
+    plan = hold_plan(story, pull_request, protected, handle)
+    if not plan.ok:
+        sys.stderr.write("REFUSED: control-plane hold\n")
+        for error in plan.errors:
+            sys.stderr.write("  - %s\n" % error)
+        return 2
+    run = ralph_review_render.run_plan(plan.commands, cwd=root)
+    if not run.ok:
+        sys.stderr.write("FAILED: control-plane hold (exit %d): %s\n"
+                         % (run.failed.returncode, " ".join(run.failed.args)))
+        return 1
+    print("OK: #%s touches the protected control plane (%s); @%s was asked to "
+          "approve PR #%s" % (story["number"], ", ".join(protected), handle,
+                              pull_request.get("number", "?")))
+    return 0
+
+
+def complete(story, pull_request, config, root, comments=None, prd=None,
+             protected=None):
     """Run the completion against a live checkout; return an exit code."""
+    if protected is None:
+        try:
+            protected = protected_for(pull_request, config, root)
+        except (OSError, ValueError, RuntimeError) as exc:
+            sys.stderr.write("ralph: could not read the reviewed diff: %s\n" % exc)
+            return 2
     if prd is None:
         try:
             prd = fetch_prd(story, root)
@@ -242,6 +377,7 @@ def complete(story, pull_request, config, root, comments=None, prd=None):
     plan = completion_plan(
         story, pull_request, comments, base=branching.get("base", "develop"),
         afk_merge=branching.get("afk_merge", "squash"), prd=prd,
+        protected=protected,
         branch_pattern=branching.get("branch_pattern",
                                      ralph_iterate.DEFAULT_BRANCH_PATTERN),
         feature_pattern=branching.get("feature_pattern",

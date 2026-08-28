@@ -47,6 +47,9 @@ class ValidationResult:
         limits = c.get("limits", {})
         lines.append("max attempts: %s" % limits.get("max_attempts"))
         lines.append("circuit breaker: %s" % limits.get("circuit_breaker"))
+        protected = (c.get("control_plane") or {}).get("protected") or []
+        lines.append("protected control plane: %s"
+                     % (", ".join(protected) if protected else "(none)"))
         lines.append("notify: @%s" % c.get("notify", {}).get("github"))
         steps = ", ".join(s.get("name", "?") for s in c.get("gating", []))
         lines.append("gating steps: %s" % steps)
@@ -144,6 +147,29 @@ def _model_catalog_errors(data):
     return errors
 
 
+def _control_plane_errors(data):
+    """Protected patterns must stay inside the repository they protect.
+
+    An absolute or parent-escaping pattern could never match a repository-
+    relative changed path, so it would silently protect nothing -- which is the
+    worst possible failure mode for a rule whose entire job is to stop the
+    mechanism approving changes to itself.
+    """
+    patterns = ((data.get("control_plane") or {}).get("protected")
+                if isinstance(data.get("control_plane"), dict) else None)
+    if not isinstance(patterns, list):
+        return []
+    errors = []
+    for index, pattern in enumerate(patterns):
+        if not isinstance(pattern, str):
+            continue
+        if os.path.isabs(pattern) or ".." in pattern.split("/"):
+            errors.append(
+                "control_plane/protected/%d: %r must be a repository-relative "
+                "path pattern" % (index, pattern))
+    return errors
+
+
 def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     if not os.path.isfile(config_path):
         return ValidationResult(False, ["config file not found: %s" % config_path])
@@ -165,9 +191,9 @@ def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     if errors:
         return ValidationResult(False, [format_error(e) for e in errors])
 
-    catalog_errors = _model_catalog_errors(data)
-    if catalog_errors:
-        return ValidationResult(False, catalog_errors)
+    cross_field = _model_catalog_errors(data) + _control_plane_errors(data)
+    if cross_field:
+        return ValidationResult(False, cross_field)
 
     resolved = _apply_defaults(schema, copy.deepcopy(data))
     return ValidationResult(True, [], resolved)

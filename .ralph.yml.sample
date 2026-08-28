@@ -70,6 +70,19 @@ review:
   # limits.circuit_breaker's decision, which the newly blocked Story counts toward.
   max_rounds: 2        # default: 2
 
-# Who to tag when the circuit breaker trips (needs-human).
+# The protected control plane: the parts of *this* repository that govern
+# Ralph's own review gate. A Story whose diff touches one of these is never
+# completed on a model review alone -- an AFK Story is not merged and a HIL
+# Story is not parked for the bench until a person clicks Approve on the pull
+# request, which says why. The mechanism must not be able to approve changes to
+# itself. Patterns are repository-relative; a bare directory protects
+# everything under it, and * / ** glob. Omit the section to protect nothing.
+control_plane:
+  protected:
+    - .github/workflows/**    # the CI the gate reads
+    - .ralph.yml              # the policy itself, including this list
+
+# Who to tag when the circuit breaker trips (needs-human), and who is asked to
+# approve a protected control-plane change or arbitrate a deadlock.
 notify:
   github: your-github-handle   # without a leading @

@@ -123,6 +123,11 @@ scheduler (every ~5h)
         │                          │           defect or safety regression, and never
         │                          │           extends the round limit.
         │                          │
+        │                          ├── touches control_plane.protected ─►
+        │                          │   notice on the PR saying why, native
+        │                          │   review requested; nothing completes
+        │                          │   until a person Approves (either type)
+        │                          │
         │                          ├── CI green + review gate satisfied ─►
         │                          │   ralph --complete-story
         │                          │     AFK  ─► squash-merge into base, close
@@ -314,7 +319,22 @@ models:
     review: codex-high
   alternate: true                 # swap the pair on each newly started story (default: true)
 
-# Who gets tagged when the circuit breaker trips (needs-human).
+# Model review and negotiation.
+review:
+  wait_minutes: 60     # bounded negotiation window per tick (default: 60)
+  poll_seconds: 30     # first poll; later polls back off, capped, in the window
+  max_rounds: 2        # rounds before the disagreement goes to a human (default: 2)
+
+# The protected control plane: the parts of this repository that govern Ralph's
+# own review gate. A Story touching one is never completed on a model review
+# alone — a person must Approve the pull request first, whatever the type.
+control_plane:
+  protected:
+    - .github/workflows/**
+    - .ralph.yml
+
+# Who gets tagged when the circuit breaker trips (needs-human), asked to
+# arbitrate a deadlock, or asked to approve a control-plane change.
 notify:
   github: your-github-handle   # no leading @
 ```

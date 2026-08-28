@@ -338,6 +338,29 @@ not HITL) and `docs/adr/0001–0005`.
   when the Story has a `Parent:`, so no caller has to know to do it first. (6) This is
   the review-gated successor to `--complete-afk`/`--complete-hil`, which remain as the
   pre-review paths; do not add review logic to those.
+- The **protected control plane** (#60, PRD #42) is config plus one extra condition on
+  the completion gate, not a module of its own. `control_plane.protected` is a list of
+  repository-relative path patterns in the schema; `ralph_config._control_plane_errors`
+  rejects an absolute or `..`-escaping pattern, because such a pattern can never match a
+  repository-relative changed path and would therefore silently protect *nothing* —
+  the worst failure mode for a rule whose whole job is to stop the mechanism approving
+  changes to itself. `ralph_review_complete.protected_paths(changed, patterns)` matches
+  (a bare directory protects everything under it; otherwise fnmatch, where `*` crosses
+  `/` on purpose so `prompts/**` reads as expected), and `gate_for(..., protected=)`
+  then requires the review half to be satisfied **by the human**, never by the check.
+  GOTCHAS: (1) `Gate.held_for_human` is true only when everything else is already
+  ready — asking a person to approve work CI has not finished checking spends their
+  attention on a head that may not survive. (2) The notice (`hold_plan` → a pull-request
+  comment naming the paths, an `--add-reviewer`, and a per-head record) is posted **once
+  per head**, guarded by `ralph_review.control_plane_held`; after that the poll simply
+  returns `WAIT`. Nothing is blocked and nothing is closed: the negotiation is over, not
+  broken. (3) `protected_for` shells git **only when patterns are declared**, so a
+  repository that protects nothing pays nothing on every poll of every window. (4) The
+  wait's `read_protected` **fails closed**: if the reviewed diff cannot be read it
+  reports an unknown protected path rather than an empty list, because failing open
+  would merge a control-plane change on a model review alone. (5) `ai-utils`'s own
+  `.ralph.yml` declares its review machinery protected — it is its own target repository
+  (ADR-0001 amendment), and dogfooding the rule is the point of it.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the

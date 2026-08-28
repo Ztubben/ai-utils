@@ -27,5 +27,18 @@ models:
     implementation: claude-opus
     review: codex-high
 
+# ai-utils is its own target repository here, so its control plane is its own
+# review machinery: a Story touching any of this needs a human Approve before it
+# merges, whatever its type. The mechanism must not approve changes to itself.
+control_plane:
+  protected:
+    - prompts/**
+    - schema/**
+    - lib/ralph_review*.py
+    - docs/review-contract.md
+    - bin/ralph
+    - bin/ralph.sh
+    - .ralph.yml
+
 notify:
   github: Ztubben

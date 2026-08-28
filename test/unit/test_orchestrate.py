@@ -226,6 +226,9 @@ class TickHarness:
                 *) [[ -f "$RALPH_GH_QUEUE_DIR/head.txt" ]] && echo "$2" ;;
               esac
             fi
+            if [[ "$1 $2" == "diff --name-only" ]]; then
+              cat "$RALPH_GH_QUEUE_DIR/changed.txt" 2>/dev/null || true
+            fi
             exit 0
             """))
 
@@ -712,6 +715,8 @@ class OrchestrationTest(unittest.TestCase):
 
     def approved_pull_request(self, h, issue=7, head="a" * 40, ci="SUCCESS"):
         """A marked pull request whose head carries a satisfied review gate."""
+        with open(os.path.join(h.queue, "head.txt"), "w") as fh:
+            fh.write(head + "\n")
         body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % issue
         h.set_pull_requests(
             [{"number": 70, "body": body}],
@@ -775,6 +780,56 @@ class OrchestrationTest(unittest.TestCase):
         log = h.log_lines()
         self.assertFalse(any("pr merge" in ln for ln in log), log)
         self.assertFalse(any("issue close" in ln for ln in log), log)
+
+    def test_a_protected_change_asks_a_human_instead_of_merging(self):
+        # AC (#60): a change to Ralph's own control plane is never completed on
+        # a model review alone -- the mechanism cannot approve changes to
+        # itself -- and the pull request says why.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        with open(os.path.join(h.tmp, ".ralph.yml"), "a") as fh:
+            fh.write("control_plane:\n  protected:\n    - prompts/**\n")
+        with open(os.path.join(h.queue, "changed.txt"), "w") as fh:
+            fh.write("prompts/review.v1.md\nlib/thing.py\n")
+        h.set_backlogs([story(7, "in-review", "afk")], [], [], [])
+        h.set_view_stories(story(7, "in-review", "afk"))
+        self.approved_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("pr merge" in ln for ln in log), log)
+        self.assertFalse(any("issue close" in ln for ln in log), log)
+        notice = [ln for ln in log if ln.startswith("gh pr comment 70")]
+        self.assertTrue(notice, log)
+        self.assertTrue(any("prompts/review.v1.md" in ln for ln in log), log)
+        self.assertTrue(any("--add-reviewer" in ln for ln in log), log)
+        # Nothing is blocked: the negotiation is over, not broken.
+        self.assertFalse(any("state:blocked" in ln for ln in log), log)
+
+    def test_a_human_approval_lets_a_protected_change_complete(self):
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        with open(os.path.join(h.tmp, ".ralph.yml"), "a") as fh:
+            fh.write("control_plane:\n  protected:\n    - prompts/**\n")
+        with open(os.path.join(h.queue, "changed.txt"), "w") as fh:
+            fh.write("prompts/review.v1.md\n")
+        approved = dict(story(7, "in-review", "afk"), comments=[
+            {"body": "<!-- ralph-human-arbitration:v1 review=R-1 -->\n\n"
+                     "```json\n" + json.dumps(
+                         {"review": "R-1", "decision": "APPROVED",
+                          "reviewer": "carl", "head": "a" * 40,
+                          "overrode": []}, indent=2) + "\n```"}])
+        h.set_backlogs([story(7, "in-review", "afk")], [], [], [])
+        h.set_view_stories(approved)
+        self.approved_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("pr merge 70" in ln for ln in log), log)
 
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()
