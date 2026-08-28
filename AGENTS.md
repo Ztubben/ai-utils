@@ -210,6 +210,33 @@ not HITL) and `docs/adr/0001–0005`.
   `PublishResult.failed` is what separates a gh failure, exit 1, from a refusal, exit 2).
   `bin/ralph.sh` calls `review_round` where it used to park an In Review Story, then still
   parks — #54 replaces that park with the bounded in-tick wait.
+- `lib/ralph_review_respond.py` answers a round that requested changes (#55, PRD #42):
+  pure `respond_prompt`, `validate_response(payload, result)`, `append_only_errors`,
+  `reply_commands`, `response_comment`, plus `conduct(..., launch, publish, checkout)`,
+  the live `respond_to_review(story, pr, config, root)` and the `--respond-review STORY
+  [CONFIG] [ROOT] [--pr PATH]` CLI. Contract: `schema/response.schema.json`
+  (`ralph-response/v1`), judgement half in the drift-guarded `prompts/respond.v1.md`.
+  GOTCHAS: (1) append-only is **verified, not trusted** — `git merge-base --is-ancestor
+  <reviewed head> <new head>`. An amend, a rebase and a force-push all fail exactly that
+  test, and each would strand the review threads, the checks and the commit evidence
+  citing the reviewed commit. An `accepted` disposition with an *unchanged* head is
+  refused for the mirror-image reason: a claimed fix with no commit behind it. (2) Ralph
+  does the `git push` (never `--force`) in `publish`, before the replies: until the fix is
+  on the remote there is no new head for CI and the next round to judge, and the replies
+  would describe commits nobody else can see. (3) The answer must cover every open finding
+  exactly once and none that was never raised — a partial answer would leave the loop
+  unable to say whether a blocker was handled. (4) Threads are matched by the rendered
+  heading `**F-1**` at the *start* of #52's comment body, so a finding id quoted inside
+  someone's prose cannot claim a thread; a cross-cutting finding has no thread and is
+  answered by the consolidated record alone. (5) The reply endpoint needs the pull number
+  (`repos/{owner}/{repo}/pulls/{n}/comments/{id}/replies`) — the shorter spelling 404s.
+- Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
+  and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
+  the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the
+  pull request when a response posts; `next_step` reads them to tell an unanswered
+  changes-requested head from a settled one. They exist because the response round runs in
+  a *later process* than the review: recovering findings by parsing back rendered Markdown
+  would make loop state depend on prose formatting.
 - `lib/ralph_review_wait.py` is the bounded in-tick wait (#54, PRD #42): pure
   `WaitPolicy` (`from_config`, `expired`, `sleep_for`), `next_step(pr)` →
   `REVIEW`/`WAIT`/`GONE`, and `await_review(policy, fetch, act, sleep, now)` returning a

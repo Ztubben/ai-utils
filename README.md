@@ -108,6 +108,12 @@ scheduler (every ~5h)
         │                      fresh Review Agent, read-only, no GitHub credential,
         │                      concurrent with CI, prompts/review.v1.md)
         │                          │
+        │                          ├── changes requested ─► ralph --respond-review
+        │                          │   (fresh implementation round: append-only fix
+        │                          │   commits, thread replies, one machine-readable
+        │                          │   response — prompts/respond.v1.md; the new head
+        │                          │   is reviewed again)
+        │                          │
         │                          └── window closes ─► comment-only Handoff,
         │                              tick ends; next tick resumes this Story first
         ├── context full ──► ralph --checkpoint     (Handoff, resume next iteration)
@@ -445,7 +451,8 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --validate-review PAYLOAD [DIFF]` | Validate a Review Agent's structured result (`-` for stdin) against the versioned contract in [`docs/review-contract.md`](docs/review-contract.md) before it is rendered as a GitHub review. Names the offending field paths on rejection; with the reviewed `DIFF`, also rejects a source location the diff never touched. |
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
-| `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run a Negotiation Round whenever the head has none, and otherwise just wait — no context, no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
+| `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
+| `ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]` | Answer a round that requested changes: launch the assigned implementation model with the open findings, verify the answer covers every one of them and that the new head is a *descendant* of the reviewed commit (an amend or force-push is refused, nothing posted), then push the appended fixes, reply in each finding's thread, and record one consolidated machine-readable response. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

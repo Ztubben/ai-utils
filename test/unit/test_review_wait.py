@@ -49,6 +49,41 @@ class NextStep(unittest.TestCase):
         self.assertEqual(ralph_review_wait.next_step(human),
                          ralph_review_wait.GONE)
 
+    def test_a_review_requesting_changes_is_answered_not_waited_on(self):
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}])
+        record = ralph_review.result_record(
+            {"head": HEAD, "round": 1, "verdict": "request_changes",
+             "findings": [{"id": "F-1", "blocking": True}]})
+
+        self.assertEqual(
+            ralph_review_wait.next_step(reviewed, comments=[{"body": record}]),
+            ralph_review_wait.RESPOND)
+
+    def test_an_approving_review_is_not_something_to_answer(self):
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}])
+        record = ralph_review.result_record(
+            {"head": HEAD, "round": 1, "verdict": "approve", "findings": []})
+
+        self.assertEqual(
+            ralph_review_wait.next_step(reviewed, comments=[{"body": record}]),
+            ralph_review_wait.WAIT)
+
+    def test_a_head_already_answered_is_not_answered_twice(self):
+        reviewed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}])
+        record = ralph_review.result_record(
+            {"head": HEAD, "round": 1, "verdict": "request_changes",
+             "findings": [{"id": "F-1", "blocking": True}]})
+        answer = ralph_review.response_record(
+            {"head": HEAD, "round": 1, "dispositions": []})
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                reviewed, comments=[{"body": record}, {"body": answer}]),
+            ralph_review_wait.WAIT)
+
     def test_a_closed_pull_request_ends_the_negotiation(self):
         self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),
                          ralph_review_wait.GONE)
@@ -119,15 +154,18 @@ class Clock:
 class AwaitReview(unittest.TestCase):
     def setUp(self):
         self.clock = Clock()
-        self.state = {"pr": pull_request()}
+        self.state = {"pr": pull_request(), "comments": []}
         self.acts = []
 
     def fetch(self):
         return self.state["pr"]
 
-    def act(self, pull_request_):
+    def comments(self):
+        return self.state["comments"]
+
+    def act(self, step, pull_request_):
         """Stand in for a Negotiation Round: it publishes a review."""
-        self.acts.append(pull_request_)
+        self.acts.append(step)
         self.state["pr"] = pull_request(reviews=[
             {"body": ralph_review.review_marker(HEAD)}])
         return True, []
@@ -136,7 +174,7 @@ class AwaitReview(unittest.TestCase):
         return ralph_review_wait.await_review(
             ralph_review_wait.WaitPolicy(window_seconds=window,
                                          first_poll=first_poll),
-            fetch=self.fetch, act=self.act,
+            fetch=self.fetch, act=self.act, read_comments=self.comments,
             sleep=self.clock.sleep, now=self.clock.now)
 
     def test_it_reviews_the_head_once_then_waits_out_the_window(self):
@@ -158,8 +196,34 @@ class AwaitReview(unittest.TestCase):
         self.assertEqual(self.acts, [])
         self.assertEqual(result.invocations, 0)
 
+    def test_the_answer_to_a_review_leaves_a_head_that_is_reviewed_again(self):
+        # The negotiation advances inside one window: review, answer, review.
+        # The answer appends a commit, so the new head has no review yet.
+        answered = "1" * 40
+
+        def act(step, pull_request_):
+            self.acts.append(step)
+            head = pull_request_["headRefOid"]
+            if step == ralph_review_wait.REVIEW:
+                self.state["pr"] = pull_request(head=head, reviews=[
+                    {"body": ralph_review.review_marker(head)}])
+                self.state["comments"] += [{"body": ralph_review.result_record(
+                    {"head": head, "round": 1, "verdict": "request_changes",
+                     "findings": [{"id": "F-1", "blocking": True}]})}]
+            else:
+                self.state["pr"] = pull_request(head=answered)
+            return True, []
+
+        self.act = act
+        result = self.await_(window=100, first_poll=30)
+
+        self.assertEqual(self.acts[:3], [ralph_review_wait.REVIEW,
+                                         ralph_review_wait.RESPOND,
+                                         ralph_review_wait.REVIEW])
+        self.assertEqual(result.kind, ralph_review_wait.EXPIRED)
+
     def test_a_step_that_failed_is_left_for_the_next_tick_not_retried(self):
-        self.act = lambda pr: (False, ["review agent infrastructure-failure"])
+        self.act = lambda step, pr: (False, ["review agent infrastructure-failure"])
 
         result = self.await_()
 

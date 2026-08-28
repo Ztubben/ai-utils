@@ -23,6 +23,7 @@
 #   ralph --render-review REVIEW PR [DIFF]  Post a validated review + its required check.
 #   ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]  Run one Negotiation Round on the marked PR.
 #   ralph --await-review STORY [CONFIG] [ROOT]  Wait out one bounded review window, polling durable state.
+#   ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]  Answer a round's findings with append-only fixes.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -57,6 +58,7 @@ usage: ralph --init [CONFIG]
        ralph --render-review REVIEW PR [DIFF]
        ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --await-review STORY [CONFIG] [ROOT]
+       ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -230,6 +232,19 @@ usage: ralph --init [CONFIG]
                           negotiation needs no further waiting, 14 when the
                           window closed (the caller owes a Handoff), 1 when a
                           step failed, 2 on bad config or input.
+  --respond-review STORY  Answer one Negotiation Round that requested changes.
+       [CONFIG] [ROOT]    Reads the round's recorded result off the Story,
+       [--pr PATH]        launches the Story's assigned implementation model
+                          with the open findings, then verifies what came back:
+                          the answer must cover every finding exactly once, and
+                          the new head must be a descendant of the reviewed
+                          commit (an amend, rebase or force-push is refused and
+                          nothing is posted). On success it pushes the appended
+                          fixes -- creating the new head a fresh review round
+                          judges -- replies in each finding's thread, and posts
+                          one consolidated machine-readable response. Exits 0 on
+                          success, 2 on a refusal or invalid output, 10 when the
+                          model hit its session limit, 12 when it failed to run.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -400,6 +415,10 @@ main() {
     --await-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_wait.py" await "$@"
+      ;;
+    --respond-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_respond.py" respond "$@"
       ;;
     --complete-afk)
       shift

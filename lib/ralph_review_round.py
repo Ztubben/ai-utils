@@ -290,7 +290,8 @@ def run_round(story, pull_request, config, root):
         return ralph_agent.launch_role(config, "review", prompt, story=story)
 
     def publish(review):
-        posted = ralph_review_render.publish(review, pull_request, cwd=root)
+        posted = ralph_review_render.publish(review, pull_request, cwd=root,
+                                             story_number=story.get("number"))
         return posted.ok, posted.errors
 
     result = conduct(story, pull_request, context.text, launch, publish,

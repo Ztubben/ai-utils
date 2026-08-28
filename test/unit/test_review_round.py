@@ -344,6 +344,21 @@ notify:
         self.assertIn("statuses/" + self.head, calls)
         self.assertIn("F-3", calls)
 
+    def test_a_published_review_is_recorded_on_the_story_for_later_rounds(self):
+        self._provider("claude", self.review(model="claude-opus-5"))
+        self._gh()
+
+        proc, calls = self.run_round()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len([ln for ln in calls.splitlines()
+                              if ln.startswith("gh issue comment 53")]), 1, calls)
+        # The record is recovered from the log exactly the way a later round
+        # recovers it from the Story's comments.
+        recorded = ralph_review.latest_result([{"body": calls}], self.head)
+        self.assertEqual(recorded["verdict"], "request_changes")
+        self.assertEqual([f["id"] for f in recorded["findings"]], ["F-3"])
+
     def test_the_reviewing_process_is_handed_no_github_credential(self):
         self._provider("claude", self.review(model="claude-opus-5"))
         self._gh()
@@ -499,6 +514,43 @@ notify:
         self.assertEqual(proc.returncode, 2)
         self.assertNotIn("claude", calls)
         self.assertIn("no Ralph-managed pull request", proc.stderr)
+
+
+class DurableResultRecord(unittest.TestCase):
+    """A published review is also kept machine-readable on the Story.
+
+    The response round (#55) runs in a later process, so it must recover the
+    findings exactly rather than parsing back the Markdown Ralph rendered.
+    """
+
+    def test_a_recorded_result_reads_back_exactly(self):
+        result = fixture("valid-inline.json")
+        record = ralph_review.result_record(result)
+
+        recovered = ralph_review.latest_result([{"body": record}], HEAD)
+
+        self.assertEqual(recovered, result)
+
+    def test_a_record_for_another_head_is_not_this_heads_review(self):
+        record = ralph_review.result_record(
+            dict(fixture("valid-inline.json"), head="0" * 40))
+
+        self.assertIsNone(ralph_review.latest_result([{"body": record}], HEAD))
+
+    def test_the_newest_record_for_a_head_wins(self):
+        first = ralph_review.result_record(fixture("valid-inline.json"))
+        second = ralph_review.result_record(
+            dict(fixture("cross-cutting.json"), head=HEAD))
+
+        recovered = ralph_review.latest_result(
+            [{"body": first}, {"body": "unrelated chatter"}, {"body": second}],
+            HEAD)
+
+        self.assertEqual(recovered["round"], 2)
+
+    def test_ordinary_story_comments_are_not_review_records(self):
+        self.assertIsNone(ralph_review.latest_result(
+            [{"body": "Ralph handoff: still working"}], HEAD))
 
 
 class RoundNumbering(unittest.TestCase):

@@ -142,7 +142,7 @@ def check_command(result):
     ]
 
 
-def render_plan(result, pull_request, payload_path):
+def render_plan(result, pull_request, payload_path, story_number=None):
     """Return the ordered plan that renders *result* onto *pull_request*.
 
     A result is bound to the commit it judged.  If the pull request has moved
@@ -169,6 +169,12 @@ def render_plan(result, pull_request, payload_path):
          "--input", payload_path],
         check_command(result),
     ]
+    if story_number is not None:
+        # Keep the judgement machine-readable where a later round can recover it
+        # exactly. Written after the review itself: a record of something that
+        # was never posted would be a lie about the pull request's state.
+        commands.append(["gh", "issue", "comment", str(story_number),
+                         "--body", ralph_review.result_record(result)])
     return Plan(True, [], commands, head=result["head"],
                 posted_comments=len(inline_comments(result)))
 
@@ -213,7 +219,7 @@ class PublishResult:
         self.posted_comments = posted_comments
 
 
-def publish(result, pull_request, cwd=None):
+def publish(result, pull_request, cwd=None, story_number=None):
     """Post *result* onto *pull_request* and update the required check.
 
     The nested ``comments[]`` body cannot be expressed as `gh api -f`, so the
@@ -225,7 +231,8 @@ def publish(result, pull_request, cwd=None):
     try:
         json.dump(review_payload(result), payload, indent=2)
         payload.close()
-        plan = render_plan(result, pull_request, payload.name)
+        plan = render_plan(result, pull_request, payload.name,
+                           story_number=story_number)
         if not plan.ok:
             return PublishResult(False, plan.errors)
         run = run_plan(plan.commands, cwd=cwd)

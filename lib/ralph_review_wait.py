@@ -12,10 +12,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
+import ralph_review_respond  # noqa: E402
 import ralph_review_round  # noqa: E402
 
 # What the tick may do about this pull request right now.
 REVIEW = "review"      # the head has no review yet: launch a Negotiation Round
+RESPOND = "respond"    # the review requested changes: answer it with a fix round
 WAIT = "wait"          # nothing Ralph can act on; keep polling, spend nothing
 GONE = "gone"          # no marked pull request, or it is no longer open
 
@@ -45,10 +47,11 @@ class WaitResult:
         self.elapsed = elapsed
 
 
-def next_step(pull_request):
+def next_step(pull_request, comments=None):
     """The one decision a poll makes, from durable state only.
 
-    Later stories widen this (responding to findings, human arbitration,
+    `comments` are the Story's, where Ralph records each round's review result
+    and each response to one.  Later stories widen this (human arbitration,
     completion); until then anything Ralph cannot act on is ``WAIT``, which
     costs nothing at all -- no context, no invocation.
     """
@@ -56,9 +59,14 @@ def next_step(pull_request):
         return GONE
     if (pull_request.get("state") or "OPEN").upper() != "OPEN":
         return GONE
-    if ralph_review.is_reviewed(pull_request, pull_request.get("headRefOid")):
-        return WAIT
-    return REVIEW
+    head = pull_request.get("headRefOid")
+    if not ralph_review.is_reviewed(pull_request, head):
+        return REVIEW
+    result = ralph_review.latest_result(comments, head)
+    if (result or {}).get("verdict") == "request_changes" \
+            and ralph_review.latest_response(comments, head) is None:
+        return RESPOND
+    return WAIT
 
 
 class WaitPolicy:
@@ -92,26 +100,30 @@ class WaitPolicy:
         return min(self.first_poll * (2 ** poll_index), self.max_poll, remaining)
 
 
-def await_review(policy, fetch, act, sleep, now):
+def await_review(policy, fetch, act, sleep, now, read_comments=None):
     """Poll durable state until the negotiation moves on or the window closes.
 
-    ``fetch`` reads the pull request, ``act`` runs one Negotiation Round and
-    returns ``(ok, errors)``.  Everything between polls is sleep: waiting spends
-    no context and makes no model invocation, which is the point of doing it
-    here rather than inside an agent.
+    ``fetch`` reads the pull request and ``read_comments`` the Story's recorded
+    rounds; ``act`` runs the step those imply and returns ``(ok, errors)``.
+    Everything between polls is sleep: waiting spends no context and makes no
+    model invocation, which is the point of doing it here rather than inside an
+    agent.  One window can carry a whole exchange -- review, answer, review of
+    the answered head -- because each step changes the durable state the next
+    poll reads.
     """
+    read_comments = read_comments or (lambda: [])
     started, polls, invocations = now(), 0, 0
     while True:
         pull_request = fetch()
         polls += 1
-        step = next_step(pull_request)
+        step = next_step(pull_request, read_comments())
         elapsed = now() - started
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
                               elapsed=elapsed)
-        if step == REVIEW:
+        if step in (REVIEW, RESPOND):
             invocations += 1
-            ok, errors = act(pull_request)
+            ok, errors = act(step, pull_request)
             if not ok:
                 # Retrying a failed step every poll would spend an invocation
                 # each time; the next tick retries it once instead.
@@ -167,14 +179,27 @@ def _cmd_await(rest):
         seen["pull_request"] = pull_request
         return pull_request
 
-    def act(pull_request):
+    def read_comments():
+        # The Story is where each round's review result and each response are
+        # recorded, so this is what tells a poll whether a review is answered.
+        try:
+            return ralph_review_respond.story_comments(story["number"], root)
+        except (OSError, ValueError, RuntimeError) as exc:
+            sys.stderr.write("ralph: could not read the Story's rounds: %s\n" % exc)
+            return []
+
+    def act(step, pull_request):
+        if step == RESPOND:
+            rc = ralph_review_respond.respond_to_review(
+                story, pull_request, validated.config, root)
+            return rc == 0, [] if rc == 0 else ["response round exited %d" % rc]
         rc = ralph_review_round.run_round(story, pull_request,
                                           validated.config, root)
         return rc == 0, [] if rc == 0 else ["review round exited %d" % rc]
 
     policy = WaitPolicy.from_config(validated.config)
     result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
-                          now=time.monotonic)
+                          now=time.monotonic, read_comments=read_comments)
     number = story.get("number", "?")
     if result.kind == EXPIRED:
         print("OK: review window closed after %.0fs on #%s (%d poll%s, %d "
