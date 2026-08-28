@@ -215,6 +215,28 @@ assign_story_models() {
   return 0
 }
 
+# Run one Negotiation Round for a Story In Review (#53). The story is fetched
+# fresh and handed to `ralph --review-round`, which finds the Story's marked
+# pull request itself, launches the assigned Review Agent with no GitHub
+# credential, validates what comes back, and publishes it.
+# The per-head guard lives in the tool (a head that already carries its review
+# is skipped without spending an invocation), so calling this on every tick is
+# safe and stays "exactly one review per head commit".
+# Best-effort: a refusal or a provider failure leaves the Story In Review for a
+# later tick rather than ending the tick non-zero.
+review_round() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue for its review round; leaving it for the next tick"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --review-round "$story_file" "$RALPH_CONFIG" || rc=$?
+  rm -f "$story_file"
+  return "$rc"
+}
+
 # Promote locally green implementation work into review. Both Story types use
 # the same marked-PR boundary and move to state:in-review; final AFK/HIL
 # completion is a later, review-gated stage. The tool refuses main and validates
@@ -289,7 +311,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -328,13 +350,21 @@ tick() {
           return 0
         fi
         log "$kind #$issue"
-        # In Review has resume priority so the negotiation path can eventually
-        # own the tick, but it is never more implementation work. Until that
-        # path has a current marked-PR action, park without launching any model;
-        # in particular an unrelated/unmarked PR must spend zero invocations.
+        # In Review has resume priority so the negotiation path can own the
+        # tick, but it is never more implementation work: run one Negotiation
+        # Round against the Story's marked pull request, then park. An
+        # unrelated or unmarked pull request spends zero invocations -- the
+        # round tool refuses it before launching anything.
         if [[ "$kind" == "resume" ]] && \
            gh issue view "$issue" --json labels \
              | grep -q '"state:in-review"'; then
+          local review_rc=0
+          review_round "$issue" || review_rc=$?
+          if (( review_rc == 0 )); then
+            log "review round complete for #$issue"
+          else
+            log "review round for #$issue did not complete (exit $review_rc); the next tick retries"
+          fi
           log "#$issue is in review; waiting for the review path"
           return 0
         fi

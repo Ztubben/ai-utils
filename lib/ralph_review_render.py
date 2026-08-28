@@ -55,6 +55,9 @@ def review_body(result):
     threads, and repeating them here would double every objection.
     """
     lines = [
+        # The stamp is what a later round reads to know this head is done; it
+        # rides on the review body so the fact lives with the review itself.
+        ralph_review.review_marker(result["head"]),
         "Ralph model review — round %s" % result["round"],
         "",
         "Reviewing model: `%s`" % result["model"],
@@ -196,6 +199,46 @@ def run_plan(commands, cwd=None):
     return RunResult(results)
 
 
+class PublishResult:
+    """What one attempt to post a validated result produced.
+
+    ``failed`` separates the two ways publishing does not happen: a refusal
+    (nothing was ever sent) from a gh call that ran and returned non-zero.
+    """
+
+    def __init__(self, ok, errors, failed=None, posted_comments=0):
+        self.ok = ok
+        self.errors = errors
+        self.failed = failed
+        self.posted_comments = posted_comments
+
+
+def publish(result, pull_request, cwd=None):
+    """Post *result* onto *pull_request* and update the required check.
+
+    The nested ``comments[]`` body cannot be expressed as `gh api -f`, so the
+    payload is written to a temp file the plan references by path; the plan
+    itself stays a pure argv list.
+    """
+    payload = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="ralph-review-", delete=False)
+    try:
+        json.dump(review_payload(result), payload, indent=2)
+        payload.close()
+        plan = render_plan(result, pull_request, payload.name)
+        if not plan.ok:
+            return PublishResult(False, plan.errors)
+        run = run_plan(plan.commands, cwd=cwd)
+    finally:
+        os.unlink(payload.name)
+    if not run.ok:
+        return PublishResult(
+            False, ["%s: exit %d" % (" ".join(run.failed.args),
+                                     run.failed.returncode)],
+            failed=run.failed)
+    return PublishResult(True, [], posted_comments=plan.posted_comments)
+
+
 def _read(path):
     if path == "-":
         return sys.stdin.read()
@@ -227,30 +270,23 @@ def _cmd_render(rest):
             sys.stderr.write("  - %s\n" % error)
         return 2
 
-    payload = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="ralph-review-", delete=False)
-    try:
-        json.dump(review_payload(result), payload, indent=2)
-        payload.close()
-        plan = render_plan(result, pull_request, payload.name)
-        if not plan.ok:
+    posted = publish(result, pull_request, cwd=os.getcwd())
+    if not posted.ok:
+        if posted.failed is None:
             sys.stderr.write("REFUSED: render-review\n")
-            for error in plan.errors:
+            for error in posted.errors:
                 sys.stderr.write("  - %s\n" % error)
             return 2
-        run = run_plan(plan.commands, cwd=os.getcwd())
-    finally:
-        os.unlink(payload.name)
-
-    if not run.ok:
         sys.stderr.write("FAILED: render-review (exit %d): %s\n"
-                         % (run.failed.returncode, " ".join(run.failed.args)))
-        if run.failed.output.strip():
-            sys.stderr.write(run.failed.output.rstrip() + "\n")
+                         % (posted.failed.returncode,
+                            " ".join(posted.failed.args)))
+        if posted.failed.output.strip():
+            sys.stderr.write(posted.failed.output.rstrip() + "\n")
         return 1
     print("OK: posted round %s review on PR #%s (%d inline thread%s); %s"
           % (result["round"], pull_request.get("number", "?"),
-             plan.posted_comments, "" if plan.posted_comments == 1 else "s",
+             posted.posted_comments,
+             "" if posted.posted_comments == 1 else "s",
              check_description(result)))
     return 0
 

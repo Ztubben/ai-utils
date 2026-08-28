@@ -144,6 +144,14 @@ class TickHarness:
             if alternate is not None:
                 fh.write("  alternate: %s\n" % ("true" if alternate else "false"))
 
+    def set_pull_requests(self, listing, view=None):
+        """Answer `gh pr list` and `gh pr view`, so a story In Review has the
+        marked pull request the review path works against."""
+        with open(os.path.join(self.queue, "prs.json"), "w") as fh:
+            json.dump(listing, fh)
+        with open(os.path.join(self.queue, "pr-view.json"), "w") as fh:
+            json.dump(view if view is not None else (listing or [{}])[0], fh)
+
     def set_view_story(self, s):
         with open(os.path.join(self.queue, "story.json"), "w") as fh:
             json.dump(s, fh)
@@ -170,6 +178,11 @@ class TickHarness:
               f="$RALPH_GH_QUEUE_DIR/story-$3.json"
               [[ -f "$f" ]] || f="$RALPH_GH_QUEUE_DIR/story.json"
               cat "$f"
+            elif [[ "$1 $2" == "pr list" ]]; then
+              f="$RALPH_GH_QUEUE_DIR/prs.json"
+              if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
+            elif [[ "$1 $2" == "pr view" ]]; then
+              cat "$RALPH_GH_QUEUE_DIR/pr-view.json"
             fi
             """))
         for provider in PROVIDERS:
@@ -403,6 +416,24 @@ class OrchestrationTest(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(h.agent_calls(), [], h.log_lines())
+        self.assertIn("waiting for the review path", proc.stdout)
+
+    def test_in_review_story_with_a_marked_pr_runs_one_review_round(self):
+        # AC (#53): a marked pull request In Review triggers a review round --
+        # exactly one per head -- and the tick then parks rather than doing more
+        # implementation work on that story.
+        h = self.harness()
+        h.set_backlogs([story(7, "in-review", "afk")])
+        h.set_view_story(story(7, "in-review", "afk"))
+        h.set_pull_requests([{"number": 70,
+                              "body": "<!-- ralph-managed-pr:v1 -->\n\nRefs #7\n"}])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        rounds = [ln for ln in log if ln.startswith("gh pr list")]
+        self.assertEqual(len(rounds), 1, log)
+        self.assertEqual(h.agent_calls(), [], log)
+        self.assertIn("review round", proc.stdout)
         self.assertIn("waiting for the review path", proc.stdout)
 
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):

@@ -21,6 +21,7 @@
 #   ralph --review-context STORY PR ROUND [ROOT]  Print exact-head review evidence.
 #   ralph --validate-review PAYLOAD [DIFF]  Validate a structured review result.
 #   ralph --render-review REVIEW PR [DIFF]  Post a validated review + its required check.
+#   ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]  Run one Negotiation Round on the marked PR.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -53,6 +54,7 @@ usage: ralph --init [CONFIG]
        ralph --review-context STORY PR ROUND [ROOT]
        ralph --validate-review PAYLOAD [DIFF]
        ralph --render-review REVIEW PR [DIFF]
+       ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -198,6 +200,22 @@ usage: ralph --init [CONFIG]
                           posted. A result whose head is no longer the PR's
                           head posts nothing and updates no check. Exits 0 on
                           success, 1 on a gh failure, 2 on a refusal.
+  --review-round STORY    Run one Negotiation Round for a Story In Review.
+       [CONFIG] [ROOT]    Finds the Story's open, Ralph-managed pull request
+       [--pr PATH]        (marker + "Refs #N"; pass --pr to supply it as JSON
+                          instead), skips a head that already carries its
+                          review, and otherwise launches the Story's assigned
+                          Review Agent once, in a fresh read-only process with
+                          no GitHub credential, on the diff-first evidence
+                          bundle for the exact head. The result is validated
+                          against the shipped contract before anything is
+                          posted, so invalid reviewer output never reaches the
+                          pull request. Runs concurrently with CI and never
+                          waits for a check. ROOT defaults to the checkout.
+                          Exits 0 when a review was published or the head was
+                          already reviewed, 1 when gh refused the review, 2 on
+                          a refusal or invalid output, 10 when the reviewing
+                          model hit its session limit, 12 when it failed to run.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -357,6 +375,10 @@ main() {
     --render-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_render.py" render "$@"
+      ;;
+    --review-round)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_round.py" round "$@"
       ;;
     --complete-afk)
       shift

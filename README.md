@@ -100,6 +100,11 @@ scheduler (every ~5h)
         │   implements the story test-first, runs gating
         ├── green (AFK/HIL) ─► ralph --implementation-green
         │                      (marked PR, → state:in-review)
+        │                          │
+        │                          ▼
+        │                      ralph --review-round  (fresh Review Agent, read-only,
+        │                      no GitHub credential; one review per head commit,
+        │                      concurrent with CI — prompts/review.v1.md)
         ├── context full ──► ralph --checkpoint     (Handoff, resume next iteration)
         └── failed       ──► ralph --record-attempt (block after max_attempts)
         │
@@ -434,6 +439,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --review-context STORY PR ROUND [ROOT]` | Print the diff-first evidence bundle for one fresh Review Agent round, bound to the pull request's exact head: base/head diff, acceptance criteria, scoped `AGENTS.md`, `CONTEXT.md`/ADRs, CI status, durable PR discussion — no implementation session or Handoff. |
 | `ralph --validate-review PAYLOAD [DIFF]` | Validate a Review Agent's structured result (`-` for stdin) against the versioned contract in [`docs/review-contract.md`](docs/review-contract.md) before it is rendered as a GitHub review. Names the offending field paths on rejection; with the reviewed `DIFF`, also rejects a source location the diff never touched. |
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
+| `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

@@ -183,6 +183,32 @@ def _load(path):
         return json.load(fh)
 
 
+def head_diff(pull_request, root):
+    """The reviewed base/head diff, read at an exactly-resolved head.
+
+    A bundle bound to a moving ref would have the reviewer judging a head that
+    no longer exists, so the head is asserted to resolve to itself first.
+    """
+    head, base = _oid(pull_request, "head"), _oid(pull_request, "base")
+    if head and _git(["rev-parse", head], root).strip() != head:
+        raise RuntimeError("pull request head did not resolve exactly")
+    changed = _git(["diff", "--name-only", base, head], root).splitlines()
+    return _git(["diff", "--no-ext-diff", base, head], root), changed
+
+
+def bundle_for(story, pull_request, round_no, root):
+    """Assemble one round's bundle from the checkout at *root*.
+
+    Returns ``(ContextResult, diff)``: the round needs the same diff again to
+    check a finding's source location against what was actually reviewed.
+    """
+    diff, changed = head_diff(pull_request, root)
+    guidance, domain = repository_evidence(root, changed)
+    return build_context(story, pull_request, diff, guidance, domain,
+                         pull_request.get("statusCheckRollup") or [],
+                         round_no), diff
+
+
 def _cmd_bundle(rest):
     if len(rest) not in (3, 4):
         sys.stderr.write(
@@ -192,19 +218,10 @@ def _cmd_bundle(rest):
     root = os.path.abspath(rest[3] if len(rest) == 4 else os.getcwd())
     try:
         story, pr = _load(story_path), _load(pr_path)
-        round_no = int(raw_round)
-        head, base = _oid(pr, "head"), _oid(pr, "base")
-        if head and _git(["rev-parse", head], root).strip() != head:
-            raise RuntimeError("pull request head did not resolve exactly")
-        changed = _git(["diff", "--name-only", base, head], root).splitlines()
-        diff = _git(["diff", "--no-ext-diff", base, head], root)
-        guidance, domain = repository_evidence(root, changed)
+        result, _ = bundle_for(story, pr, int(raw_round), root)
     except (OSError, ValueError, RuntimeError) as exc:
         sys.stderr.write("ralph: could not assemble review context: %s\n" % exc)
         return 2
-    result = build_context(
-        story, pr, diff, guidance, domain, pr.get("statusCheckRollup") or [],
-        round_no)
     if not result.ok:
         sys.stderr.write("REFUSED: review context\n")
         for error in result.errors:

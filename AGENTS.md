@@ -184,6 +184,32 @@ not HITL) and `docs/adr/0001–0005`.
   CLI writes the payload to a temp file and the plan carries `--input PATH`; the plan
   stays a pure argv list and `run_plan` is unchanged (contrast: do not teach the shared
   Plan/run_plan shape about stdin for one caller).
+- `lib/ralph_review_round.py` is round one end to end (#53, PRD #42): pure `conduct(story,
+  pr, context, launch, publish, changed=)` — dedupe, launch, extract, validate, publish —
+  plus `next_round`, `review_prompt`, `extract_result`, live `discover_pull_request`, and
+  the `--review-round STORY [CONFIG] [ROOT] [--pr PATH]` CLI. The judgement half is the
+  checked-in `prompts/review.v1.md` (drift-guarded for fresh context, the read-only/no-
+  credential boundary, the six blocking + three non-blocking categories, and the evidence
+  fields). GOTCHAS: (1) "exactly one review per head commit" is enforced by a **durable
+  marker on the review itself** — `ralph_review.review_marker(head)` is prepended to #52's
+  `review_body`, and `reviewed_heads`/`is_reviewed` read it back off the PR. The fact lives
+  where the review does, so a fresh clone, another machine, or a later tick all agree;
+  loop-local state would re-review and re-spend an invocation. `next_round` counts those
+  markers, so a human review never advances a Negotiation Round. (2) Both refusals — an
+  unmarked PR, and a head already reviewed — are checked **before** any evidence is
+  assembled, so they cost zero invocations (and no git work). (3) A provider that died is
+  reported with the adapter's own outcome string, never as `invalid-output`: #61 must be
+  able to tell "the reviewer never finished" from "the reviewer said something
+  unpublishable", and `EXIT_CODES` keeps `--launch-agent`'s codes (10/12) for exactly that.
+  (4) `extract_result` recovers the contract object from the provider's prose (last balanced
+  top-level `{...}`, fences included) but **never repairs** it — the #51 validator still sees
+  it whole. (5) Discovery matches the marker **plus** `Refs #N` from #49's PR body, never a
+  branch name or title, and refuses on more than one match. (6) The two seams this reuses
+  were extracted for it: `ralph_review_context.bundle_for` (bundle + the diff again, which
+  the round needs for `changed_lines`) and `ralph_review_render.publish` (whose
+  `PublishResult.failed` is what separates a gh failure, exit 1, from a refusal, exit 2).
+  `bin/ralph.sh` calls `review_round` where it used to park an In Review Story, then still
+  parks — #54 replaces that park with the bounded in-tick wait.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,
