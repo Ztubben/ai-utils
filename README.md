@@ -40,8 +40,9 @@ build and test your project, and it will:
 1. Pick the highest-priority ready story with no open blockers.
 2. Create a branch and implement the story **test-first** (red → green).
 3. Run your configured quality checks locally (a cheap mirror of CI).
-4. When green, either **auto-merge** it (software-only stories) or **open a PR**
-   and hand it to you for **bench verification** (hardware-coupled stories).
+4. When implementation is green, open or update a marked pull request and move
+   the story into independent model review. Final AFK merge or HIL bench handoff
+   happens only after review succeeds.
 5. Move on to the next story, and keep going until the backlog is empty, a
    session budget runs out, or something needs a human.
 
@@ -55,8 +56,8 @@ human must verify on the bench.
 | --- | --- |
 | **Superproject** | The host project that mounts ai-utils as a submodule. Ralph runs from its root and only modifies it. |
 | **Story** | One unit of backlog work = one GitHub Issue, carrying `state:` / `type:` / `prio:` labels. |
-| **AFK story** (`type:afk`) | *Away-From-Keyboard.* Fully verifiable by CI alone (logic, parsing, refactors, build config). Done as soon as the gate is green — Ralph auto-merges it. |
-| **HIL story** (`type:hil`) | *Human-In-the-Loop.* Needs a human to confirm real behavior on the physical bench (GPIO, timing, sensors). Green CI is necessary but **not** sufficient; Ralph opens a PR and waits for bench verification. |
+| **AFK story** (`type:afk`) | *Away-From-Keyboard.* Fully verifiable without a physical bench (logic, parsing, refactors, build config), but still passes independent model review before final merge. |
+| **HIL story** (`type:hil`) | *Human-In-the-Loop.* Needs a human to confirm real behavior on the physical bench (GPIO, timing, sensors). Green implementation and model review are necessary but **not** sufficient. |
 | **Blocker** | A story needing a human *design decision before coding.* Kept out of `state:ready` (labelled `ready-for-human`) so Ralph never picks it up. |
 | **Tick** | One scheduled run of the loop (every ~5 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. Only one tick per superproject runs at a time (guarded by a `flock`). |
 | **Iteration** | A single fresh-context agent process inside a tick. Ralph **never compacts context** — when it fills, the iteration writes a *Handoff* and the next iteration resumes with clean context. |
@@ -97,8 +98,8 @@ scheduler (every ~5h)
         ▼
    fresh-context Implementation Agent  (ralph --launch-agent, prompts/iterate.v1.md)
         │   implements the story test-first, runs gating
-        ├── green + AFK  ──► ralph --complete-afk   (auto-merge → base, close issue)
-        ├── green + HIL  ──► ralph --complete-hil   (open PR, → state:awaiting-bench)
+        ├── green (AFK/HIL) ─► ralph --implementation-green
+        │                      (marked PR, → state:in-review)
         ├── context full ──► ralph --checkpoint     (Handoff, resume next iteration)
         └── failed       ──► ralph --record-attempt (block after max_attempts)
         │
@@ -429,6 +430,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
 | `ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]` | Record the story's implementation/review model identities as durable labels (`model:impl:<id>` / `model:review:<id>`, created on demand). Idempotent; an already-assigned story is never rewritten. An unassigned story takes its turn in the role alternation unless `--fixed-roles` (or `models.alternate: false`) holds the order. |
 | `ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. With `--story`, the story's recorded assignment picks the model. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
+| `ralph --implementation-green STORY [CONFIG] [PRD]` | Push locally green AFK or HIL work, create or update its marked pull request, and move the Story to `state:in-review`. Refuses `main` and unmarked existing PRs; never merges, closes, or enters awaiting-bench. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |
@@ -438,13 +440,13 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --read-learnings DIR [ROOT]` | Print the nested `AGENTS.md` learnings to read at story start (nearest-first). |
 | `ralph --learn-target PATH [ROOT]` | Print the nearest `AGENTS.md` to promote a learning to. |
 
-**Completion is asymmetric by design:**
+**Implementation-green is symmetric; final completion is asymmetric:**
 
-- **AFK** → `push → gh pr create (Closes #N) → gh pr merge → gh issue close`. The
-  closed issue is what makes dependents eligible.
-- **HIL** → `push → gh pr create (Refs #N) → label state:awaiting-bench`. Ralph
-  never merges or closes; the human bench-verifies and merges the clean diff. The
-  issue stays open, so dependents stay ineligible until the human closes it.
+- Both types first follow `push → marked PR create/update → state:in-review`.
+  An unmarked human pull request is outside the automated-review boundary.
+- After review, AFK may merge and close; HIL moves to Awaiting Bench Verification
+  without an automatic merge or close. The open HIL issue keeps dependents
+  ineligible until a human closes it after bench verification.
 
 The Python logic in `lib/` is pure (returns result objects; no I/O side effects),
 and side-effecting commands use a **plan → run** split: a pure planner emits the
@@ -484,6 +486,8 @@ lib/*.py         Pure logic (Python 3, stdlib + jsonschema + PyYAML). No network
   ralph_story.py    Canonical story-format checker + label normalization.
   ralph_select.py   Selection engine: normalize → select_next → Action.
   ralph_iterate.py  Branch naming + local gating runner.
+  ralph_review.py   Durable marked-PR identity for automated review opt-in.
+  ralph_implementation.py  Green implementation → marked PR + In Review.
   ralph_afk.py      AFK completion (auto-merge + close).
   ralph_hil.py      HIL completion (PR + awaiting-bench).
   ralph_handoff.py  Checkpoint/resume (never compacts).

@@ -10,8 +10,8 @@ to a green local gate. Honor the terminology in `CONTEXT.md` — this is a **HIL
 - Work **only** in the superproject, on the working branch. **Never** touch `main`, and
   **never** merge into the base branch — an iteration only commits WIP to the working
   branch. Promotion and bench verification are owned elsewhere.
-- Do not close the issue, open a PR, or apply completion labels — later stages
-  (AFK auto-merge / HIL awaiting-bench) do that.
+- Do not close the issue, open a PR, or apply review/completion labels — the
+  orchestrator moves locally green work into review.
 - Keep changes focused and minimal; follow the patterns already in the repo.
 - **Never rewrite history.** Iterations must not rebase, amend, or force-push. The
   human may rebase the branch at any time; Ralph always works forward-only.
@@ -101,8 +101,8 @@ iteration resumes with clean context.
 ## 5. Signal done (green) — required
 
 The orchestrator (`bin/ralph.sh`) cannot see inside your session, so it needs an
-explicit machine-readable signal to know a story is finished and may be promoted
-(AFK auto-merge / HIL awaiting-bench). When — and **only** when — **both** hold:
+explicit machine-readable signal to know implementation is locally green and may
+enter review. When — and **only** when — **both** hold:
 
 - `ralph --run-gating` passed (every gating step green, changes committed), and
 - **every** box in the story's `## Acceptance Criteria` is checked,

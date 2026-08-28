@@ -225,25 +225,29 @@ EOF
   ! grep -q 'gh issue edit' "$RALPH_LOG"
 }
 
-@test "a green AFK story is auto-merged and closed (not re-selected)" {
+@test "a green AFK story opens a marked PR and enters In Review" {
   echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
-  story 7 ready afk > "$SP/ghq/story.json"
+  story 7 in-progress afk > "$SP/ghq/story.json"
   run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [ "$(agent_calls)" -eq 1 ]
-  grep -q 'gh pr merge' "$RALPH_LOG"
-  grep -q 'gh issue close 7' "$RALPH_LOG"
+  grep -q 'gh pr create.*ralph-managed-pr:v1' "$RALPH_LOG"
+  grep -q 'state:in-review' "$RALPH_LOG"
+  ! grep -q 'gh pr merge' "$RALPH_LOG"
+  ! grep -q 'gh issue close 7' "$RALPH_LOG"
 }
 
-@test "a green HIL story opens a PR and moves to awaiting-bench" {
+@test "a green HIL story opens a marked PR and enters In Review" {
   echo "[$(story 5 in-progress hil)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
   story 5 in-progress hil > "$SP/ghq/story.json"
   run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
   grep -q 'gh pr create' "$RALPH_LOG"
-  grep -q 'state:awaiting-bench' "$RALPH_LOG"
+  grep -q 'ralph-managed-pr:v1' "$RALPH_LOG"
+  grep -q 'state:in-review' "$RALPH_LOG"
+  ! grep -q 'state:awaiting-bench' "$RALPH_LOG"
   ! grep -q 'gh pr merge' "$RALPH_LOG"
   ! grep -q 'gh issue close' "$RALPH_LOG"
 }

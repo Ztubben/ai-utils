@@ -17,8 +17,7 @@
 #   ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Launch one role's agent in a fresh process (prompt on stdin).
 #   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
-#   ralph --complete-afk STORY [CONFIG] [PRD]  Complete a green AFK story per story kind (ADR-0006).
-#   ralph --complete-hil STORY [CONFIG] [PRD]  Park a green HIL story at awaiting-bench per story kind (ADR-0006).
+#   ralph --implementation-green STORY [CONFIG] [PRD]  Open/update the marked review PR.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -47,6 +46,7 @@ usage: ralph --init [CONFIG]
        ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
        ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --classify-session RC
+       ralph --implementation-green STORY [CONFIG] [PRD]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -147,6 +147,16 @@ usage: ralph --init [CONFIG]
                           tail of the output so an agent *writing about* limits
                           is not mistaken for a limit notice. Exits 10 on
                           session exhaustion, 0 otherwise, 2 on bad input.
+  --implementation-green  Promote locally green implementation work into model
+       STORY [CONFIG]     review. Pushes the canonical Story/Feature branch,
+       [PRD]              creates a pull request carrying Ralph's durable
+                          machine marker (or updates the existing marked PR),
+                          and moves either an AFK or HIL Story from
+                          state:in-progress to state:in-review. Never merges,
+                          closes, or moves a HIL Story to awaiting-bench; never
+                          targets main. PRD is required for a Feature Story.
+                          Exits 0 on success, 1 on git/gh failure, and 2 on bad
+                          config or refusal (including an unmarked existing PR).
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -290,6 +300,10 @@ main() {
     --classify-session)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_session.py" classify "$@"
+      ;;
+    --implementation-green)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_implementation.py" green "$@"
       ;;
     --complete-afk)
       shift

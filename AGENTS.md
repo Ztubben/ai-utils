@@ -110,6 +110,14 @@ not HITL) and `docs/adr/0001–0005`.
   `_apply_defaults` materializes an empty `models.defaults` for configs that omit it, which
   is why the cross-field checks run on the raw data and `profiles()` treats absent/empty as
   an empty catalog.
+- `lib/ralph_review.py` owns the exact durable pull-request opt-in marker and
+  `is_managed_pr`; an unmarked PR is never eligible for automated review. Locally green
+  implementation promotion (#49) lives in `lib/ralph_implementation.py`: its pure
+  `implementation_green_plan` pushes the resolved Story/Feature branch, creates a marked PR
+  or updates the already-open marked PR, and moves both AFK and HIL Stories to
+  `state:in-review`. It never merges, closes, or emits `state:awaiting-bench`, and refuses
+  `main` and an unmarked existing PR. `bin/ralph.sh` calls `--implementation-green` for the
+  done signal; the older AFK/HIL completion modules are no longer implementation-green paths.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

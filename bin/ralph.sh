@@ -17,9 +17,9 @@
 #      session budget allows, until no eligible work remains (no-work) or the
 #      loop halts (needs-human).
 #   5. when an iteration signals the story is green (the done-signal marker),
-#      promotes it: `ralph --complete-afk` for a type:afk story,
-#      `ralph --complete-hil` (park at state:awaiting-bench) for HIL; both
-#      branch on Feature membership per ADR-0006.
+#      promotes it with `ralph --implementation-green`: both AFK and HIL open
+#      or update a marked pull request and enter state:in-review, using the
+#      canonical Story/Feature branch resolution from ADR-0006.
 #      Without this promotion the still-in-progress story would be re-selected
 #      forever (the engine is resume-first), so a green story must move off the
 #      backlog before the loop advances.
@@ -215,15 +215,13 @@ assign_story_models() {
   return 0
 }
 
-# Promote a green story off the backlog. Reads the story's type:* label and
-# dispatches to the completion CLI that owns the label move / PR / merge:
-# type:afk -> --complete-afk (close as Passing), type:hil -> --complete-hil
-# (park at state:awaiting-bench); each branches on Feature membership per
-# ADR-0006 (Feature stories push to the feature branch, no PR). The tools
-# refuse to touch main and re-validate the type, so this stays a thin dispatch.
-# The story is fetched fresh so completion has the full record. A Feature story
+# Promote locally green implementation work into review. Both Story types use
+# the same marked-PR boundary and move to state:in-review; final AFK/HIL
+# completion is a later, review-gated stage. The tool refuses main and validates
+# the Story type/state, so this stays thin orchestration.
+# The story is fetched fresh so promotion has the full record. A Feature story
 # (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
-# the PRD is fetched and handed to the completion CLI as a temp file; an Orphan
+# the PRD is fetched and handed to the promotion CLI as a temp file; an Orphan
 # Story (Parent: None) passes no PRD and keeps the classic path. Returns
 # non-zero on a git/gh/dispatch failure; the caller logs and moves on.
 complete_story() {
@@ -239,17 +237,9 @@ complete_story() {
       return 2
     fi
   fi
-  if grep -q '"type:afk"' <<<"$story_json"; then
-    log "green #$issue is type:afk; completing (--complete-afk)"
-    "$RALPH_BIN" --complete-afk - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
-      <<<"$story_json" || rc=$?
-    # The close leaves the stale state label on the closed issue; strip it.
-    if (( rc == 0 )); then
-      gh issue edit "$issue" --remove-label state:in-progress >/dev/null 2>&1 || true
-    fi
-  elif grep -q '"type:hil"' <<<"$story_json"; then
-    log "green #$issue is type:hil; completing (--complete-hil)"
-    "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
+  if grep -qE '"type:(afk|hil)"' <<<"$story_json"; then
+    log "implementation green #$issue; entering review (--implementation-green)"
+    "$RALPH_BIN" --implementation-green - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
       <<<"$story_json" || rc=$?
   else
     log "cannot promote #$issue: no type:afk/type:hil label"
@@ -299,7 +289,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --complete-afk; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -338,6 +328,16 @@ tick() {
           return 0
         fi
         log "$kind #$issue"
+        # In Review has resume priority so the negotiation path can eventually
+        # own the tick, but it is never more implementation work. Until that
+        # path has a current marked-PR action, park without launching any model;
+        # in particular an unrelated/unmarked PR must spend zero invocations.
+        if [[ "$kind" == "resume" ]] && \
+           gh issue view "$issue" --json labels \
+             | grep -q '"state:in-review"'; then
+          log "#$issue is in review; waiting for the review path"
+          return 0
+        fi
         # `start` moves a state:ready story into state:in-progress up front, so a
         # checkpoint/partial pass/completion all see the expected state. `resume`
         # is already active (in-progress or in-review), so it is left alone.

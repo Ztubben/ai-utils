@@ -396,24 +396,30 @@ class OrchestrationTest(unittest.TestCase):
         self.assertFalse(any("issue edit" in ln for ln in h.log_lines()),
                          h.log_lines())
 
-    def test_green_afk_story_is_auto_merged_and_closed(self):
-        # AC: an iteration that emits the done-signal on a type:afk story is
-        # promoted via --complete-afk (auto-merge into base + close), not
-        # re-selected forever (the bug: green story never leaves the backlog).
+    def test_in_review_story_does_not_relaunch_the_implementation_model(self):
+        h = self.harness()
+        h.set_backlogs([story(7, "in-review", "afk")])
+        h.set_view_story(story(7, "in-review", "afk"))
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
+        self.assertIn("waiting for the review path", proc.stdout)
+
+    def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()
         h.set_backlogs([story(7, "ready", "afk")], [])  # then no-work -> stop
-        h.set_view_story(story(7, "ready", "afk"))
+        h.set_view_story(story(7, "in-progress", "afk"))
         proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         agent_calls = h.agent_calls()
         self.assertEqual(len(agent_calls), 1, log)  # promoted, not re-run
-        self.assertTrue(any("pr merge" in ln for ln in log), log)
-        self.assertTrue(any("issue close 7" in ln for ln in log), log)
+        self.assertTrue(any("pr create" in ln and "ralph-managed-pr:v1" in ln
+                            for ln in log), log)
+        self.assertTrue(any("state:in-review" in ln for ln in log), log)
+        self.assertFalse(any("pr merge" in ln or "issue close" in ln for ln in log), log)
 
-    def test_green_hil_story_opens_pr_to_awaiting_bench(self):
-        # AC: a green type:hil story is promoted via --complete-hil (open PR +
-        # move to state:awaiting-bench); it is never merged or closed.
+    def test_green_hil_story_opens_marked_pr_to_in_review(self):
         h = self.harness()
         h.set_backlogs([story(5, "in-progress", "hil")], [])
         h.set_view_story(story(5, "in-progress", "hil"))
@@ -421,7 +427,8 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         self.assertTrue(any("pr create" in ln for ln in log), log)
-        self.assertTrue(any("state:awaiting-bench" in ln for ln in log), log)
+        self.assertTrue(any("state:in-review" in ln for ln in log), log)
+        self.assertFalse(any("state:awaiting-bench" in ln for ln in log), log)
         self.assertFalse(any("pr merge" in ln for ln in log), log)
         self.assertFalse(any("issue close" in ln for ln in log), log)
 
@@ -459,7 +466,7 @@ class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
             with self.subTest(provider=provider):
                 h = self.harness(provider)
                 h.set_backlogs([story(7, "ready", "afk")], [])
-                h.set_view_story(story(7, "ready", "afk"))
+                h.set_view_story(story(7, "in-progress", "afk"))
                 proc = h.run()
                 self.assertEqual(proc.returncode, 0, proc.stdout)
                 log = h.log_lines()
@@ -473,20 +480,20 @@ class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
                 # as the Implementation Agent.
                 self.assertEqual(h.agent_calls(self.other(provider)), [], log)
 
-    def test_a_done_signal_still_promotes_whichever_adapter_ran(self):
-        # AC: existing orchestration behavior is unchanged -- a done-signal
-        # promotes the green AFK story (auto-merge + close) via either adapter.
+    def test_a_done_signal_enters_review_whichever_adapter_ran(self):
         for provider in PROVIDERS:
             with self.subTest(provider=provider):
                 h = self.harness(provider)
                 h.set_backlogs([story(7, "ready", "afk")], [])
-                h.set_view_story(story(7, "ready", "afk"))
+                h.set_view_story(story(7, "in-progress", "afk"))
                 proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
                 self.assertEqual(proc.returncode, 0, proc.stdout)
                 log = h.log_lines()
                 self.assertEqual(len(h.agent_calls(provider)), 1, log)  # not re-run
-                self.assertTrue(any("pr merge" in ln for ln in log), log)
-                self.assertTrue(any("issue close 7" in ln for ln in log), log)
+                self.assertTrue(any("pr create" in ln for ln in log), log)
+                self.assertTrue(any("state:in-review" in ln for ln in log), log)
+                self.assertFalse(any("pr merge" in ln or "issue close" in ln
+                                     for ln in log), log)
 
     def test_session_exhaustion_still_checkpoints_whichever_adapter_ran(self):
         # AC: existing orchestration behavior is unchanged -- exhaustion
