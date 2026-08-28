@@ -74,9 +74,37 @@ def durable_discussion(pr):
     return result
 
 
+# What a later round is for, stated in the bundle itself rather than left to
+# the reviewer's discretion.  Round one is the full in-scope review; every
+# round after it adjudicates what round one raised and inspects the fixes made
+# for it.  A late blocker is still possible -- a fix can break something, and a
+# serious defect missed once should not become unreportable -- but it is the
+# exception, and taking it does not buy the negotiation another round.
+LATER_ROUND_SCOPE = """\
+This is round %d, so it is not a fresh review of the whole change. Adjudicate
+the findings recorded above and inspect the fixes made for them:
+
+- For each open finding, decide from the current head and the answer given
+  whether to **uphold** it or **withdraw** it, and say which by its identifier.
+  A finding that was disputed with evidence is withdrawn unless you can show
+  the evidence is wrong.
+- Do not re-open settled findings, and do not raise new preferences, refactors
+  or observations you could have made in round one. The goalposts do not move.
+- You may raise **one kind** of new blocking finding: a regression the fixes
+  themselves introduced, or a serious correctness or safety defect that was
+  missed. Nothing else qualifies, and raising one does not extend the round
+  limit -- the negotiation still ends where it would have ended."""
+
+
 def build_context(story, pull_request, diff, guidance, domain_decisions,
-                  ci_status, round_no):
-    """Build one deterministic Markdown review bundle from supplied evidence."""
+                  ci_status, round_no, history=None, for_role="review"):
+    """Build one deterministic Markdown review bundle from supplied evidence.
+
+    Both roles read the same evidence, including the earlier rounds once there
+    are any.  Only the reviewer is given the scope directive that goes with
+    them: it says what *judging* a later round means, and handing it to the
+    model being judged would be handing it someone else's instructions.
+    """
     errors = []
     if not isinstance(round_no, int) or isinstance(round_no, bool) or round_no < 1:
         errors.append("round: must be a positive integer")
@@ -129,6 +157,15 @@ def build_context(story, pull_request, diff, guidance, domain_decisions,
         "```json", json.dumps(discussion, indent=2, sort_keys=True), "```",
         "",
     ]
+    if round_no > 1:
+        lines += [
+            "## Findings and Answers from Earlier Rounds", "",
+            "```json", json.dumps(history or [], indent=2, sort_keys=True),
+            "```", "",
+        ]
+        if for_role == "review":
+            lines += ["## Scope of This Round", "",
+                      LATER_ROUND_SCOPE % round_no, ""]
     return ContextResult(True, [], "\n".join(lines), head=head, round_no=round_no)
 
 
@@ -203,17 +240,22 @@ def head_diff(pull_request, root):
     return _git(["diff", "--no-ext-diff", base, head], root), changed
 
 
-def bundle_for(story, pull_request, round_no, root):
+def bundle_for(story, pull_request, round_no, root, comments=None,
+               for_role="review"):
     """Assemble one round's bundle from the checkout at *root*.
 
     Returns ``(ContextResult, diff)``: the round needs the same diff again to
     check a finding's source location against what was actually reviewed.
+    ``comments`` are the Story's, carrying the recorded rounds a later review
+    adjudicates; round one has nothing to read there.
     """
     diff, changed = head_diff(pull_request, root)
     guidance, domain = repository_evidence(root, changed)
     return build_context(story, pull_request, diff, guidance, domain,
                          pull_request.get("statusCheckRollup") or [],
-                         round_no), diff
+                         round_no,
+                         history=ralph_review.negotiation_history(comments),
+                         for_role=for_role), diff
 
 
 def _cmd_bundle(rest):

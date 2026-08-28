@@ -39,6 +39,54 @@ def field_paths(result):
     return [error.split(":", 1)[0] for error in result.errors]
 
 
+class LateBlockersAreBoundedByCategory(unittest.TestCase):
+    """Round two adjudicates; it does not go looking for fresh objections.
+
+    A round that could raise any blocker it liked would never converge: the
+    Implementation Agent would answer a different review every time, and the
+    round limit would run out on goalposts rather than on disagreement.
+    """
+
+    def prior(self):
+        return fixture("valid-inline.json")["findings"]  # F-1, F-2
+
+    def later(self, ident="F-9", category="defect", blocking=True):
+        result = dict(fixture("cross-cutting.json"), round=2)
+        finding = dict(result["findings"][0], id=ident, category=category,
+                       blocking=blocking)
+        result["findings"] = [finding]
+        if not blocking:
+            result["verdict"] = "comment"
+        return ralph_review_result.validate_review(
+            result, prior_findings=self.prior())
+
+    def test_a_regression_the_fixes_introduced_may_still_block_late(self):
+        self.assertTrue(self.later(category="defect").ok)
+
+    def test_a_missed_safety_defect_may_still_block_late(self):
+        self.assertTrue(self.later(category="safety_regression").ok)
+
+    def test_a_new_late_blocker_of_any_other_kind_is_refused(self):
+        result = self.later(category="missing_tests")
+
+        self.assertFalse(result.ok)
+        self.assertIn("findings/0/category", " ".join(result.errors))
+        self.assertIn("F-9", " ".join(result.errors))
+
+    def test_a_finding_carried_over_from_the_earlier_round_is_not_late(self):
+        self.assertTrue(self.later(ident="F-1", category="missing_tests").ok)
+
+    def test_a_late_non_blocking_remark_is_not_restricted(self):
+        self.assertTrue(
+            self.later(category="style_preference", blocking=False).ok)
+
+    def test_round_one_may_raise_any_blocker_the_policy_allows(self):
+        result = ralph_review_result.validate_review(
+            fixture("valid-inline.json"), prior_findings=[])
+
+        self.assertTrue(result.ok, result.errors)
+
+
 class ChangedLines(unittest.TestCase):
     """A finding may cite any line GitHub would accept an inline thread on."""
 
@@ -293,6 +341,20 @@ class ContractIsDocumented(unittest.TestCase):
 
     def test_documents_the_size_limit(self):
         self.assertIn("%d" % ralph_review_result.MAX_PAYLOAD_BYTES, self.text)
+
+    def test_documents_what_a_later_round_may_and_may_not_raise(self):
+        low = " ".join(self.text.lower().split())
+        self.assertIn("adjudicat", low)
+        self.assertIn("withdraw", low)
+        for category in ralph_review_result.LATE_BLOCKING_CATEGORIES:
+            self.assertIn(category, low)
+
+    def test_documents_the_dispute_disposition_and_its_evidence(self):
+        low = " ".join(self.text.lower().split())
+        self.assertIn("ralph-response/v1", low)
+        for disposition in ("accepted", "disputed", "unresolved"):
+            self.assertIn(disposition, low)
+        self.assertIn("a dispute changes no code", low)
 
 
 if __name__ == "__main__":

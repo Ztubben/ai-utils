@@ -70,19 +70,38 @@ class NextStep(unittest.TestCase):
             ralph_review_wait.next_step(reviewed, comments=[{"body": record}]),
             ralph_review_wait.WAIT)
 
-    def test_a_head_already_answered_is_not_answered_twice(self):
+    def changes_requested(self, round_no=1):
+        return {"body": ralph_review.result_record(
+            {"head": HEAD, "round": round_no, "verdict": "request_changes",
+             "findings": [{"id": "F-1", "blocking": True}]})}
+
+    def answer(self, round_no=1):
+        return {"body": ralph_review.response_record(
+            {"head": HEAD, "round": round_no, "dispositions": []})}
+
+    def test_an_answered_head_is_judged_again_rather_than_answered_twice(self):
+        # A dispute answers the round without moving the head, so the same
+        # commit goes back to a fresh reviewer to withdraw or uphold.
         reviewed = pull_request(reviews=[
             {"body": ralph_review.review_marker(HEAD)}])
-        record = ralph_review.result_record(
-            {"head": HEAD, "round": 1, "verdict": "request_changes",
-             "findings": [{"id": "F-1", "blocking": True}]})
-        answer = ralph_review.response_record(
-            {"head": HEAD, "round": 1, "dispositions": []})
 
         self.assertEqual(
             ralph_review_wait.next_step(
-                reviewed, comments=[{"body": record}, {"body": answer}]),
-            ralph_review_wait.WAIT)
+                reviewed, comments=[self.changes_requested(), self.answer()]),
+            ralph_review_wait.REVIEW)
+
+    def test_the_upheld_finding_is_answered_again_not_re_reviewed(self):
+        # Round two judged the same head and still requests changes: the ball
+        # is back with the Implementation Agent, not the reviewer.
+        twice = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)},
+            {"body": ralph_review.review_marker(HEAD)}])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                twice, comments=[self.changes_requested(), self.answer(),
+                                 self.changes_requested(round_no=2)]),
+            ralph_review_wait.RESPOND)
 
     def test_a_closed_pull_request_ends_the_negotiation(self):
         self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),

@@ -245,6 +245,14 @@ usage: ralph --init [CONFIG]
                           one consolidated machine-readable response. Exits 0 on
                           success, 2 on a refusal or invalid output, 10 when the
                           model hit its session limit, 12 when it failed to run.
+                          A finding may be disputed with evidence instead of
+                          obeyed: a dispute changes no code (a moved head with
+                          nothing accepted is refused) and sends the same commit
+                          back to a fresh reviewer, which withdraws or upholds
+                          the finding by its identifier. Later rounds adjudicate
+                          only the open findings; a blocker raised late must be
+                          a defect or a safety regression, and never resets the
+                          round count.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a

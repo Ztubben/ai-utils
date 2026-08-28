@@ -36,10 +36,52 @@ BLOCKING_CATEGORIES = ("acceptance_criteria", "defect", "safety_regression",
 NON_BLOCKING_CATEGORIES = ("style_preference", "speculative_improvement",
                            "preexisting_issue")
 
+# The only two reasons a round after the first may raise a *new* blocker: a
+# regression the fixes themselves introduced, and a serious correctness or
+# safety defect that was missed.  Anything else raised late is the goalposts
+# moving -- a round that could keep inventing acceptance-criteria or
+# missing-tests blockers would never converge, and the Implementation Agent
+# would be answering a different review each time.
+LATE_BLOCKING_CATEGORIES = ("defect", "safety_regression")
+
 # One result is rendered into one GitHub review body, and GitHub caps that at
 # 65536 characters.  The margin below it belongs to Ralph's own framing.
 MAX_PAYLOAD_BYTES = 60000
 MAX_FINDINGS = 50
+
+
+class Adjudication:
+    """What a later round did to each finding an earlier round raised.
+
+    Keyed by the stable identifier throughout: that is the only thing that
+    survives a fresh reviewer, a new commit, and a re-rendered review body.
+    """
+
+    def __init__(self, upheld, withdrawn, raised):
+        self.upheld = upheld
+        self.withdrawn = withdrawn
+        self.raised = raised
+
+    def outcomes(self):
+        """Each earlier finding's outcome, in the order it was first raised."""
+        return ([(ident, "upheld") for ident in self.upheld]
+                + [(ident, "withdrawn") for ident in self.withdrawn])
+
+
+def adjudicate(prior_findings, findings):
+    """Read a later round's verdict on the findings that preceded it.
+
+    A reviewer withdraws a finding by not repeating it: silence about an
+    objection someone answered with evidence is the withdrawal.  Nothing here
+    interprets prose -- the identifiers a round does and does not restate are
+    the whole signal, which is why they have to be stable.
+    """
+    prior = [f.get("id") for f in prior_findings or []]
+    current = [f.get("id") for f in findings or []]
+    return Adjudication(
+        upheld=[i for i in prior if i in current],
+        withdrawn=[i for i in prior if i not in current],
+        raised=[i for i in current if i not in prior])
 
 
 class ReviewValidation:
@@ -175,13 +217,41 @@ def _location_errors(findings, changed):
     return errors
 
 
-def validate_review(payload, changed=None, raw=None, schema_path=DEFAULT_SCHEMA):
+def _late_blocker_errors(payload, findings, prior_findings):
+    """A round after the first may not widen what blocks the pull request.
+
+    Only two kinds of blocker can legitimately appear late: one the fixes
+    themselves caused, and one serious enough that having missed it once is no
+    reason to keep missing it.  Everything else raised for the first time in a
+    later round is the goalposts moving, and is refused here rather than left
+    to the Implementation Agent to argue about.
+    """
+    if prior_findings is None or (payload.get("round") or 1) < 2:
+        return []
+    prior = {f.get("id") for f in prior_findings}
+    errors = []
+    for index, finding in enumerate(findings):
+        if not finding.get("blocking") or finding.get("id") in prior:
+            continue
+        if finding.get("category") not in LATE_BLOCKING_CATEGORIES:
+            errors.append(
+                "findings/%d/category: %r is raised for the first time in round "
+                "%s, where a new blocker may only be %s"
+                % (index, finding.get("id"), payload.get("round"),
+                   " or ".join(LATE_BLOCKING_CATEGORIES)))
+    return errors
+
+
+def validate_review(payload, changed=None, raw=None, prior_findings=None,
+                    schema_path=DEFAULT_SCHEMA):
     """Validate one review result.
 
     `changed` is `changed_lines(diff)` for the reviewed head; without it source
     locations are still checked for shape, but not for range.  `raw` is the
     payload exactly as the model emitted it, so the size limit measures what was
-    actually produced rather than a re-serialization of it.
+    actually produced rather than a re-serialization of it.  `prior_findings`
+    are the findings of the round before this one; without them a result is
+    judged on its own terms, with them a late blocker is bounded.
     """
     size = _payload_bytes(payload, raw)
     if size > MAX_PAYLOAD_BYTES:
@@ -199,6 +269,7 @@ def validate_review(payload, changed=None, raw=None, schema_path=DEFAULT_SCHEMA)
     findings = payload["findings"]
     errors = (_identity_errors(findings)
               + _policy_errors(payload, findings)
+              + _late_blocker_errors(payload, findings, prior_findings)
               + _location_errors(findings, changed))
     if errors:
         return ReviewValidation(False, errors)

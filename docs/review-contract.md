@@ -94,6 +94,51 @@ Deterministic checks — build, lint, format, tests — belong to the target
 repository's CI, which owns their verdict. The reviewer interprets evidence; it
 does not re-run the gate in prose.
 
+## Answering a round: `ralph-response/v1`
+
+The Implementation Agent answers a review that requested changes with its own
+versioned payload, defined by `schema/response.schema.json` and validated the
+same way — whole, or not at all. It carries the reviewed `head` (not the new
+one its fixes created), the `round`, its own `model` identity, a `summary`, and
+one `disposition` per open finding, keyed by that finding's `id`. Every open
+finding must appear exactly once, and none that was never raised.
+
+| Disposition | Means | Effect on the branch |
+| --- | --- | --- |
+| `accepted` | The finding is right; a fix was appended for it. | A new commit, descended from the reviewed one. |
+| `disputed` | The finding is wrong, and `evidence` says why. | None. **A dispute changes no code.** |
+| `unresolved` | It was not addressed this round, and the note says why. | None. |
+
+`evidence` is required for a dispute and only meaningful there: the test that
+already covers the behaviour, the documented rule that says otherwise, or the
+code path that makes the claim impossible. A dispute without it is an
+assertion, which is exactly what the finding contract forbids of the reviewer.
+
+The head and the dispositions must agree in both directions. An `accepted`
+finding with an unchanged head is a fix nobody made; a moved head with nothing
+accepted is a change nobody asked for. Both are refused, and nothing is posted.
+
+A dispute does not end the matter: Ralph sends the same commit back to a fresh
+Review Agent, which reads the evidence and either withdraws the finding or
+upholds it.
+
+## Later rounds
+
+Round one is the full in-scope review. Every round after it **adjudicates** the
+findings before it and inspects the fixes made for them.
+
+A reviewer upholds a finding by raising it again with the same `id`, and
+withdraws it by not raising it at all; Ralph renders both outcomes by
+identifier in the review body, so a withdrawal is a visible decision rather
+than a silence. Settled findings are not re-opened, and preferences that could
+have been raised in round one are not raised late — the goalposts do not move.
+
+A new blocking finding may appear in a later round only as a **`defect`** or a
+**`safety_regression`**: a regression the fixes themselves introduced, or a
+serious correctness or safety problem that was missed. The validator refuses
+any other late blocker, naming the finding and the round. Raising one does not
+extend the round limit; the negotiation still ends where it would have ended.
+
 ## Size
 
 One result renders into one GitHub review body, and GitHub caps that at 65,536

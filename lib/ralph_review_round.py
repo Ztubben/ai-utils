@@ -100,11 +100,14 @@ def _json_objects(text):
 def next_round(pull_request):
     """Which Negotiation Round this pull request is owed next.
 
-    Counted from the heads Ralph has already reviewed, so the number is a fact
-    about the pull request rather than loop-local bookkeeping.  A human review
-    is not a round and never advances it.
+    Counted from the reviews Ralph has already published, so the number is a
+    fact about the pull request rather than loop-local bookkeeping.  Reviews,
+    not distinct heads: a disputed round is judged again at the same commit,
+    and counting heads would hand it the number it just used -- which would
+    make a round limit unreachable by a model that only ever disputes.  A human
+    review is not a round and never advances it.
     """
-    return len(ralph_review.reviewed_heads(pull_request)) + 1
+    return len(ralph_review.review_stamps(pull_request)) + 1
 
 
 def review_prompt(context, prompt_path=REVIEW_PROMPT):
@@ -118,12 +121,16 @@ def review_prompt(context, prompt_path=REVIEW_PROMPT):
         return "%s\n\n---\n\n%s" % (fh.read().rstrip(), context)
 
 
-def conduct(story, pull_request, context, launch, publish, changed=None):
+def conduct(story, pull_request, context, launch, publish, changed=None,
+            comments=None):
     """Run one round: launch the reviewer, validate, then publish."""
     head = pull_request.get("headRefOid")
-    # The guard comes first, so a head that already has its review costs
-    # nothing: a round is a model invocation, and the second one buys nothing.
-    if ralph_review.is_reviewed(pull_request, head):
+    # The guard comes first, so a head that already has its answer costs
+    # nothing: a round is a model invocation, and a second one over the same
+    # unanswered judgement buys nothing.  `comments` are the Story's, where
+    # each response is recorded -- an answered head is owed a fresh round even
+    # though the commit has not moved, because that is what a dispute is.
+    if not ralph_review.needs_review(pull_request, comments):
         return RoundResult(True, [], ALREADY_REVIEWED, head=head)
     outcome, errors = launch(review_prompt(context))
     if outcome is None:
@@ -136,7 +143,9 @@ def conduct(story, pull_request, context, launch, publish, changed=None):
                                    % (outcome.kind, outcome.exit_code)],
                            outcome.kind, head=head, invocations=1)
     payload = extract_result(outcome.output)
-    validation = ralph_review_result.validate_review(payload, changed=changed)
+    validation = ralph_review_result.validate_review(
+        payload, changed=changed,
+        prior_findings=ralph_review.previous_findings(comments))
     if not validation.ok:
         return RoundResult(False, validation.errors, INVALID_OUTPUT, head=head,
                            invocations=1)
@@ -174,6 +183,18 @@ def _gh(args, cwd):
     if proc.returncode:
         raise RuntimeError(proc.stdout.strip() or "gh command failed")
     return proc.stdout
+
+
+def story_comments(number, cwd):
+    """The Story's comments, where each round's review and answer is recorded.
+
+    The negotiation's state lives here rather than on the pull request, so
+    every stage that has to know whether the current head is reviewed, answered
+    or settled reads the same one place.
+    """
+    data = json.loads(_gh(["issue", "view", str(number), "--json", "comments"],
+                          cwd) or "{}")
+    return data.get("comments") or []
 
 
 def references_story(pull_request, number):
@@ -261,14 +282,20 @@ def _cmd_round(rest):
     return run_round(story, pull_request, validated.config, root)
 
 
-def run_round(story, pull_request, config, root):
+def run_round(story, pull_request, config, root, comments=None):
     """Run one round against an already-read pull request; return an exit code.
 
     Shared by `--review-round` and the in-tick wait (#54), so a round started by
     a poll and one started by hand take exactly the same path.
     """
     head = pull_request.get("headRefOid")
-    if ralph_review.is_reviewed(pull_request, head):
+    if comments is None:
+        try:
+            comments = story_comments(story["number"], root)
+        except (OSError, ValueError, RuntimeError) as exc:
+            sys.stderr.write("ralph: could not read the Story's rounds: %s\n" % exc)
+            return 2
+    if not ralph_review.needs_review(pull_request, comments):
         print("OK: %s is already reviewed on PR #%s; no invocation spent"
               % (head, pull_request.get("number", "?")))
         return 0
@@ -276,7 +303,7 @@ def run_round(story, pull_request, config, root):
     round_no = next_round(pull_request)
     try:
         context, diff = ralph_review_context.bundle_for(
-            story, pull_request, round_no, root)
+            story, pull_request, round_no, root, comments=comments)
     except (OSError, ValueError, RuntimeError) as exc:
         sys.stderr.write("ralph: could not assemble review context: %s\n" % exc)
         return 2
@@ -289,13 +316,20 @@ def run_round(story, pull_request, config, root):
     def launch(prompt):
         return ralph_agent.launch_role(config, "review", prompt, story=story)
 
+    # What the round before this one raised, so a later round's review states
+    # the fate of every open finding by identifier rather than leaving a
+    # withdrawal to be inferred from silence.
+    prior_findings = ralph_review.previous_findings(comments)
+
     def publish(review):
         posted = ralph_review_render.publish(review, pull_request, cwd=root,
-                                             story_number=story.get("number"))
+                                             story_number=story.get("number"),
+                                             prior_findings=prior_findings)
         return posted.ok, posted.errors
 
     result = conduct(story, pull_request, context.text, launch, publish,
-                     changed=ralph_review_result.changed_lines(diff))
+                     changed=ralph_review_result.changed_lines(diff),
+                     comments=comments)
     number = pull_request.get("number", "?")
     if result.kind == ALREADY_REVIEWED:
         print("OK: %s is already reviewed on PR #%s; no invocation spent"

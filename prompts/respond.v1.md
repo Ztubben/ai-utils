@@ -39,6 +39,25 @@ If a finding is one you cannot fix in this round, record it as **unresolved** an
 plainly why in its note. Do not pretend to fix something you did not; an honest
 unresolved finding is answerable, a false acceptance is not.
 
+## Disputing a finding
+
+A reviewer can be wrong, and obeying a wrong finding puts a defect in the code. When a
+finding does not hold, answer it with a **disputed** disposition instead of a change:
+
+- Run its `verification` first. A dispute you have not checked is a guess.
+- Fill in `evidence` with what the reviewer can read for itself — the test that already
+  covers the behaviour and where it lives, the documented rule or ADR that says
+  otherwise, or the code path that makes the claim impossible. Cite files and lines.
+  A dispute with no evidence is refused, exactly as a finding with no evidence would be.
+- A dispute **changes no code**. Do not commit anything for it, and do not sneak a fix
+  in beside it: Ralph refuses a response that moved the head with nothing accepted.
+- You may accept some findings and dispute others in the same response.
+
+Your dispute does not end the matter. Ralph sends the same commit back to a **fresh**
+Review Agent, which reads your evidence and either withdraws the finding or upholds it.
+Two rounds that settle nothing hand the disagreement to a human, who arbitrates from the
+pull request — so make the argument to be read, not to win.
+
 ## Output
 
 Emit one JSON object — the versioned response contract `ralph-response/v1` — and nothing

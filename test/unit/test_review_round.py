@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 import ralph_agent  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_render  # noqa: E402
+import ralph_review_respond  # noqa: E402
 import ralph_review_result  # noqa: E402
 import ralph_review_round  # noqa: E402
 
@@ -30,6 +31,11 @@ HEAD = "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d"
 def fixture(name):
     with open(os.path.join(FIXTURES, name)) as fh:
         return json.load(fh)
+
+
+def escaped(text):
+    """*text* as it appears inside the JSON payload `gh --input` is handed."""
+    return json.dumps(text)[1:-1]
 
 
 def story(number=53):
@@ -286,6 +292,10 @@ notify:
                      '  cat "%(root)s/pr.json"\n'
                      '  exit 0\n'
                      'fi\n'
+                     'if [[ "$1 $2" == "issue view" ]]; then\n'
+                     '  cat "%(root)s/issue.json" 2>/dev/null || echo "{}"\n'
+                     '  exit 0\n'
+                     'fi\n'
                      'prev=""\n'
                      'for arg in "$@"; do\n'
                      '  if [[ "$prev" == "--input" ]]; then cat "$arg" >> "$RALPH_LOG"; fi\n'
@@ -434,7 +444,8 @@ notify:
         proc, calls = self.run_round()
 
         self.assertEqual(proc.returncode, 2)
-        self.assertNotIn("gh ", calls)
+        # Reading the Story's rounds is a read; nothing was written anywhere.
+        self.assertNotIn("--method POST", calls)
         self.assertIn("verdict", proc.stderr)
 
     def test_a_finding_pointing_outside_the_reviewed_diff_is_never_posted(self):
@@ -446,7 +457,7 @@ notify:
         proc, calls = self.run_round()
 
         self.assertEqual(proc.returncode, 2)
-        self.assertNotIn("gh ", calls)
+        self.assertNotIn("--method POST", calls)
         self.assertIn("lib/never.py", proc.stderr)
 
     def test_an_unmarked_pull_request_spends_no_invocation_at_all(self):
@@ -485,8 +496,62 @@ notify:
         proc, calls = self.run_round(pr_path=reviewed)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(calls, "")
+        self.assertNotIn("claude", calls)
+        self.assertNotIn("reviews", calls)
         self.assertIn("already reviewed", proc.stdout)
+
+    def test_a_disputed_head_goes_back_to_a_fresh_reviewer(self):
+        # The commit has not moved, but the Story records an answer to its
+        # review: the reviewer is owed the chance to withdraw or uphold.
+        self._provider("claude", self.review(model="claude-opus-5", round=2))
+        self._gh()
+        self._write("issue.json", json.dumps({"comments": [
+            {"body": ralph_review.result_record(self.review())},
+            {"body": ralph_review.response_record({
+                "contract": ralph_review_respond.CONTRACT_VERSION,
+                "head": self.head, "round": 1, "model": "gpt-5-codex",
+                "summary": "The finding is mistaken.",
+                "dispositions": [{
+                    "id": "F-3", "disposition": ralph_review_respond.DISPUTED,
+                    "note": "The test the finding asks for already exists.",
+                    "evidence": "test/unit/test_review_result.py:210"}]})}]}))
+        reviewed = self.pr_file(reviews=[
+            {"body": ralph_review.review_marker(self.head)}])
+
+        proc, calls = self.run_round(pr_path=reviewed)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("--safe-mode", calls)
+        self.assertIn("repos/{owner}/{repo}/pulls/70/reviews", calls)
+        # The reviewer restated F-3, so the published review says so by
+        # identifier; the disputing model reads its own answer's outcome.
+        self.assertIn("Earlier findings", calls)
+        self.assertIn(escaped("**F-3** — upheld"), calls)
+
+    def test_a_withdrawn_finding_is_named_as_withdrawn_in_the_next_review(self):
+        approved = dict(self.review(model="claude-opus-5", round=2),
+                        verdict="approve", findings=[],
+                        summary="The dispute is right; the finding is withdrawn.")
+        self._provider("claude", approved)
+        self._gh()
+        self._write("issue.json", json.dumps({"comments": [
+            {"body": ralph_review.result_record(self.review())},
+            {"body": ralph_review.response_record({
+                "contract": ralph_review_respond.CONTRACT_VERSION,
+                "head": self.head, "round": 1, "model": "gpt-5-codex",
+                "summary": "The finding is mistaken.",
+                "dispositions": [{
+                    "id": "F-3", "disposition": ralph_review_respond.DISPUTED,
+                    "note": "The test the finding asks for already exists.",
+                    "evidence": "test/unit/test_review_result.py:210"}]})}]}))
+        reviewed = self.pr_file(reviews=[
+            {"body": ralph_review.review_marker(self.head)}])
+
+        proc, calls = self.run_round(pr_path=reviewed)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(escaped("**F-3** — withdrawn"), calls)
+        self.assertIn("state=success", calls)
 
     def test_the_storys_marked_pull_request_is_found_when_none_is_given(self):
         self._provider("claude", self.review(model="claude-opus-5"))
@@ -568,6 +633,105 @@ class RoundNumbering(unittest.TestCase):
         human = pull_request(reviews=[{"body": "looks good to me"}])
         self.assertEqual(ralph_review_round.next_round(human), 1)
 
+    def test_re_reviewing_one_head_still_advances_the_round(self):
+        # A disputed round is judged again at the same commit. Counting heads
+        # would hand it the number it just used, so a round limit measured in
+        # rounds would never be reached by a model that only ever disputes.
+        disputed = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)},
+            {"body": ralph_review.review_marker(HEAD)},
+        ])
+        self.assertEqual(ralph_review_round.next_round(disputed), 3)
+
+
+class ADisputedHeadIsJudgedAgain(unittest.TestCase):
+    """A dispute changes no code, so the same commit is owed a fresh round."""
+
+    def reviewed(self):
+        return pull_request(reviews=[{"body": ralph_review.review_marker(HEAD)}])
+
+    def answered(self, disposition=ralph_review_respond.DISPUTED):
+        judged = dict(fixture("valid-inline.json"), head=HEAD, round=1)
+        answer = {"contract": ralph_review_respond.CONTRACT_VERSION,
+                  "head": HEAD, "round": 1, "model": "claude-opus-5",
+                  "summary": "The finding is wrong; here is why.",
+                  "dispositions": [{"id": "F-1", "disposition": disposition,
+                                    "note": "The test already exists.",
+                                    "evidence": "test_review_result.py:210"}]}
+        return [{"body": ralph_review.result_record(judged)},
+                {"body": ralph_review.response_record(answer)}]
+
+    def test_an_answered_head_is_reviewed_again(self):
+        agent = Recorder(output=json.dumps(dict(fixture("valid-inline.json"),
+                                                round=2)))
+
+        result = ralph_review_round.conduct(
+            story(), self.reviewed(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish,
+            comments=self.answered())
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.kind, ralph_review_round.PUBLISHED)
+        self.assertEqual(result.round_no, 2)
+        self.assertEqual(len(agent.published), 1)
+
+    def test_an_unanswered_reviewed_head_still_spends_nothing(self):
+        agent = Recorder()
+
+        result = ralph_review_round.conduct(
+            story(), self.reviewed(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish, comments=[])
+
+        self.assertEqual(result.kind, ralph_review_round.ALREADY_REVIEWED)
+        self.assertEqual(agent.prompts, [])
+
+    def late(self, category):
+        result = dict(fixture("cross-cutting.json"), head=HEAD, round=2)
+        result["findings"] = [dict(result["findings"][0], id="F-7",
+                                   category=category, blocking=True)]
+        return Recorder(output=json.dumps(result))
+
+    def test_a_late_blocker_outside_the_narrow_exception_is_not_published(self):
+        # Round two adjudicates F-1; a fresh missing-tests blocker is the
+        # goalposts moving, and the answer to it would be a different review.
+        agent = self.late("missing_tests")
+
+        result = ralph_review_round.conduct(
+            story(), self.reviewed(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish,
+            comments=self.answered())
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.kind, ralph_review_round.INVALID_OUTPUT)
+        self.assertEqual(agent.published, [])
+        self.assertIn("F-7", " ".join(result.errors))
+
+    def test_a_regression_the_fixes_caused_may_still_block_late(self):
+        agent = self.late("defect")
+
+        result = ralph_review_round.conduct(
+            story(), self.reviewed(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish,
+            comments=self.answered())
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(len(agent.published), 1)
+
+    def test_a_second_review_of_the_same_head_is_not_owed_a_third(self):
+        # One answer buys one re-review, not an unbounded supply of them.
+        twice = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)},
+            {"body": ralph_review.review_marker(HEAD)}])
+        agent = Recorder()
+
+        result = ralph_review_round.conduct(
+            story(), twice, "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish,
+            comments=self.answered())
+
+        self.assertEqual(result.kind, ralph_review_round.ALREADY_REVIEWED)
+        self.assertEqual(agent.prompts, [])
+
 
 class ReviewPromptV1(unittest.TestCase):
     """The judgement half of a round is checked in, so it is drift-guarded."""
@@ -600,6 +764,19 @@ class ReviewPromptV1(unittest.TestCase):
             self.assertIn(field, self.text,
                           "review.v1 prompt missing evidence field: %s" % field)
         self.assertIn(ralph_review_result.CONTRACT_VERSION, self.text)
+
+    def test_scopes_a_later_round_to_adjudicating_what_came_before(self):
+        low = " ".join(self.text.lower().split())
+        self.assertIn("adjudicate", low)
+        self.assertIn("uphold", low)
+        self.assertIn("withdraw", low)
+        self.assertIn("goalposts do not move", low)
+
+    def test_bounds_a_late_blocker_to_the_two_categories_that_allow_one(self):
+        low = " ".join(self.text.lower().split())
+        for category in ralph_review_result.LATE_BLOCKING_CATEGORIES:
+            self.assertIn(category, low)
+        self.assertIn("does not extend the round limit", low)
 
     def test_uses_hil_terminology_not_hitl(self):
         self.assertNotIn("HITL", self.text)

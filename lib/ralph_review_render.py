@@ -48,11 +48,16 @@ def _finding_block(finding):
     ])
 
 
-def review_body(result):
+def review_body(result, prior_findings=None):
     """The pull-request review body: what reviewed what, then the prose.
 
     Located findings are deliberately absent: they are rendered as inline
     threads, and repeating them here would double every objection.
+
+    A later round also states, by identifier, what became of every finding the
+    round before it raised.  A withdrawal is otherwise invisible -- the earlier
+    thread just stops being mentioned -- and "the objection was dropped" is
+    exactly what the author, and any human arbitrating later, needs to read.
     """
     lines = [
         # The stamp is what a later round reads to know this head is done; it
@@ -65,6 +70,11 @@ def review_body(result):
         "",
         result["summary"],
     ]
+    if prior_findings:
+        verdict = ralph_review_result.adjudicate(prior_findings,
+                                                 result.get("findings", []))
+        lines += ["", "## Earlier findings", ""]
+        lines += ["- **%s** — %s" % pair for pair in verdict.outcomes()]
     findings = cross_cutting(result)
     if findings:
         lines += ["", "## Cross-cutting findings", ""]
@@ -95,12 +105,12 @@ def inline_comments(result):
     return comments
 
 
-def review_payload(result):
+def review_payload(result, prior_findings=None):
     """The exact JSON body for `POST /repos/{owner}/{repo}/pulls/{n}/reviews`."""
     return {
         "commit_id": result["head"],
         "event": REVIEW_EVENT,
-        "body": review_body(result),
+        "body": review_body(result, prior_findings=prior_findings),
         "comments": inline_comments(result),
     }
 
@@ -219,7 +229,8 @@ class PublishResult:
         self.posted_comments = posted_comments
 
 
-def publish(result, pull_request, cwd=None, story_number=None):
+def publish(result, pull_request, cwd=None, story_number=None,
+            prior_findings=None):
     """Post *result* onto *pull_request* and update the required check.
 
     The nested ``comments[]`` body cannot be expressed as `gh api -f`, so the
@@ -229,7 +240,8 @@ def publish(result, pull_request, cwd=None, story_number=None):
     payload = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="ralph-review-", delete=False)
     try:
-        json.dump(review_payload(result), payload, indent=2)
+        json.dump(review_payload(result, prior_findings=prior_findings),
+                  payload, indent=2)
         payload.close()
         plan = render_plan(result, pull_request, payload.name,
                            story_number=story_number)

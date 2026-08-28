@@ -48,20 +48,55 @@ def review_marker(head):
     return REVIEW_MARKER_TEMPLATE % head
 
 
-def reviewed_heads(pr):
-    """The commits this pull request already carries a Ralph review for."""
+def review_stamps(pr):
+    """Every Ralph review on this pull request, as the head each one judged.
+
+    A list, not a set: one commit can be judged more than once, because a
+    dispute answers a round without changing any code.  The number of stamps is
+    therefore the number of Negotiation Rounds this pull request has spent.
+    """
     prefix, suffix = REVIEW_MARKER_TEMPLATE.split("%s")
-    heads = set()
+    heads = []
     for review in (pr or {}).get("reviews") or []:
         for chunk in ((review or {}).get("body") or "").split(prefix)[1:]:
             if suffix in chunk:
-                heads.add(chunk.split(suffix)[0].strip())
+                heads.append(chunk.split(suffix)[0].strip())
     return heads
+
+
+def reviewed_heads(pr):
+    """The commits this pull request already carries a Ralph review for."""
+    return set(review_stamps(pr))
 
 
 def is_reviewed(pr, head):
     """Has a Ralph review already judged *head* on this pull request?"""
     return head in reviewed_heads(pr)
+
+
+def rounds_reviewed(pr, head):
+    """How many Ralph reviews have judged *head*."""
+    return review_stamps(pr).count(head)
+
+
+def rounds_answered(comments, head):
+    """How many recorded responses answer a review of *head*."""
+    return len(response_records(comments, head))
+
+
+def needs_review(pr, comments=None):
+    """Is a fresh Review Agent round owed for this pull request's head?
+
+    A head is owed one when it has never been judged, and again once the
+    Implementation Agent has answered the judgement it did get: a dispute
+    changes no code, so the same commit has to be judged a second time -- this
+    time against the durable discussion the dispute added -- for the reviewer
+    to withdraw or uphold its finding.  Counting answers against reviews bounds
+    that: one answer buys exactly one re-review, so a model that only ever
+    disputes cannot spin the pull request through unlimited invocations.
+    """
+    head = (pr or {}).get("headRefOid")
+    return rounds_reviewed(pr, head) <= rounds_answered(comments, head)
 
 
 def _record(template, payload):
@@ -70,23 +105,29 @@ def _record(template, payload):
         json.dumps(payload, indent=2, sort_keys=True))
 
 
-def _latest(pattern, comments, head):
-    """The most recent record matching *pattern* for *head*, or None.
+def _records(pattern, comments, head):
+    """Every record matching *pattern* for *head*, oldest first.
 
     Comments are read newest-last, the order gh returns them in, so a later
-    round's record supersedes an earlier one for the same head.
+    round's record follows an earlier one for the same head.
     """
-    found = None
+    found = []
     for comment in comments or []:
         body = comment if isinstance(comment, str) else (comment or {}).get("body")
         for recorded_head, _round, payload in pattern.findall(body or ""):
             if recorded_head != head:
                 continue
             try:
-                found = json.loads(payload)
+                found.append(json.loads(payload))
             except ValueError:
                 continue
     return found
+
+
+def _latest(pattern, comments, head):
+    """The most recent record matching *pattern* for *head*, or None."""
+    records = _records(pattern, comments, head)
+    return records[-1] if records else None
 
 
 def result_record(result):
@@ -107,6 +148,52 @@ def response_record(response):
 def latest_response(comments, head):
     """The most recent recorded response to the review of *head*, or None."""
     return _latest(_RESPONSE_PATTERN, comments, head)
+
+
+def response_records(comments, head):
+    """Every recorded response to a review of *head*, oldest first."""
+    return _records(_RESPONSE_PATTERN, comments, head)
+
+
+def result_records(comments, head):
+    """Every recorded review result for *head*, oldest first."""
+    return _records(_RESULT_PATTERN, comments, head)
+
+
+def negotiation_history(comments):
+    """Every recorded round of the negotiation, oldest first.
+
+    Story comments are otherwise kept out of a review bundle -- Handoffs,
+    Attempts and session notes live there.  These two record types are the
+    exception because they *are* the negotiation: the findings a later round
+    adjudicates and the answers given to them, recovered verbatim rather than
+    parsed back out of the Markdown they were rendered into.
+    """
+    history = []
+    for comment in comments or []:
+        body = comment if isinstance(comment, str) else (comment or {}).get("body")
+        for kind, pattern in (("review", _RESULT_PATTERN),
+                              ("response", _RESPONSE_PATTERN)):
+            for head, round_no, payload in pattern.findall(body or ""):
+                try:
+                    parsed = json.loads(payload)
+                except ValueError:
+                    continue
+                history.append({"kind": kind, "head": head,
+                                "round": round_no, "payload": parsed})
+    return history
+
+
+def previous_findings(comments):
+    """The findings of the most recently recorded review, whatever head it judged.
+
+    These are what the next round adjudicates.  Read across heads rather than
+    at one: an accepted finding moves the head, so the round that judges the
+    fix must still be able to say what happened to the objection behind it.
+    """
+    reviews = [entry["payload"] for entry in negotiation_history(comments)
+               if entry["kind"] == "review"]
+    return list((reviews[-1] if reviews else {}).get("findings") or [])
 
 
 def review_candidates(pull_requests):

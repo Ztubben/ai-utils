@@ -48,16 +48,29 @@
             "maxLength": 40
           },
           "disposition": {
-            "description": "accepted: a fix commit was appended for it. unresolved: it was not addressed this round, and the note says why.",
-            "enum": ["accepted", "unresolved"]
+            "description": "accepted: a fix commit was appended for it. disputed: the finding is answered with evidence instead of a change, and the code is left alone. unresolved: it was not addressed this round, and the note says why.",
+            "enum": ["accepted", "disputed", "unresolved"]
           },
           "note": {
             "description": "What was changed for this finding, or why it could not be.",
             "type": "string",
             "minLength": 1,
             "maxLength": 2000
+          },
+          "evidence": {
+            "description": "Required for a dispute, and only meaningful there: the test, the source documentation, or the code the reviewer can read to see the finding is wrong. A dispute without it is an assertion, which is exactly what the finding contract forbids of the reviewer too.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "disposition": { "const": "disputed" } },
+                    "required": ["disposition"] },
+            "then": { "required": ["evidence"] }
+          }
+        ]
       }
     }
   }

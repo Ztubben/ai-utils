@@ -43,6 +43,25 @@ not touch are **never** blockers. When in doubt, it is not a blocker.
 Say so plainly when the change is good. A round with no blocking finding is a normal,
 expected outcome — do not manufacture objections to look thorough.
 
+## If this is not round one
+
+Round one is the full in-scope review. Every round after it **adjudicates** what round
+one raised; the bundle carries those findings and the answers given to them.
+
+- Decide each open finding by its identifier: **uphold** it by raising it again with the
+  same `id`, or **withdraw** it by not raising it at all. Ralph reports both outcomes on
+  the pull request, so a withdrawal is a real, visible decision.
+- A finding answered with a **dispute** is withdrawn unless you can show the evidence in
+  that dispute is wrong. The Implementation Agent is not obliged to obey you; it is
+  obliged to answer you, and it did.
+- Do not re-open a settled finding, and do not raise preferences, refactors, or
+  observations you could have made in round one. The goalposts do not move.
+- You may raise a **new blocking** finding only as a `defect` or a `safety_regression`:
+  a regression the fixes themselves introduced, or a serious correctness or safety
+  problem that was missed. Any other late blocker is refused by the validator and
+  nothing is published. Raising one does not extend the round limit: the negotiation
+  still ends where it would have ended, at human arbitration if need be.
+
 ## Evidence requirements
 
 Every finding must be **checkable by someone who trusts nothing you say**:

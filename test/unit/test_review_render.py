@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_review  # noqa: E402
 import ralph_review_render  # noqa: E402
+import ralph_review_result  # noqa: E402
 
 FIXTURES = os.path.join(REPO_ROOT, "test", "fixtures", "reviews")
 HEAD = "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d"
@@ -39,6 +40,42 @@ class ReviewBody(unittest.TestCase):
         self.assertIn("F-3", body)
         self.assertIn("No test exercises an oversized payload", body)
         self.assertIn("missing_tests", body)
+
+
+class AdjudicatingEarlierFindings(unittest.TestCase):
+    """A later round says, by identifier, what became of each open finding."""
+
+    def prior(self):
+        return fixture("valid-inline.json")["findings"]  # F-1, F-2
+
+    def test_a_finding_the_round_repeats_is_upheld_and_one_it_drops_is_withdrawn(self):
+        verdict = ralph_review_result.adjudicate(
+            self.prior(), [dict(self.prior()[0])])
+
+        self.assertEqual(verdict.upheld, ["F-1"])
+        self.assertEqual(verdict.withdrawn, ["F-2"])
+        self.assertEqual(verdict.raised, [])
+
+    def test_a_finding_this_round_invented_is_raised_not_upheld(self):
+        verdict = ralph_review_result.adjudicate(
+            self.prior(), [{"id": "F-9"}])
+
+        self.assertEqual(verdict.raised, ["F-9"])
+        self.assertEqual(verdict.withdrawn, ["F-1", "F-2"])
+
+    def test_the_review_body_states_each_earlier_findings_outcome(self):
+        body = ralph_review_render.review_body(
+            dict(fixture("cross-cutting.json"), round=2), prior_findings=self.prior())
+
+        self.assertIn("F-1", body)
+        self.assertIn("withdrawn", body)
+        self.assertIn("F-3", body)
+
+    def test_round_one_adjudicates_nothing(self):
+        body = ralph_review_render.review_body(fixture("valid-inline.json"))
+
+        self.assertNotIn("withdrawn", body)
+        self.assertNotIn("upheld", body)
 
 
 class ReviewPayload(unittest.TestCase):

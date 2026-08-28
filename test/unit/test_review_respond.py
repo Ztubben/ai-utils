@@ -174,6 +174,61 @@ class ConductResponse(unittest.TestCase):
         self.assertEqual(outcome.kind, ralph_review_respond.NOT_APPEND_ONLY)
         self.assertEqual(agent.published, [])
 
+    def disputed(self, ids=("F-3",)):
+        answer = response(ids=ids, disposition=ralph_review_respond.DISPUTED)
+        for disposition in answer["dispositions"]:
+            disposition["evidence"] = "The oversized fixture is loaded at " \
+                                      "test/unit/test_review_result.py:210."
+        return json.dumps(answer)
+
+    def test_a_dispute_answers_the_round_without_moving_the_head(self):
+        agent = Agent(output=self.disputed())
+
+        outcome = self.conduct(agent, checkout=Checkout(after=HEAD))
+
+        self.assertTrue(outcome.ok, outcome.errors)
+        self.assertEqual(outcome.new_head, HEAD)
+        self.assertEqual(len(agent.published), 1)
+
+    def test_a_dispute_that_changed_code_anyway_is_refused(self):
+        # A dispute argues; it does not edit. A commit nothing accepted is a
+        # change the reviewer was never told about and never asked for.
+        agent = Agent(output=self.disputed())
+
+        outcome = self.conduct(agent, checkout=Checkout(after=FIXED))
+
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.kind, ralph_review_respond.NOT_APPEND_ONLY)
+        self.assertEqual(agent.published, [])
+        self.assertIn(FIXED, " ".join(outcome.errors))
+
+
+class DisputingAFinding(unittest.TestCase):
+    """A model may answer a finding with evidence instead of obedience (#56)."""
+
+    def dispute(self, evidence="test/unit/test_review_result.py:210 already "
+                               "loads an oversized fixture and asserts the "
+                               "refusal names the byte limit."):
+        answer = response(ids=("F-3",), disposition=ralph_review_respond.DISPUTED)
+        if evidence is not None:
+            answer["dispositions"][0]["evidence"] = evidence
+        return answer
+
+    def test_a_dispute_backed_by_evidence_is_a_well_formed_answer(self):
+        problems = ralph_review_respond.validate_response(
+            self.dispute(), fixture("cross-cutting.json"))
+
+        self.assertEqual(problems, [])
+
+    def test_a_dispute_with_no_evidence_is_refused(self):
+        # Disobeying a finding is only legitimate when it is checkable; a bare
+        # "I disagree" is the hallucination this contract exists to catch.
+        problems = ralph_review_respond.validate_response(
+            self.dispute(evidence=None), fixture("cross-cutting.json"))
+
+        self.assertTrue(problems)
+        self.assertIn("evidence", " ".join(problems))
+
 
 class PublishingTheResponse(unittest.TestCase):
     """The answer reaches the pull request as ordinary review artifacts."""
@@ -202,6 +257,31 @@ class PublishingTheResponse(unittest.TestCase):
             response(ids=("F-3",)), self.threads(), pull_number=70)
 
         self.assertEqual(commands, [])
+
+    def disputed(self, ids=("F-1",)):
+        answer = response(ids=ids, disposition=ralph_review_respond.DISPUTED)
+        for disposition in answer["dispositions"]:
+            disposition["evidence"] = "test_review_result.py:210 loads a " \
+                                      "payload over the byte limit."
+        return answer
+
+    def test_a_disputed_findings_thread_reply_carries_its_evidence(self):
+        commands = ralph_review_respond.reply_commands(
+            self.disputed(), self.threads(), pull_number=70)
+
+        body = commands[0][commands[0].index("-f") + 1]
+        self.assertIn("F-1", body)
+        self.assertIn("disputed", body)
+        self.assertIn("test_review_result.py:210", body)
+
+    def test_the_consolidated_record_carries_a_disputes_evidence(self):
+        body = ralph_review_respond.response_comment(self.disputed(), HEAD)
+
+        # The prose half, not only the machine record underneath it: whoever
+        # arbitrates this dispute reads the comment, not the JSON.
+        prose = body.split("<!--")[0]
+        self.assertIn("disputed", prose)
+        self.assertIn("test_review_result.py:210", prose)
 
     def test_the_consolidated_record_states_every_disposition(self):
         answer = response(ids=("F-1", "F-2"))
@@ -243,6 +323,19 @@ class RespondPromptV1(unittest.TestCase):
         low = self.text.lower()
         self.assertIn("failing test", low)
         self.assertIn("ralph --run-gating", low)
+
+    def test_a_dispute_must_be_verified_evidenced_and_code_free(self):
+        low = self.text.lower()
+        self.assertIn(ralph_review_respond.DISPUTED, low)
+        self.assertIn("evidence", low)
+        self.assertIn("changes no code", low)
+        self.assertIn("verification", low)
+
+    def test_says_a_dispute_is_adjudicated_by_a_fresh_reviewer(self):
+        low = self.text.lower()
+        self.assertIn("fresh", low)
+        self.assertIn("withdraw", low)
+        self.assertIn("human", low)
 
     def test_uses_hil_terminology_not_hitl(self):
         self.assertNotIn("HITL", self.text)
@@ -315,23 +408,37 @@ notify:
         result["findings"][0]["id"] = "F-1"
         return result
 
+    DISPUTE_EVIDENCE = "test/unit/test_review_result.py:210 already loads an " \
+                       "oversized payload and asserts the refusal."
+
     def _agent(self, fix="append"):
-        """A mock implementation CLI that really changes the branch."""
+        """A mock implementation CLI that really changes the branch.
+
+        `fix="dispute"` is the one mode that does not: a dispute answers the
+        finding and leaves the reviewed commit exactly where it was.
+        """
         answer = dict(response(head=self.head, ids=("F-1",)),
                       model="claude-opus-5")
+        if fix == "dispute":
+            answer["dispositions"][0].update(
+                disposition=ralph_review_respond.DISPUTED,
+                note="The finding asks for a test that already exists.",
+                evidence=self.DISPUTE_EVIDENCE)
         self._write("answer.json", json.dumps(answer))
-        commit = ("git commit -aqm 'fix(#55): address F-1'" if fix == "append"
-                  else "git commit -aqm 'amended' --amend")
+        edit = {"append": "printf '\\n# fix\\n' >> lib/thing.py\n"
+                          "git commit -aqm 'fix(#55): address F-1' >/dev/null 2>&1",
+                "amend": "printf '\\n# fix\\n' >> lib/thing.py\n"
+                         "git commit -aqm 'amended' --amend >/dev/null 2>&1",
+                "dispute": ":"}[fix]
         path = self._write("claude", "")
         with open(path, "w") as fh:
             fh.write('#!/usr/bin/env bash\n'
                      'echo "claude $*" >> "$RALPH_LOG"\n'
                      'cat > /dev/null\n'
                      'cd "%(root)s"\n'
-                     'printf "\\n# fix\\n" >> lib/thing.py\n'
-                     '%(commit)s >/dev/null 2>&1\n'
+                     '%(edit)s\n'
                      'cat "%(root)s/answer.json"\n'
-                     % {"root": self.root, "commit": commit})
+                     % {"root": self.root, "edit": edit})
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def _gh(self):
@@ -419,6 +526,46 @@ notify:
             ["git", "rev-parse", "HEAD"], cwd=self.remote,
             stdout=subprocess.PIPE, text=True).stdout.strip()
         self.assertEqual(remote_head, self.head)
+
+    def test_a_dispute_answers_in_the_thread_and_the_record_but_writes_no_commit(self):
+        self._agent(fix="dispute")
+        self._gh()
+
+        proc, calls = self.run_respond()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # The argument reached both places a reader meets it.
+        self.assertIn("pulls/70/comments/101/replies", calls)
+        self.assertIn(ralph_review_respond.DISPUTED, calls)
+        self.assertIn(self.DISPUTE_EVIDENCE, calls)
+        self.assertIn("ralph-review-response:v1", calls)
+        # And the commit under review is untouched, locally and on the remote.
+        self.assertEqual(self._rev(), self.head)
+        self.assertEqual(subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.remote,
+            stdout=subprocess.PIPE, text=True).stdout.strip(), self.head)
+
+    def test_a_round_that_is_already_answered_is_not_answered_twice(self):
+        # The answered round is owed a fresh review, not a second answer;
+        # answering again would spend an invocation on a settled question.
+        self._agent(fix="append")
+        self._gh()
+        answered = {"contract": ralph_review_respond.CONTRACT_VERSION,
+                    "head": self.head, "round": 1, "model": "claude-opus-5",
+                    "summary": "Disputed.",
+                    "dispositions": [{"id": "F-1",
+                                      "disposition": ralph_review_respond.DISPUTED,
+                                      "note": "The test exists.",
+                                      "evidence": "test_review_result.py:210"}]}
+        self._write("issue-comments.json", json.dumps({"comments": [
+            {"body": ralph_review.result_record(self.review())},
+            {"body": ralph_review.response_record(answered)}]}))
+
+        proc, calls = self.run_respond()
+
+        self.assertEqual(proc.returncode, 2)
+        self.assertNotIn("claude", calls)
+        self.assertEqual(self._rev(), self.head)
 
     def test_an_amended_head_is_refused_and_no_reply_is_posted(self):
         self._agent(fix="amend")

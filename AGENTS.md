@@ -230,6 +230,38 @@ not HITL) and `docs/adr/0001–0005`.
   someone's prose cannot claim a thread; a cross-cutting finding has no thread and is
   answered by the consolidated record alone. (5) The reply endpoint needs the pull number
   (`repos/{owner}/{repo}/pulls/{n}/comments/{id}/replies`) — the shorter spelling 404s.
+- **Disputes and later-round scope** (#56, PRD #42) are spread across the modules they
+  belong to, not a new one. `schema/response.schema.json` gains a third disposition,
+  `disputed`, with a conditional `required: [evidence]` (Draft-7 `if`/`then`) — a dispute
+  with no evidence is an assertion, which is exactly what the finding contract forbids of
+  the reviewer. `ralph_review_respond.disposition_body` is the one rendering of an
+  answered finding, used by both the thread reply and the consolidated comment, so
+  evidence cannot reach one and not the other. GOTCHAS: (1) `append_only_errors` now
+  refuses in **both** directions — an `accepted` finding with an unchanged head (a fix
+  nobody made) *and* a moved head with nothing accepted (a change nobody asked for). The
+  second is what makes "a dispute changes no code" an invariant rather than an
+  instruction. (2) "One review per head" became "one review per *unanswered* head":
+  `ralph_review.needs_review(pr, comments)` compares `rounds_reviewed` (review markers
+  stamping that head) against `rounds_answered` (recorded responses for it), so one
+  answer buys exactly one re-review and a model that only ever disputes cannot spin the
+  PR through unlimited invocations. `review_stamps` is therefore a **list**, and
+  `next_round` counts stamps, not distinct heads — counting heads would hand a disputed
+  round the number it just used, making a round limit unreachable. (3) `next_step`'s
+  RESPOND arm no longer asks "is there any response for this head" (a second changes-
+  requested round at one head would read as settled); the same reviewed-vs-answered
+  comparison decides both arms. `respond_to_review` carries the mirror guard so
+  `--respond-review` by hand cannot double-answer. (4) The bundle carries the negotiation
+  verbatim for round ≥ 2 (`ralph_review.negotiation_history` — the *only* Story-comment
+  records admitted, because they **are** the negotiation), but `for_role` gates the scope
+  directive: handing the Implementation Agent instructions written for whoever judges it
+  is the bug that parameter prevents. (5) AC5 is enforced in the validator, not left to
+  the prompt: `validate_review(..., prior_findings=)` refuses a blocker whose id is new in
+  round ≥ 2 unless its category is in `LATE_BLOCKING_CATEGORIES` (`defect`,
+  `safety_regression`). `prior_findings=None` means "unknown, do not restrict"; `[]` means
+  "nothing was raised" and does restrict. (6) Withdraw/uphold is **derived, not declared**:
+  `ralph_review_result.adjudicate(prior, current)` reads it off which identifiers a round
+  restates, and `review_body(..., prior_findings=)` renders it under "## Earlier findings"
+  so a withdrawal is a visible decision instead of a silence.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the

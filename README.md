@@ -110,9 +110,18 @@ scheduler (every ~5h)
         │                          │
         │                          ├── changes requested ─► ralph --respond-review
         │                          │   (fresh implementation round: append-only fix
-        │                          │   commits, thread replies, one machine-readable
-        │                          │   response — prompts/respond.v1.md; the new head
-        │                          │   is reviewed again)
+        │                          │   commits, or a *dispute* backed by evidence that
+        │                          │   changes no code — thread replies plus one
+        │                          │   machine-readable response, prompts/respond.v1.md)
+        │                          │       │
+        │                          │       └─► a fresh Review Agent judges the answered
+        │                          │           head again — the new one after a fix, the
+        │                          │           same one after a dispute — and withdraws
+        │                          │           or upholds each finding by identifier.
+        │                          │           Later rounds adjudicate only what is open;
+        │                          │           a new blocker may be raised late only as a
+        │                          │           defect or safety regression, and never
+        │                          │           extends the round limit.
         │                          │
         │                          └── window closes ─► comment-only Handoff,
         │                              tick ends; next tick resumes this Story first
@@ -452,7 +461,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
-| `ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]` | Answer a round that requested changes: launch the assigned implementation model with the open findings, verify the answer covers every one of them and that the new head is a *descendant* of the reviewed commit (an amend or force-push is refused, nothing posted), then push the appended fixes, reply in each finding's thread, and record one consolidated machine-readable response. |
+| `ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]` | Answer a round that requested changes: launch the assigned implementation model with the open findings, verify the answer covers every one of them and that the new head is a *descendant* of the reviewed commit (an amend or force-push is refused, nothing posted), then push the appended fixes, reply in each finding's thread, and record one consolidated machine-readable response. A finding may be **disputed** with evidence instead of obeyed; a dispute changes no code, and the same commit goes back to a fresh reviewer to withdraw or uphold the finding. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |

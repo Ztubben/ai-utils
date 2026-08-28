@@ -60,11 +60,14 @@ def next_step(pull_request, comments=None):
     if (pull_request.get("state") or "OPEN").upper() != "OPEN":
         return GONE
     head = pull_request.get("headRefOid")
-    if not ralph_review.is_reviewed(pull_request, head):
+    # Reviews and answers alternate, so which side owes a move is simply which
+    # of them is behind.  A dispute leaves the head where it was, which is why
+    # this counts rounds at the head rather than asking whether the head has
+    # ever been reviewed at all.
+    if ralph_review.needs_review(pull_request, comments):
         return REVIEW
     result = ralph_review.latest_result(comments, head)
-    if (result or {}).get("verdict") == "request_changes" \
-            and ralph_review.latest_response(comments, head) is None:
+    if (result or {}).get("verdict") == "request_changes":
         return RESPOND
     return WAIT
 

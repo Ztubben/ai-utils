@@ -42,14 +42,36 @@ def pull_request():
     }
 
 
+def negotiation():
+    """One round on the record: findings raised, then the answer to them."""
+    result = {"contract": "ralph-review/v1", "verdict": "request_changes",
+              "head": HEAD, "model": "gpt-5-codex", "round": 1,
+              "summary": "One blocker.",
+              "findings": [{"id": "F-1", "blocking": True,
+                            "category": "missing_tests",
+                            "claim": "The size guard is untested.",
+                            "evidence": "no fixture over the limit",
+                            "requirement": "acceptance criterion 3",
+                            "verification": "add an oversized fixture"}]}
+    answer = {"contract": "ralph-response/v1", "head": HEAD, "round": 1,
+              "model": "claude-opus-5", "summary": "Disputed with evidence.",
+              "dispositions": [{"id": "F-1", "disposition": "disputed",
+                                "note": "The fixture already exists.",
+                                "evidence": "test_review_result.py:210"}]}
+    return [{"body": ralph_review.result_record(result)},
+            {"body": ralph_review.response_record(answer)}]
+
+
 class ReviewContextBundle(unittest.TestCase):
-    def build(self, pr=None, round_no=2):
+    def build(self, pr=None, round_no=2, comments=None, for_role="review"):
         return ralph_review_context.build_context(
             story(), pr or pull_request(),
             "diff --git a/lib/a.py b/lib/a.py\n+fixed",
             [("AGENTS.md", "Follow repository rules.")],
             [("CONTEXT.md", "## Language\n\n**Finding**: evidence")],
-            [{"name": "test", "conclusion": "SUCCESS"}], round_no)
+            [{"name": "test", "conclusion": "SUCCESS"}], round_no,
+            history=ralph_review.negotiation_history(comments or []),
+            for_role=for_role)
 
     def test_bundle_contains_every_required_evidence_class(self):
         result = self.build()
@@ -76,6 +98,41 @@ class ReviewContextBundle(unittest.TestCase):
         pr["body"] = "human PR"
         self.assertFalse(self.build(pr=pr).ok)
         self.assertFalse(self.build(round_no=0).ok)
+
+    def test_a_later_round_carries_the_open_findings_and_their_answers(self):
+        result = self.build(round_no=2, comments=negotiation())
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertIn("F-1", result.text)
+        self.assertIn("The size guard is untested.", result.text)
+        self.assertIn("disputed", result.text)
+        self.assertIn("test_review_result.py:210", result.text)
+
+    def test_a_later_round_is_told_to_adjudicate_rather_than_start_over(self):
+        result = self.build(round_no=2, comments=negotiation())
+
+        # Line wrapping is the renderer's business, not the directive's.
+        low = " ".join(result.text.lower().split())
+        self.assertIn("adjudicate", low)
+        self.assertIn("regression", low)
+        self.assertIn("does not extend the round limit", low)
+
+    def test_the_answering_model_reads_the_history_but_not_the_reviewers_orders(self):
+        # The same evidence, addressed to the other role: the Implementation
+        # Agent needs what was raised and answered, and must not be handed
+        # instructions written for whoever judges it.
+        result = self.build(round_no=2, comments=negotiation(),
+                            for_role="implementation")
+
+        self.assertIn("F-1", result.text)
+        self.assertIn("disputed", result.text)
+        self.assertNotIn("adjudicate", result.text.lower())
+
+    def test_round_one_is_a_full_review_with_nothing_narrowing_it(self):
+        result = self.build(round_no=1)
+
+        self.assertNotIn("adjudicate", result.text.lower())
+        self.assertNotIn("Earlier Rounds", result.text)
 
     def test_repository_evidence_is_scoped_not_the_whole_checkout(self):
         with tempfile.TemporaryDirectory() as root:

@@ -49,8 +49,9 @@ EXIT_CODES = {
 }
 
 ACCEPTED = "accepted"
+DISPUTED = "disputed"
 UNRESOLVED = "unresolved"
-DISPOSITIONS = (ACCEPTED, UNRESOLVED)
+DISPOSITIONS = (ACCEPTED, DISPUTED, UNRESOLVED)
 
 
 class RespondResult:
@@ -135,6 +136,11 @@ def append_only_errors(response, reviewed_head, new_head, checkout):
     must still be reachable from the new head. An amend, a rebase or a
     force-push all fail exactly this test, and each of them would strand the
     review threads, the checks and the commit evidence that cite it.
+
+    The head and the dispositions must also agree in both directions. An
+    accepted finding with an unchanged head is a fix nobody made; a moved head
+    with nothing accepted is a change nobody asked for -- a dispute argues from
+    evidence, it does not quietly edit the code it is arguing about.
     """
     if new_head == reviewed_head:
         if accepted(response):
@@ -142,6 +148,9 @@ def append_only_errors(response, reviewed_head, new_head, checkout):
                     "%s; an accepted finding needs a fix commit behind it"
                     % (len(accepted(response)), reviewed_head)]
         return []
+    if not accepted(response):
+        return ["head: the head moved to %s but no finding was accepted; a "
+                "dispute or an unresolved finding changes no code" % new_head]
     if not checkout.is_ancestor(reviewed_head, new_head):
         return ["head: %s is not a descendant of the reviewed commit %s; fixes "
                 "must be appended, never amended or force-pushed"
@@ -162,6 +171,21 @@ def _thread_for(finding_id, review_comments):
     return None
 
 
+def disposition_body(disposition):
+    """One answered finding as Markdown, wherever the answer is written.
+
+    A dispute's evidence travels with it. The reply and the consolidated
+    comment are the only places a human -- or the next fresh reviewer -- meets
+    the argument, so an evidence-free dispute must not be able to look like a
+    reasoned one anywhere.
+    """
+    lines = ["**%s** — %s" % (disposition["id"], disposition["disposition"]),
+             "", disposition["note"]]
+    if disposition.get("evidence"):
+        lines += ["", "- _Evidence_: %s" % disposition["evidence"]]
+    return "\n".join(lines)
+
+
 def reply_commands(response, review_comments, pull_number):
     """One reply per answered finding that has a thread to answer in.
 
@@ -178,9 +202,7 @@ def reply_commands(response, review_comments, pull_number):
             "gh", "api", "--method", "POST",
             "repos/{owner}/{repo}/pulls/%s/comments/%s/replies"
             % (pull_number, thread["id"]),
-            "-f", "body=**%s** — %s\n\n%s" % (disposition["id"],
-                                              disposition["disposition"],
-                                              disposition["note"]),
+            "-f", "body=" + disposition_body(disposition),
         ])
     return commands
 
@@ -198,9 +220,7 @@ def response_comment(response, new_head):
         "",
     ]
     for disposition in response["dispositions"]:
-        lines.append("- **%s** — %s: %s" % (disposition["id"],
-                                            disposition["disposition"],
-                                            disposition["note"]))
+        lines += [disposition_body(disposition), ""]
     lines += ["", ralph_review.response_record(response)]
     return "\n".join(lines)
 
@@ -258,11 +278,9 @@ def _gh(args, cwd):
     return proc.stdout
 
 
-def story_comments(number, cwd):
-    """The Story's comments, where each round's review result is recorded."""
-    data = json.loads(_gh(["issue", "view", str(number), "--json", "comments"],
-                          cwd) or "{}")
-    return data.get("comments") or []
+# The negotiation's durable state is read in one place (#53), and every stage
+# that needs it reads it there rather than growing its own gh spelling.
+story_comments = ralph_review_round.story_comments
 
 
 def review_threads(pull_number, cwd):
@@ -349,6 +367,14 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         sys.stderr.write("REFUSED: respond-review\n  - review: no recorded "
                          "review of %s to answer\n" % head)
         return 2
+    if ralph_review.needs_review(pull_request, comments):
+        # Every round this head has had is already answered. What it is owed is
+        # a fresh reviewer's adjudication, not a second answer to a settled
+        # question -- and answering anyway would spend an invocation on one.
+        sys.stderr.write("REFUSED: respond-review\n  - review: round %s of %s "
+                         "is already answered; the next move is a fresh "
+                         "review\n" % (result.get("round"), head))
+        return 2
     if result.get("verdict") != "request_changes":
         sys.stderr.write("REFUSED: respond-review\n  - verdict: round %s "
                          "returned %r; there is nothing to answer\n"
@@ -357,7 +383,8 @@ def respond_to_review(story, pull_request, config, root, comments=None):
 
     try:
         context, _diff = ralph_review_context.bundle_for(
-            story, pull_request, result.get("round", 1), root)
+            story, pull_request, result.get("round", 1), root,
+            comments=comments, for_role="implementation")
     except (OSError, ValueError, RuntimeError) as exc:
         sys.stderr.write("ralph: could not assemble review context: %s\n" % exc)
         return 2
