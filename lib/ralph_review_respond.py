@@ -283,11 +283,7 @@ def _gh(args, cwd):
 story_comments = ralph_review_round.story_comments
 
 
-def review_threads(pull_number, cwd):
-    """The pull request's inline review comments, with their thread ids."""
-    return json.loads(_gh(
-        ["api", "repos/{owner}/{repo}/pulls/%s/comments" % pull_number],
-        cwd) or "[]")
+review_threads = ralph_review_round.review_threads
 
 
 def _load(path):

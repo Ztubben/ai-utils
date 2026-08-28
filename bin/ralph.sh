@@ -223,8 +223,12 @@ assign_story_models() {
 # spends no context and no tokens. This tick holds its lock throughout, which
 # is what keeps a Story in negotiation from competing with new work.
 # Returns RC_REVIEW_WINDOW (14) when the window closed: the caller owes a
-# Handoff. Any other non-zero leaves the Story In Review for the next tick.
+# Handoff. RC_REVIEW_ESCALATED (15) when the round budget ran out with the two
+# models still disagreeing: that Story is now state:blocked with a human asked
+# to arbitrate, and the tick moves on to other work. Any other non-zero leaves
+# the Story In Review for the next tick.
 RC_REVIEW_WINDOW=14
+RC_REVIEW_ESCALATED=15
 await_review() {
   local issue="$1" story_file rc=0
   story_file="$(mktemp)"
@@ -260,6 +264,17 @@ checkpoint_review() {
     log "could not write the review Handoff for #$issue (exit $rc); continuing"
   fi
   return 0
+}
+
+# Ask the circuit breaker whether the loop as a whole should stop. A deadlocked
+# Story blocks itself and nothing else -- but "blocked" is exactly what the
+# breaker counts, so a *pattern* of deadlocks still halts the loop and tags the
+# configured human. The escalation never decides that; this does, from the
+# backlog, using the same limits.circuit_breaker the failure path uses.
+# Best-effort: a gh blip here must not turn one blocked Story into a failed tick.
+check_breaker() {
+  "$RALPH_BIN" --check-breaker \
+    || log "could not evaluate the circuit breaker; continuing"
 }
 
 # Promote locally green implementation work into review. Both Story types use
@@ -336,7 +351,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --check-breaker; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -392,6 +407,17 @@ tick() {
             "$RC_REVIEW_WINDOW")
               log "review window closed for #$issue; writing a Handoff and ending the tick"
               checkpoint_review "$issue"
+              ;;
+            "$RC_REVIEW_ESCALATED")
+              # Deadlock stops this Story, not the loop: it is already
+              # state:blocked with a human asked to arbitrate, so it will not be
+              # re-selected and the tick goes straight on to other work. The
+              # breaker still gets its say on whether *this many* blocked
+              # Stories mean the whole loop should stop.
+              log "review for #$issue deadlocked; it is blocked and a human was asked to arbitrate"
+              check_breaker
+              n=$(( n + 1 ))
+              continue
               ;;
             *)
               log "review step for #$issue did not complete (exit $review_rc); the next tick retries"

@@ -144,11 +144,13 @@ class TickHarness:
             if alternate is not None:
                 fh.write("  alternate: %s\n" % ("true" if alternate else "false"))
 
-    def set_review_window(self, minutes, poll_seconds):
+    def set_review_window(self, minutes, poll_seconds, max_rounds=None):
         """Commit a review window short enough for a test to sit through."""
         with open(os.path.join(self.tmp, ".ralph.yml"), "a") as fh:
             fh.write("review:\n  wait_minutes: %s\n  poll_seconds: %s\n"
                      % (minutes, poll_seconds))
+            if max_rounds is not None:
+                fh.write("  max_rounds: %d\n" % max_rounds)
 
     def set_pull_requests(self, listing, view=None):
         """Answer `gh pr list` and `gh pr view`, so a story In Review has the
@@ -521,6 +523,97 @@ class OrchestrationTest(unittest.TestCase):
         # The Story stays In Review, which is what makes the next tick resume it
         # (and rediscover its pull request) ahead of any state:ready work.
         self.assertFalse(any("issue edit 7" in ln for ln in log), log)
+
+    def deadlocked_story(self, number=7, head="a" * 40):
+        """A Story whose one round requested changes and was answered."""
+        record = json.dumps({
+            "contract": "ralph-review/v1", "verdict": "request_changes",
+            "head": head, "model": "gpt-5-codex", "round": 1,
+            "summary": "One blocker.",
+            "findings": [{"id": "F-1", "blocking": True,
+                          "category": "missing_tests",
+                          "claim": "The guard is untested.",
+                          "evidence": "no fixture over the limit",
+                          "requirement": "acceptance criterion 2",
+                          "verification": "add one"}]}, indent=2)
+        answer = json.dumps({
+            "contract": "ralph-response/v1", "head": head, "round": 1,
+            "model": "claude-opus-5", "summary": "Disputed.",
+            "dispositions": [{"id": "F-1", "disposition": "disputed",
+                              "note": "Already covered.",
+                              "evidence": "test_x.py:210"}]}, indent=2)
+        return dict(story(number, "in-review", "afk"), comments=[
+            {"body": "<!-- ralph-review-result:v1 head=%s round=1 -->\n\n"
+                     "```json\n%s\n```" % (head, record)},
+            {"body": "<!-- ralph-review-response:v1 head=%s round=1 -->\n\n"
+                     "```json\n%s\n```" % (head, answer)}])
+
+    def test_a_deadlocked_story_is_blocked_and_the_tick_works_on(self):
+        # AC (#57): the round budget runs out with the models still disagreeing.
+        # That Story alone stops -- blocked, with a human asked to arbitrate --
+        # and the tick goes straight on to unrelated ready work.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01, max_rounds=1)
+        blocked = dict(story(7, "blocked", "afk"))
+        h.set_backlogs([self.deadlocked_story(), story(8, "ready", "afk")],
+                       [blocked, story(8, "ready", "afk")],   # circuit breaker
+                       [blocked, story(8, "ready", "afk")],   # next selection
+                       [], [])
+        h.set_view_stories(self.deadlocked_story(), story(8, "ready", "afk"))
+        self.reviewed_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("pr edit 70 --add-reviewer" in ln for ln in log), log)
+        self.assertTrue(any("issue edit 7" in ln and "state:blocked" in ln
+                            for ln in log), log)
+        # Unrelated work carried on inside the same tick.
+        self.assertTrue(any("issue edit 8" in ln and "state:in-progress" in ln
+                            for ln in log), log)
+        launched = h.agent_calls()
+        self.assertEqual(len(launched), 1, log)
+        self.assertIn("issue=8", launched[0])
+
+    def test_a_deadlock_alone_never_halts_the_loop(self):
+        # AC (#57): this is not the global halt. Whether the loop stops stays
+        # the circuit breaker's decision, made from how many Stories are blocked.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01, max_rounds=1)
+        blocked = dict(story(7, "blocked", "afk"))
+        h.set_backlogs([self.deadlocked_story()], [blocked], [], [], [])
+        h.set_view_stories(self.deadlocked_story())
+        self.reviewed_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("needs-human" in ln for ln in log), log)
+        # But the breaker was consulted: one more blocked Story and it halts.
+        self.assertIn("deadlocked", proc.stdout)
+
+    def test_enough_deadlocks_still_halt_the_whole_loop(self):
+        # AC (#57): the blocked Story feeds the existing circuit-breaker count,
+        # which retains authority over the global halt.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01, max_rounds=1)
+        # full.yml sets circuit_breaker: 3, so two Stories were already blocked
+        # before this deadlock made it three.
+        earlier = [dict(story(n, "blocked", "afk")) for n in (5, 6)]
+        blocked = dict(story(7, "blocked", "afk"))
+        h.set_backlogs(earlier + [self.deadlocked_story()],
+                       earlier + [blocked],   # circuit breaker: three blocked
+                       [], [], [])
+        h.set_view_stories(self.deadlocked_story())
+        self.reviewed_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("needs-human" in ln for ln in log), log)
 
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()

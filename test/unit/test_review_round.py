@@ -296,6 +296,10 @@ notify:
                      '  cat "%(root)s/issue.json" 2>/dev/null || echo "{}"\n'
                      '  exit 0\n'
                      'fi\n'
+                     'if [[ "$1" == "api" && "$2" == *"/comments" ]]; then\n'
+                     '  cat "%(root)s/threads.json" 2>/dev/null || echo "[]"\n'
+                     '  exit 0\n'
+                     'fi\n'
                      'prev=""\n'
                      'for arg in "$@"; do\n'
                      '  if [[ "$prev" == "--input" ]]; then cat "$arg" >> "$RALPH_LOG"; fi\n'
@@ -567,6 +571,28 @@ notify:
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("gh pr view 70", calls)
         self.assertIn("repos/{owner}/{repo}/pulls/70/reviews", calls)
+
+    def test_a_human_reply_in_a_thread_is_evidence_for_the_next_round(self):
+        # A human who answers in the threads before the negotiation deadlocks
+        # has already arbitrated; the next fresh reviewer must read it.
+        self._provider("claude", self.review(model="claude-opus-5"))
+        self._gh()
+        self._write("threads.json", json.dumps([
+            {"id": 101, "user": {"login": "carl"}, "path": "lib/thing.py",
+             "line": 2, "body": "F-3 is right; fix it in the caller."}]))
+        self.pr_file()
+        self._write("prs.json", json.dumps([
+            {"number": 70, "body": ralph_review.MANAGED_PR_MARKER
+                                   + "\n\nRefs #53\n"}]))
+
+        proc, calls = self.run_round(discover=True)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("pulls/70/comments", calls)
+        with open(os.path.join(self.root, "claude.prompt")) as fh:
+            prompt = fh.read()
+        self.assertIn("fix it in the caller", prompt)
+        self.assertIn("carl", prompt)
 
     def test_a_story_with_no_marked_pull_request_spends_no_invocation(self):
         self._provider("claude", self.review(model="claude-opus-5"))

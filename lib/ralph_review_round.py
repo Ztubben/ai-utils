@@ -185,6 +185,18 @@ def _gh(args, cwd):
     return proc.stdout
 
 
+def review_threads(pull_number, cwd):
+    """The pull request's inline review comments, with their thread ids.
+
+    Not available through `gh pr view --json`, which reports reviews but not
+    the replies hanging off them -- and the replies are where a human answers
+    a finding directly, which is evidence the next round must not miss.
+    """
+    return json.loads(_gh(
+        ["api", "repos/{owner}/{repo}/pulls/%s/comments" % pull_number],
+        cwd) or "[]")
+
+
 def story_comments(number, cwd):
     """The Story's comments, where each round's review and answer is recorded.
 
@@ -222,8 +234,12 @@ def discover_pull_request(story, cwd=None):
                       % (story["number"], len(managed),
                          ", ".join("#%s" % pr["number"] for pr in managed))]
     number = managed[0]["number"]
-    return json.loads(_gh(["pr", "view", str(number), "--json", PR_FIELDS],
-                          cwd)), []
+    pull_request = json.loads(_gh(["pr", "view", str(number), "--json",
+                                   PR_FIELDS], cwd))
+    # Attached rather than fetched again downstream: the bundle, the response
+    # round's replies and any later audit all want the same read.
+    pull_request["reviewThreads"] = review_threads(number, cwd)
+    return pull_request, []
 
 
 def _cmd_round(rest):

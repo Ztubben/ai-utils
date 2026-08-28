@@ -12,12 +12,14 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
+import ralph_review_deadlock  # noqa: E402
 import ralph_review_respond  # noqa: E402
 import ralph_review_round  # noqa: E402
 
 # What the tick may do about this pull request right now.
 REVIEW = "review"      # the head has no review yet: launch a Negotiation Round
 RESPOND = "respond"    # the review requested changes: answer it with a fix round
+ESCALATE = "escalate"  # the rounds are spent and it is still unsettled: ask a human
 WAIT = "wait"          # nothing Ralph can act on; keep polling, spend nothing
 GONE = "gone"          # no marked pull request, or it is no longer open
 
@@ -29,6 +31,11 @@ FAILED = "failed"      # a step did not complete; leave it for the next tick
 # because it is the one ending that obliges the caller to write a Handoff --
 # and it is not a failure: the Story is intact and the next tick resumes it.
 EXIT_WINDOW_EXPIRED = 14
+
+# Deadlock is its own ending too, and also not a failure: one Story stopped,
+# the loop did not. The caller may go straight on to the next Story rather than
+# writing a Handoff for one that is now blocked.
+EXIT_ESCALATED = 15
 
 # However long the window is, a poll never falls further apart than this: the
 # backoff is there to stop hammering the API, not to sleep through the arrival
@@ -47,13 +54,15 @@ class WaitResult:
         self.elapsed = elapsed
 
 
-def next_step(pull_request, comments=None):
+def next_step(pull_request, comments=None, max_rounds=None):
     """The one decision a poll makes, from durable state only.
 
     `comments` are the Story's, where Ralph records each round's review result
-    and each response to one.  Later stories widen this (human arbitration,
-    completion); until then anything Ralph cannot act on is ``WAIT``, which
-    costs nothing at all -- no context, no invocation.
+    and each response to one.  `max_rounds` bounds the negotiation: once the
+    budget is spent and the two models still owe each other a move, the
+    disagreement is a human's to settle, not a third model's.  Anything Ralph
+    cannot act on is ``WAIT``, which costs nothing at all -- no context, no
+    invocation.
     """
     if not ralph_review.is_managed_pr(pull_request):
         return GONE
@@ -64,28 +73,40 @@ def next_step(pull_request, comments=None):
     # of them is behind.  A dispute leaves the head where it was, which is why
     # this counts rounds at the head rather than asking whether the head has
     # ever been reviewed at all.
+    owed = None
     if ralph_review.needs_review(pull_request, comments):
-        return REVIEW
-    result = ralph_review.latest_result(comments, head)
-    if (result or {}).get("verdict") == "request_changes":
-        return RESPOND
-    return WAIT
+        owed = REVIEW
+    elif (ralph_review.latest_result(comments, head) or {}).get("verdict") \
+            == "request_changes":
+        owed = RESPOND
+    if owed is None:
+        return WAIT
+    # The budget is spent in *rounds*, counted across the whole pull request:
+    # a review of an amended head and a re-review after a dispute both cost
+    # one, because both spend an invocation on the same disagreement.
+    spent = len(ralph_review.review_stamps(pull_request))
+    if max_rounds is not None and spent >= max_rounds:
+        return ESCALATE
+    return owed
 
 
 class WaitPolicy:
-    """How long to wait for review, and how often to look."""
+    """How long to wait for review, how often to look, and for how many rounds."""
 
-    def __init__(self, window_seconds, first_poll, max_poll=MAX_POLL_SECONDS):
+    def __init__(self, window_seconds, first_poll, max_poll=MAX_POLL_SECONDS,
+                 max_rounds=None):
         self.window_seconds = window_seconds
         self.first_poll = first_poll
         self.max_poll = max_poll
+        self.max_rounds = max_rounds
 
     @classmethod
     def from_config(cls, config):
         """The target repository's window, in the units it configures it in."""
         review = (config or {}).get("review") or {}
         return cls(window_seconds=review["wait_minutes"] * 60,
-                   first_poll=review["poll_seconds"])
+                   first_poll=review["poll_seconds"],
+                   max_rounds=review["max_rounds"])
 
     def expired(self, elapsed):
         return elapsed >= self.window_seconds
@@ -119,19 +140,30 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None):
     while True:
         pull_request = fetch()
         polls += 1
-        step = next_step(pull_request, read_comments())
+        step = next_step(pull_request, read_comments(),
+                         max_rounds=policy.max_rounds)
         elapsed = now() - started
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
                               elapsed=elapsed)
-        if step in (REVIEW, RESPOND):
-            invocations += 1
+        if step in (REVIEW, RESPOND, ESCALATE):
+            # Escalation is Ralph's own bookkeeping -- a comment, a review
+            # request, a label -- so it costs no model invocation.
+            if step != ESCALATE:
+                invocations += 1
             ok, errors = act(step, pull_request)
             if not ok:
                 # Retrying a failed step every poll would spend an invocation
                 # each time; the next tick retries it once instead.
                 return WaitResult(FAILED, errors=errors, polls=polls,
                                   invocations=invocations, elapsed=elapsed)
+            if step == ESCALATE:
+                # Nothing is left to wait for: the Story is blocked and the
+                # human has been asked. Sitting out the rest of the window
+                # would hold the tick's lock over work that has stopped.
+                return WaitResult(ESCALATE, polls=polls,
+                                  invocations=invocations,
+                                  elapsed=now() - started)
             elapsed = now() - started
         if policy.expired(elapsed):
             return WaitResult(EXPIRED, polls=polls, invocations=invocations,
@@ -192,6 +224,10 @@ def _cmd_await(rest):
             return []
 
     def act(step, pull_request):
+        if step == ESCALATE:
+            rc = ralph_review_deadlock.escalate(story, pull_request,
+                                                validated.config, root)
+            return rc == 0, [] if rc == 0 else ["escalation exited %d" % rc]
         if step == RESPOND:
             rc = ralph_review_respond.respond_to_review(
                 story, pull_request, validated.config, root)
@@ -211,6 +247,10 @@ def _cmd_await(rest):
                  "" if result.polls == 1 else "s", result.invocations,
                  "" if result.invocations == 1 else "s"))
         return EXIT_WINDOW_EXPIRED
+    if result.kind == ESCALATE:
+        print("OK: #%s is blocked after a deadlocked negotiation; a human was "
+              "asked to arbitrate. Unrelated Stories keep running." % number)
+        return EXIT_ESCALATED
     if result.kind == GONE:
         print("OK: nothing to negotiate for #%s; the pull request is not open "
               "for automated review" % number)

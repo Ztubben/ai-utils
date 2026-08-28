@@ -48,7 +48,9 @@ def _oid(pr, name):
 
 
 def _author(item):
-    author = (item or {}).get("author")
+    # `gh pr view --json` nests the login under "author"; the REST endpoint the
+    # inline threads come from nests it under "user".
+    author = (item or {}).get("author") or (item or {}).get("user")
     return author.get("login") if isinstance(author, dict) else (author or "unknown")
 
 
@@ -57,11 +59,18 @@ def durable_discussion(pr):
 
     Story comments are intentionally not accepted here: that is where Handoffs,
     Attempts, and implementation session notes live.  The only collaboration
-    evidence admitted is the pull request's ordinary comments and reviews.
+    evidence admitted is the pull request's ordinary comments, its reviews, and
+    the inline review threads hanging off them.
+
+    The threads matter because that is where a human who steps in early says
+    so.  A person replying "the finding is right, but fix it in the caller"
+    before the negotiation deadlocks is arbitrating, and a next round that
+    could not see it would re-litigate a question a human already answered.
     """
     result = []
     for kind, items in (("comment", pr.get("comments") or []),
-                        ("review", pr.get("reviews") or [])):
+                        ("review", pr.get("reviews") or []),
+                        ("thread_reply", pr.get("reviewThreads") or [])):
         for item in items:
             body = (item or {}).get("body") or ""
             if ralph_handoff.HANDOFF_MARKER in body:

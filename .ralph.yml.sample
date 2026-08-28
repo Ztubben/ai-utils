@@ -61,6 +61,14 @@ models:
 review:
   wait_minutes: 60     # bounded negotiation window per tick (default: 60)
   poll_seconds: 30     # first poll; later polls back off, capped, within the window
+  # Negotiation Rounds one Story gets before the disagreement goes to a human.
+  # Counted in reviews published, so a disputed round -- judged again at the same
+  # commit because a dispute changes no code -- still spends one. Exhausting them
+  # moves that Story alone to state:blocked and requests a native GitHub review
+  # from notify.github, with both sides' arguments summarized on the pull request.
+  # Unrelated Stories keep running; whether the loop as a whole halts stays
+  # limits.circuit_breaker's decision, which the newly blocked Story counts toward.
+  max_rounds: 2        # default: 2
 
 # Who to tag when the circuit breaker trips (needs-human).
 notify:

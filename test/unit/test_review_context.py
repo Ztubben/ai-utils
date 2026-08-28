@@ -39,6 +39,10 @@ def pull_request():
         ],
         "reviews": [{"author": {"login": "reviewer"},
                      "state": "CHANGES_REQUESTED", "body": "Finding F-1"}],
+        "reviewThreads": [
+            {"author": {"login": "carl"}, "path": "lib/a.py", "line": 3,
+             "body": "F-1 is right, but fix it in the caller instead."},
+        ],
     }
 
 
@@ -81,6 +85,15 @@ class ReviewContextBundle(unittest.TestCase):
                          "CONTEXT.md", '"conclusion": "SUCCESS"',
                          "Please verify the caller.", "Finding F-1"):
             self.assertIn(expected, result.text)
+
+    def test_a_human_reply_in_a_review_thread_reaches_the_next_round(self):
+        # A human who steps into the threads before escalation is arbitrating
+        # early. That is evidence the next fresh reviewer must see -- it lives
+        # in the inline threads, not in the pull request's own comments.
+        result = self.build()
+
+        self.assertIn("fix it in the caller instead", result.text)
+        self.assertIn("carl", result.text)
 
     def test_bundle_excludes_story_session_material_and_handoffs(self):
         result = self.build()

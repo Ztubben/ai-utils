@@ -158,6 +158,12 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "default": 30
+        },
+        "max_rounds": {
+          "description": "Negotiation Rounds one Story gets before the disagreement goes to a human. Exhausting them moves that Story alone to state:blocked and requests a native review from notify.github; unrelated Stories keep running. Counted in reviews published, so a disputed round — judged at the same commit — still spends one.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 2
         }
       }
     },

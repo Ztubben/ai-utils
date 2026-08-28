@@ -103,6 +103,49 @@ class NextStep(unittest.TestCase):
                                  self.changes_requested(round_no=2)]),
             ralph_review_wait.RESPOND)
 
+    def stamps(self, count):
+        return pull_request(reviews=[{"body": ralph_review.review_marker(HEAD)}
+                                     for _ in range(count)])
+
+    def test_the_last_round_still_requesting_changes_goes_to_a_human(self):
+        # Two rounds spent and the reviewer is still asking: the models have
+        # had their say, and the disagreement is now the human's to settle.
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                self.stamps(2),
+                comments=[self.changes_requested(), self.answer(),
+                          self.changes_requested(round_no=2)],
+                max_rounds=2),
+            ralph_review_wait.ESCALATE)
+
+    def test_a_dispute_in_the_last_round_goes_to_a_human_not_a_third_review(self):
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                self.stamps(2),
+                comments=[self.changes_requested(), self.answer(),
+                          self.changes_requested(round_no=2),
+                          self.answer(round_no=2)],
+                max_rounds=2),
+            ralph_review_wait.ESCALATE)
+
+    def test_a_negotiation_inside_its_budget_keeps_negotiating(self):
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                self.stamps(1), comments=[self.changes_requested()],
+                max_rounds=2),
+            ralph_review_wait.RESPOND)
+
+    def test_an_agreed_review_never_escalates_however_many_rounds_it_took(self):
+        approved = {"body": ralph_review.result_record(
+            {"head": HEAD, "round": 2, "verdict": "approve", "findings": []})}
+
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                self.stamps(2),
+                comments=[self.changes_requested(), self.answer(), approved],
+                max_rounds=2),
+            ralph_review_wait.WAIT)
+
     def test_a_closed_pull_request_ends_the_negotiation(self):
         self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),
                          ralph_review_wait.GONE)
@@ -153,6 +196,21 @@ class WindowFromConfig(unittest.TestCase):
         policy = self.policy("review:\n  wait_minutes: 5\n  poll_seconds: 10\n")
         self.assertEqual(policy.window_seconds, 300)
         self.assertEqual(policy.first_poll, 10)
+
+    def test_the_negotiation_gets_two_rounds_unless_configured_otherwise(self):
+        self.assertEqual(self.policy().max_rounds, 2)
+        self.assertEqual(self.policy("review:\n  max_rounds: 4\n").max_rounds, 4)
+
+    def test_a_round_limit_below_one_is_not_a_valid_config(self):
+        path = os.path.join(self.tmp.name, "ralph.yml")
+        with open(path, "w") as fh:
+            fh.write("version: 1\ngating:\n  - name: t\n    run: 'true'\n"
+                     "notify:\n  github: someone\nreview:\n  max_rounds: 0\n")
+
+        validated = ralph_config.load_and_validate(path)
+
+        self.assertFalse(validated.ok)
+        self.assertIn("max_rounds", " ".join(validated.errors))
 
 
 class Clock:
@@ -240,6 +298,26 @@ class AwaitReview(unittest.TestCase):
                                          ralph_review_wait.RESPOND,
                                          ralph_review_wait.REVIEW])
         self.assertEqual(result.kind, ralph_review_wait.EXPIRED)
+
+    def test_a_deadlock_ends_the_wait_and_spends_no_invocation(self):
+        # There is nothing left to wait for: the Story is blocked and a human
+        # has been asked. Sitting out the rest of the window would hold the
+        # tick's lock over work that has already stopped.
+        self.state["pr"] = pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}])
+        self.state["comments"] = [{"body": ralph_review.result_record(
+            {"head": HEAD, "round": 1, "verdict": "request_changes",
+             "findings": [{"id": "F-1", "blocking": True}]})}]
+
+        result = ralph_review_wait.await_review(
+            ralph_review_wait.WaitPolicy(window_seconds=100, first_poll=30,
+                                         max_rounds=1),
+            fetch=self.fetch, act=self.act, read_comments=self.comments,
+            sleep=self.clock.sleep, now=self.clock.now)
+
+        self.assertEqual(result.kind, ralph_review_wait.ESCALATE)
+        self.assertEqual(self.acts, [ralph_review_wait.ESCALATE])
+        self.assertEqual(result.invocations, 0)
 
     def test_a_step_that_failed_is_left_for_the_next_tick_not_retried(self):
         self.act = lambda step, pr: (False, ["review agent infrastructure-failure"])

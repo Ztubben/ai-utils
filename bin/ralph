@@ -24,6 +24,7 @@
 #   ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]  Run one Negotiation Round on the marked PR.
 #   ralph --await-review STORY [CONFIG] [ROOT]  Wait out one bounded review window, polling durable state.
 #   ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]  Answer a round's findings with append-only fixes.
+#   ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH] Block a deadlocked Story and ask a human to arbitrate.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -59,6 +60,7 @@ usage: ralph --init [CONFIG]
        ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --await-review STORY [CONFIG] [ROOT]
        ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]
+       ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -228,10 +230,26 @@ usage: ralph --init [CONFIG]
                           pull-request head has none, and otherwise just waits —
                           spending no model context and making no invocation.
                           Ends early when there is nothing to negotiate (no open
-                          Ralph-managed pull request). Exits 0 when the
-                          negotiation needs no further waiting, 14 when the
-                          window closed (the caller owes a Handoff), 1 when a
-                          step failed, 2 on bad config or input.
+                          Ralph-managed pull request), and when the round budget
+                          (review.max_rounds, default 2) is spent with the two
+                          models still owing each other a move -- that Story is
+                          escalated to a human. Exits 0 when the negotiation
+                          needs no further waiting, 14 when the window closed
+                          (the caller owes a Handoff), 15 when the Story was
+                          escalated and blocked (the caller may go straight on
+                          to other Stories), 1 when a step failed, 2 on bad
+                          config or input.
+  --escalate-review STORY End automated negotiation for one deadlocked Story.
+       [CONFIG] [ROOT]    Summarizes every unsettled blocking finding on the
+       [--pr PATH]        pull request with both sides' arguments, requests a
+                          native GitHub review from notify.github, and moves the
+                          Story from state:in-review to state:blocked. Exactly
+                          one Story: unrelated Stories stay selectable, and the
+                          global halt remains the circuit breaker's decision --
+                          which this newly blocked Story now counts toward.
+                          Never applies needs-human. Exits 0 on success, 1 on a
+                          gh failure, 2 on bad config or a refusal (an unmarked
+                          pull request, or nothing actually unsettled).
   --respond-review STORY  Answer one Negotiation Round that requested changes.
        [CONFIG] [ROOT]    Reads the round's recorded result off the Story,
        [--pr PATH]        launches the Story's assigned implementation model
@@ -423,6 +441,10 @@ main() {
     --await-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_wait.py" await "$@"
+      ;;
+    --escalate-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_deadlock.py" escalate "$@"
       ;;
     --respond-review)
       shift

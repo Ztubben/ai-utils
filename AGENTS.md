@@ -262,6 +262,31 @@ not HITL) and `docs/adr/0001–0005`.
   `ralph_review_result.adjudicate(prior, current)` reads it off which identifiers a round
   restates, and `review_body(..., prior_findings=)` renders it under "## Earlier findings"
   so a withdrawal is a visible decision instead of a silence.
+- `lib/ralph_review_deadlock.py` is the end of automated negotiation (#57, PRD #42):
+  pure `unsettled(comments) -> [Unsettled]`, `escalation_comment`, `escalate_plan` (the
+  usual Plan/`run_plan` shape, borrowing `ralph_review_render`'s), the live
+  `escalate(story, pr, config, root)` and the `--escalate-review STORY [CONFIG] [ROOT]
+  [--pr PATH]` CLI. `review.max_rounds` (schema default **2**) is the budget;
+  `WaitPolicy.from_config` carries it and `next_step(..., max_rounds=)` returns the new
+  `ESCALATE` when a move is owed and the budget is spent, which ends the wait with exit
+  **15**. GOTCHAS: (1) escalation is **one Story's** ending, never the loop's — the plan
+  is asserted to contain no `needs-human`. The tick calls `--check-breaker` right after
+  escalating, so a *pattern* of deadlocks still halts the loop through the existing
+  counter (`limits.circuit_breaker`), which the newly `state:blocked` Story now counts
+  toward. Escalating and halting are deliberately two decisions in two places. (2) The
+  tick `continue`s after an escalation instead of returning: the Story is blocked, so
+  resume-first will not pick it again, and unrelated ready work proceeds in the same
+  tick. (3) `unsettled` reads the **last round's blocking findings** — a withdrawn
+  finding is simply absent, and a non-blocking remark never deadlocked anything — and
+  attaches *every* answer each one received, with the round number folded in, because a
+  dispute that held across two rounds reads differently from one made late. (4) The
+  comment carries both cases in full on the pull request; arbitration that needs the
+  thread history reconstructed first does not happen. (5) `discover_pull_request` now
+  also fetches `repos/{owner}/{repo}/pulls/N/comments` and attaches it as
+  `reviewThreads`, and `durable_discussion` admits it as `thread_reply` — that is where
+  a human answering a finding directly before escalation is recorded, and the next fresh
+  round must not re-litigate what a human already settled. `_author` therefore reads
+  `user.login` (REST) as well as `author.login` (`gh --json`).
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the

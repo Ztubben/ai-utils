@@ -123,6 +123,14 @@ scheduler (every ~5h)
         │                          │           defect or safety regression, and never
         │                          │           extends the round limit.
         │                          │
+        │                          ├── rounds spent, still disagreeing ─►
+        │                          │   ralph --escalate-review (both sides'
+        │                          │   arguments on the PR, native review
+        │                          │   requested from notify.github, this Story
+        │                          │   → state:blocked). The tick works on;
+        │                          │   the circuit breaker still decides whether
+        │                          │   *this many* blocked Stories halt the loop.
+        │                          │
         │                          └── window closes ─► comment-only Handoff,
         │                              tick ends; next tick resumes this Story first
         ├── context full ──► ralph --checkpoint     (Handoff, resume next iteration)
@@ -461,6 +469,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
+| `ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]` | End automated negotiation for one deadlocked Story: summarize every unsettled blocking finding on the pull request with both sides' arguments, request a native GitHub review from `notify.github`, and move the Story from `state:in-review` to `state:blocked`. One Story only — unrelated Stories stay selectable, and whether the loop halts remains `limits.circuit_breaker`'s decision, which this newly blocked Story now counts toward. |
 | `ralph --respond-review STORY [CONFIG] [ROOT] [--pr PATH]` | Answer a round that requested changes: launch the assigned implementation model with the open findings, verify the answer covers every one of them and that the new head is a *descendant* of the reviewed commit (an amend or force-push is refused, nothing posted), then push the appended fixes, reply in each finding's thread, and record one consolidated machine-readable response. A finding may be **disputed** with evidence instead of obeyed; a dispute changes no code, and the same commit goes back to a fresh reviewer to withdraw or uphold the finding. |
 | `ralph --complete-afk STORY [CONFIG]` | Auto-merge a green AFK story into base (per `afk_merge`) and close its issue. Never touches `main`. |
 | `ralph --complete-hil STORY [CONFIG]` | Open a PR to base for a green HIL story and move it to `state:awaiting-bench`. Never merges or closes. |
