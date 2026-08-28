@@ -86,8 +86,13 @@ def _apply_defaults(schema, instance):
     return instance
 
 
-def _format_error(err):
-    """Render a jsonschema error as '<field path>: <message>'."""
+def format_error(err):
+    """Render a jsonschema error as '<field path>: <message>'.
+
+    Shared with the review-result validator so both name the offending field the
+    same way; an actionable field path is the convention every Ralph validator
+    reports failures in.
+    """
     path = "/".join(str(p) for p in err.absolute_path)
     # For an unexpected/extra property (additionalProperties), surface its name.
     if not path and err.validator == "additionalProperties" and err.instance:
@@ -158,7 +163,7 @@ def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     validator = jsonschema.Draft7Validator(schema)
     errors = sorted(validator.iter_errors(data), key=lambda e: list(e.absolute_path))
     if errors:
-        return ValidationResult(False, [_format_error(e) for e in errors])
+        return ValidationResult(False, [format_error(e) for e in errors])
 
     catalog_errors = _model_catalog_errors(data)
     if catalog_errors:

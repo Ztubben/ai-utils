@@ -140,6 +140,29 @@ not HITL) and `docs/adr/0001–0005`.
   `GH_TOKEN`/`GITHUB_TOKEN`/`GH_ENTERPRISE_TOKEN` from the child env. Enforced at launch, so a
   model that ignores its instructions still cannot mutate the checkout or reach GitHub — which
   is what CONTEXT.md's Review Agent ("is read-only, and holds no GitHub credential") promises.
+- `lib/ralph_review_result.py` + `schema/review.schema.json` are the versioned
+  structured-review contract and its validator (#51, PRD #42): pure
+  `changed_lines(diff)` / `validate_review(payload, changed=, raw=) ->
+  ReviewValidation` plus the `--validate-review PAYLOAD [DIFF]` CLI (0 postable,
+  1 refused naming field paths, 2 unreadable input, like `--lint-story`). The
+  contract itself — every field, the blocking policy, the size rationale — is
+  documented once in `docs/review-contract.md`; a drift-guard test asserts the doc
+  still names the version, the fields and both category lists. GOTCHAS: (1) the
+  validator **refuses whole, never repairs** — this is the only path a read-only,
+  credential-less Review Agent's judgment takes to a pull request. (2) `blocking`
+  is required with **no default** and must agree with `category` (six blocking
+  reasons, three non-blocking), and the verdict must agree with the findings:
+  `request_changes` iff at least one blocker. Inferring blocking from a category
+  alone would let a preference block delivery. (3) `changed_lines` counts context
+  lines inside a hunk, not just added ones, because that is exactly what GitHub
+  accepts an inline thread on; removed lines are excluded (they do not exist at
+  the reviewed head). (4) The size guard runs **before** schema validation and
+  measures `raw` when given, so an oversized payload is rejected as bytes rather
+  than as fifty field-level errors; the cap (60000) is GitHub's 65536-character
+  review body minus Ralph's framing. (5) `MAX_FINDINGS` and the schema's `maxItems`
+  are asserted equal by a test — keep them in step. (6) Error rendering is
+  `ralph_config.format_error` (renamed from private for this reuse), so both
+  validators name the offending field path identically.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

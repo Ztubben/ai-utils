@@ -19,6 +19,7 @@
 #   ralph --classify-session RC   Did the launched agent hit its session limit? (output on stdin)
 #   ralph --implementation-green STORY [CONFIG] [PRD]  Open/update the marked review PR.
 #   ralph --review-context STORY PR ROUND [ROOT]  Print exact-head review evidence.
+#   ralph --validate-review PAYLOAD [DIFF]  Validate a structured review result.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -49,6 +50,7 @@ usage: ralph --init [CONFIG]
        ralph --classify-session RC
        ralph --implementation-green STORY [CONFIG] [PRD]
        ralph --review-context STORY PR ROUND [ROOT]
+       ralph --validate-review PAYLOAD [DIFF]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -168,6 +170,19 @@ usage: ralph --init [CONFIG]
                           implementation session or Handoff. ROOT defaults to
                           the checkout. The head is resolved exactly before the
                           base/head diff is read. Exits 2 on incomplete evidence.
+  --validate-review       Validate a Review Agent's structured result (JSON;
+       PAYLOAD [DIFF]     PAYLOAD may be - for stdin) against the shipped
+                          versioned contract (schema/review.schema.json, see
+                          docs/review-contract.md) before anything is rendered
+                          as a GitHub review. Rejects a missing verdict, head,
+                          model identity or round; a missing or duplicate
+                          finding id; a finding whose blocking classification
+                          and category disagree, or that no verdict supports;
+                          and an oversized payload. Given DIFF, the reviewed
+                          base/head diff, it also rejects a source location the
+                          diff never touched. Exits 0 when the result may be
+                          posted, 1 (naming the offending fields) when it may
+                          not, 2 on unreadable input.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -319,6 +334,10 @@ main() {
     --review-context)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_context.py" bundle "$@"
+      ;;
+    --validate-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_result.py" validate "$@"
       ;;
     --complete-afk)
       shift
