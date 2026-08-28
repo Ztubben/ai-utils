@@ -215,16 +215,17 @@ assign_story_models() {
   return 0
 }
 
-# Run one Negotiation Round for a Story In Review (#53). The story is fetched
-# fresh and handed to `ralph --review-round`, which finds the Story's marked
-# pull request itself, launches the assigned Review Agent with no GitHub
-# credential, validates what comes back, and publishes it.
-# The per-head guard lives in the tool (a head that already carries its review
-# is skipped without spending an invocation), so calling this on every tick is
-# safe and stays "exactly one review per head commit".
-# Best-effort: a refusal or a provider failure leaves the Story In Review for a
-# later tick rather than ending the tick non-zero.
-review_round() {
+# Wait out one bounded review window for a Story In Review (#54, and the
+# Negotiation Rounds of #53 that happen inside it). Waiting belongs to the
+# orchestration process, not to a model: `ralph --await-review` polls durable
+# GitHub state with backing-off intervals and launches the assigned Review
+# Agent only when the pull-request head has no review yet, so idle GitHub time
+# spends no context and no tokens. This tick holds its lock throughout, which
+# is what keeps a Story in negotiation from competing with new work.
+# Returns RC_REVIEW_WINDOW (14) when the window closed: the caller owes a
+# Handoff. Any other non-zero leaves the Story In Review for the next tick.
+RC_REVIEW_WINDOW=14
+await_review() {
   local issue="$1" story_file rc=0
   story_file="$(mktemp)"
   if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
@@ -232,9 +233,33 @@ review_round() {
     rm -f "$story_file"
     return 0
   fi
-  "$RALPH_BIN" --review-round "$story_file" "$RALPH_CONFIG" || rc=$?
+  "$RALPH_BIN" --await-review "$story_file" "$RALPH_CONFIG" || rc=$?
   rm -f "$story_file"
   return "$rc"
+}
+
+# Checkpoint a Story In Review when its review window closes. The Handoff is
+# **comment-only**: the Story's work is already pushed, and a commit -- even the
+# empty one a normal checkpoint writes -- would move the head the reviewer's
+# findings are bound to, discarding the review this tick just waited for.
+# The Story stays state:in-review, so the next tick resumes it (and its pull
+# request) ahead of any state:ready work.
+checkpoint_review() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue to write its review Handoff; continuing"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --checkpoint "$story_file" \
+    "Review window closed with the negotiation still open. The Story stays In Review; the next tick resumes it and its pull request first." \
+    "$RALPH_CONFIG" --comment-only || rc=$?
+  rm -f "$story_file"
+  if (( rc != 0 )); then
+    log "could not write the review Handoff for #$issue (exit $rc); continuing"
+  fi
+  return 0
 }
 
 # Promote locally green implementation work into review. Both Story types use
@@ -311,7 +336,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -350,22 +375,29 @@ tick() {
           return 0
         fi
         log "$kind #$issue"
-        # In Review has resume priority so the negotiation path can own the
-        # tick, but it is never more implementation work: run one Negotiation
-        # Round against the Story's marked pull request, then park. An
+        # In Review has resume priority so the negotiation path owns the tick,
+        # but it is never more implementation work: wait out the review window
+        # here, holding the lock, and start no other Story while waiting. An
         # unrelated or unmarked pull request spends zero invocations -- the
-        # round tool refuses it before launching anything.
+        # tools refuse it before launching anything.
         if [[ "$kind" == "resume" ]] && \
            gh issue view "$issue" --json labels \
              | grep -q '"state:in-review"'; then
           local review_rc=0
-          review_round "$issue" || review_rc=$?
-          if (( review_rc == 0 )); then
-            log "review round complete for #$issue"
-          else
-            log "review round for #$issue did not complete (exit $review_rc); the next tick retries"
-          fi
-          log "#$issue is in review; waiting for the review path"
+          await_review "$issue" || review_rc=$?
+          case "$review_rc" in
+            0)
+              log "review negotiation for #$issue needs no further waiting this tick"
+              ;;
+            "$RC_REVIEW_WINDOW")
+              log "review window closed for #$issue; writing a Handoff and ending the tick"
+              checkpoint_review "$issue"
+              ;;
+            *)
+              log "review step for #$issue did not complete (exit $review_rc); the next tick retries"
+              ;;
+          esac
+          log "#$issue stays in review; the next tick resumes it first"
           return 0
         fi
         # `start` moves a state:ready story into state:in-progress up front, so a

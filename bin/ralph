@@ -22,6 +22,7 @@
 #   ralph --validate-review PAYLOAD [DIFF]  Validate a structured review result.
 #   ralph --render-review REVIEW PR [DIFF]  Post a validated review + its required check.
 #   ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]  Run one Negotiation Round on the marked PR.
+#   ralph --await-review STORY [CONFIG] [ROOT]  Wait out one bounded review window, polling durable state.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -55,10 +56,11 @@ usage: ralph --init [CONFIG]
        ralph --validate-review PAYLOAD [DIFF]
        ralph --render-review REVIEW PR [DIFF]
        ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]
+       ralph --await-review STORY [CONFIG] [ROOT]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
-       ralph --checkpoint STORY SUMMARY [CONFIG]
+       ralph --checkpoint STORY SUMMARY [CONFIG] [--comment-only]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
        ralph --record-boundary STORY [CONFIG] [PRD] SHA
@@ -216,6 +218,18 @@ usage: ralph --init [CONFIG]
                           already reviewed, 1 when gh refused the review, 2 on
                           a refusal or invalid output, 10 when the reviewing
                           model hit its session limit, 12 when it failed to run.
+  --await-review STORY    Wait out one bounded review window for a Story In
+       [CONFIG] [ROOT]    Review, inside the tick and inside its lock. Polls
+                          durable GitHub state with backing-off intervals
+                          (review.wait_minutes, default 60; review.poll_seconds,
+                          default 30), runs a Negotiation Round whenever the
+                          pull-request head has none, and otherwise just waits —
+                          spending no model context and making no invocation.
+                          Ends early when there is nothing to negotiate (no open
+                          Ralph-managed pull request). Exits 0 when the
+                          negotiation needs no further waiting, 14 when the
+                          window closed (the caller owes a Handoff), 1 when a
+                          step failed, 2 on bad config or input.
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -248,10 +262,13 @@ usage: ralph --init [CONFIG]
                           success, 1 on a blocker, 2 on bad config or refusal.
   --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
        SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
-                          (carrying the handoff marker) with SUMMARY, then stop.
+       [--comment-only]   (carrying the handoff marker) with SUMMARY, then stop.
                           Ralph never compacts context. Never touches base/main.
-                          Exits 0 on success, 1 on a git/gh failure, 2 on bad
-                          config or a refusal.
+                          --comment-only posts the Handoff comment alone, which
+                          is what a Story In Review needs: its work is already
+                          pushed, and a commit would move the head a reviewer's
+                          findings are bound to. Exits 0 on success, 1 on a
+                          git/gh failure, 2 on bad config or a refusal.
   --resume STORY          Resume a checkpointed state:in-progress story: check out
        [CONFIG]           its branch and surface the latest Handoff. Base branch
                           untouched. Exits 0 on success, 1 on a git/gh failure,
@@ -379,6 +396,10 @@ main() {
     --review-round)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_round.py" round "$@"
+      ;;
+    --await-review)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_wait.py" await "$@"
       ;;
     --complete-afk)
       shift

@@ -53,6 +53,15 @@ models:
     review: codex-high
   # alternate: true          # swap the pair on each newly started story (default: true)
 
+# Model review and negotiation. While a Story is In Review the tick holds its
+# lock and waits here rather than inside a model: polling durable GitHub state
+# costs no context and makes no invocation. When the window closes the tick
+# writes a Handoff and ends cleanly, and the next tick resumes the same Story
+# and pull request ahead of any state:ready work.
+review:
+  wait_minutes: 60     # bounded negotiation window per tick (default: 60)
+  poll_seconds: 30     # first poll; later polls back off, capped, within the window
+
 # Who to tag when the circuit breaker trips (needs-human).
 notify:
   github: your-github-handle   # without a leading @

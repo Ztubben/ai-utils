@@ -250,14 +250,23 @@ def _cmd_round(rest):
             sys.stderr.write("  - %s\n" % error)
         return 2
 
-    # Both refusals are checked before any evidence is assembled, so a pull
-    # request outside the opt-in boundary, and a head already reviewed, each
-    # cost zero model invocations.
+    # Refused before any evidence is assembled, so a pull request outside the
+    # opt-in boundary costs zero model invocations. The already-reviewed guard
+    # is `run_round`'s, and comes first there for the same reason.
     if not ralph_review.is_managed_pr(pull_request):
         sys.stderr.write(
             "REFUSED: review-round\n  - pull_request: #%s is not Ralph-managed\n"
             % pull_request.get("number", "?"))
         return 2
+    return run_round(story, pull_request, validated.config, root)
+
+
+def run_round(story, pull_request, config, root):
+    """Run one round against an already-read pull request; return an exit code.
+
+    Shared by `--review-round` and the in-tick wait (#54), so a round started by
+    a poll and one started by hand take exactly the same path.
+    """
     head = pull_request.get("headRefOid")
     if ralph_review.is_reviewed(pull_request, head):
         print("OK: %s is already reviewed on PR #%s; no invocation spent"
@@ -278,8 +287,7 @@ def _cmd_round(rest):
         return 2
 
     def launch(prompt):
-        return ralph_agent.launch_role(validated.config, "review", prompt,
-                                       story=story)
+        return ralph_agent.launch_role(config, "review", prompt, story=story)
 
     def publish(review):
         posted = ralph_review_render.publish(review, pull_request, cwd=root)

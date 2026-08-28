@@ -60,6 +60,25 @@ class HandoffPlan(unittest.TestCase):
         # a Handoff comment is posted to the issue.
         self.assertTrue(any(cmd[:3] == ["gh", "issue", "comment"] for cmd in plan.commands))
 
+    def test_a_review_handoff_writes_no_commit_so_the_head_cannot_move(self):
+        # A Story In Review is checkpointed while a reviewer's findings are
+        # bound to an exact head (#54). Committing or pushing would move that
+        # head, discarding the review the tick is waiting on.
+        plan = ralph_handoff.handoff_plan(story(number=8), "waiting on review",
+                                          base="develop", include_wip=False)
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual([cmd[:3] for cmd in plan.commands],
+                         [["gh", "issue", "comment"]])
+        body = plan.commands[0][plan.commands[0].index("--body") + 1]
+        self.assertIn(ralph_handoff.HANDOFF_MARKER, body)
+        self.assertIn("waiting on review", body)
+
+    def test_the_comment_only_checkpoint_is_reachable_from_the_cli(self):
+        proc = subprocess.run(
+            [os.path.join(REPO_ROOT, "bin", "ralph"), "--help"],
+            stdout=subprocess.PIPE, text=True)
+        self.assertIn("--comment-only", proc.stdout)
+
     def test_comment_carries_handoff_marker(self):
         plan = ralph_handoff.handoff_plan(story(number=8), "summary", base="develop")
         comment = next(c for c in plan.commands if c[:3] == ["gh", "issue", "comment"])

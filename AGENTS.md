@@ -210,6 +210,31 @@ not HITL) and `docs/adr/0001–0005`.
   `PublishResult.failed` is what separates a gh failure, exit 1, from a refusal, exit 2).
   `bin/ralph.sh` calls `review_round` where it used to park an In Review Story, then still
   parks — #54 replaces that park with the bounded in-tick wait.
+- `lib/ralph_review_wait.py` is the bounded in-tick wait (#54, PRD #42): pure
+  `WaitPolicy` (`from_config`, `expired`, `sleep_for`), `next_step(pr)` →
+  `REVIEW`/`WAIT`/`GONE`, and `await_review(policy, fetch, act, sleep, now)` returning a
+  `WaitResult`; the CLI is `--await-review STORY [CONFIG] [ROOT]` (0 nothing left to wait
+  on, **14** window closed → the caller owes a Handoff, 1 a step failed). Config is the new
+  optional `review:` section — `wait_minutes` (default 60) and `poll_seconds` (default 30),
+  both **numbers** so a test can ask for a sub-second window without an env back door.
+  GOTCHAS: (1) the window expiry Handoff is **comment-only**
+  (`handoff_plan(..., include_wip=False)`, `ralph --checkpoint ... --comment-only`). The
+  normal checkpoint's `git commit --allow-empty` + push would move the pull-request head
+  the reviewer's findings are bound to — throwing away the very review the tick just waited
+  for and making the next tick re-review (and re-spend) at a new head. (2) A step that
+  fails ends the wait immediately rather than being retried each poll: a retry loop over a
+  60-minute window is a launch storm. (3) A gh blip during `fetch` returns the
+  *last known* pull request, so an outage reads as "nothing new" instead of "the PR is
+  gone" — which would otherwise look like a resolved negotiation. Before the first
+  successful read there is nothing to wait on, so it ends the wait. (4) `sleep_for` clips
+  the final sleep to what is left of the window; overrunning it would hold the tick's lock
+  past the point a Handoff was due. (5) The tick calls `--await-review` (not
+  `--review-round`) for an In Review Story and always ends the tick afterwards, so waiting
+  never competes with new work; the Story keeps `state:in-review`, which is what makes the
+  next tick resume it (and rediscover its pull request) ahead of any `state:ready` work.
+  The tick-level lock guarantee is tested with a `RALPH_LOCK_PROBE` `flock -n` probe fired
+  from inside the mock `gh` — it reports "free" when nothing holds the lock, so the
+  assertion is not vacuous.
 - Durable **model assignment** on the story (#46, PRD #42) lives in two halves.
   `lib/ralph_story.py` owns the *shape*: `MODEL_LABEL_PREFIXES` (`model:impl:` /
   `model:review:`), `model_label(role, model)` and `model_assignment(story) -> (dict,

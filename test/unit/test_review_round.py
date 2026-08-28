@@ -447,6 +447,20 @@ notify:
         self.assertEqual(calls, "")
         self.assertIn("not Ralph-managed", proc.stderr)
 
+    def test_a_pull_request_without_its_exact_commits_is_refused_not_crashed(self):
+        self._provider("claude", self.review(model="claude-opus-5"))
+        self._gh()
+        vague = self._write("vague-pr.json", json.dumps({
+            "number": 70, "body": ralph_review.MANAGED_PR_MARKER,
+            "reviews": [], "comments": []}))
+
+        proc, calls = self.run_round(pr_path=vague)
+
+        self.assertEqual(proc.returncode, 2)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("head", proc.stderr)
+        self.assertNotIn("claude", calls)
+
     def test_a_head_already_reviewed_spends_no_invocation_at_all(self):
         self._provider("claude", self.review(model="claude-opus-5"))
         self._gh()

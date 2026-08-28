@@ -142,6 +142,25 @@
         }
       }
     },
+    "review": {
+      "description": "Model review and negotiation: how long one tick waits on a Story in review, and how often it looks.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wait_minutes": {
+          "description": "Bounded window a tick waits for a Story's review to move on. On expiry the tick writes a Handoff and ends cleanly; the next tick resumes the same Story. Waiting spends no model context.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 60
+        },
+        "poll_seconds": {
+          "description": "Interval before the first poll of durable GitHub state. Later polls back off, capped, and never run past the window.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30
+        }
+      }
+    },
     "notify": {
       "description": "Who to tag when the circuit breaker trips (needs-human).",
       "type": "object",

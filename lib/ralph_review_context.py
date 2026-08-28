@@ -190,7 +190,14 @@ def head_diff(pull_request, root):
     no longer exists, so the head is asserted to resolve to itself first.
     """
     head, base = _oid(pull_request, "head"), _oid(pull_request, "base")
-    if head and _git(["rev-parse", head], root).strip() != head:
+    if not head or not base:
+        # Refused here rather than deeper: without both exact commits there is
+        # no diff to read, and a bundle bound to anything less than an exact
+        # head is not evidence about a reviewable commit.
+        raise RuntimeError(
+            "pull request is missing an exact base/head commit (base=%s, head=%s)"
+            % (base, head))
+    if _git(["rev-parse", head], root).strip() != head:
         raise RuntimeError("pull request head did not resolve exactly")
     changed = _git(["diff", "--name-only", base, head], root).splitlines()
     return _git(["diff", "--no-ext-diff", base, head], root), changed

@@ -144,6 +144,12 @@ class TickHarness:
             if alternate is not None:
                 fh.write("  alternate: %s\n" % ("true" if alternate else "false"))
 
+    def set_review_window(self, minutes, poll_seconds):
+        """Commit a review window short enough for a test to sit through."""
+        with open(os.path.join(self.tmp, ".ralph.yml"), "a") as fh:
+            fh.write("review:\n  wait_minutes: %s\n  poll_seconds: %s\n"
+                     % (minutes, poll_seconds))
+
     def set_pull_requests(self, listing, view=None):
         """Answer `gh pr list` and `gh pr view`, so a story In Review has the
         marked pull request the review path works against."""
@@ -169,6 +175,16 @@ class TickHarness:
         _write_exec(os.path.join(mb, "gh"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "gh $*" >> "$RALPH_LOG"
+            if [[ -n "${RALPH_LOCK_PROBE:-}" ]]; then
+              # Probe from inside the tick: can anyone else take the tick lock
+              # right now? Answering "no" is what "the tick holds its lock while
+              # it waits" means in practice.
+              if flock -n "$RALPH_LOCK_PROBE" -c true 2>/dev/null; then
+                echo "tick-lock free" >> "$RALPH_LOG"
+              else
+                echo "tick-lock held" >> "$RALPH_LOG"
+              fi
+            fi
             if [[ "$1 $2" == "issue list" ]]; then
               n=$(cat "$RALPH_GH_QUEUE_DIR/counter" 2>/dev/null || echo 0)
               echo $((n + 1)) > "$RALPH_GH_QUEUE_DIR/counter"
@@ -225,9 +241,12 @@ class TickHarness:
             e["RALPH_CLI"] = self.ralph_cli
         return e
 
-    def run(self, agent_exit="0", agent_emit=""):
-        return subprocess.run([RALPH_SH], cwd=self.tmp,
-                              env=self.env(agent_exit, agent_emit),
+    def run(self, agent_exit="0", agent_emit="", lock_probe=False):
+        env = self.env(agent_exit, agent_emit)
+        if lock_probe:
+            env["RALPH_LOCK_PROBE"] = os.path.join(self.tmp, ".git",
+                                                   "ralph-tick.lock")
+        return subprocess.run([RALPH_SH], cwd=self.tmp, env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     def agent_calls(self, provider=None):
@@ -416,25 +435,92 @@ class OrchestrationTest(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(h.agent_calls(), [], h.log_lines())
-        self.assertIn("waiting for the review path", proc.stdout)
+        self.assertIn("stays in review", proc.stdout)
+        # With no marked pull request there is nothing to wait for, so the tick
+        # ends the wait at once rather than sitting out the window.
+        self.assertIn("nothing to negotiate", proc.stdout)
 
     def test_in_review_story_with_a_marked_pr_runs_one_review_round(self):
-        # AC (#53): a marked pull request In Review triggers a review round --
-        # exactly one per head -- and the tick then parks rather than doing more
-        # implementation work on that story.
+        # AC (#53): a marked pull request In Review triggers a review round, and
+        # the tick then parks rather than doing more implementation work on that
+        # story. (The per-head guard that makes it exactly one round per head is
+        # the round tool's, covered in test_review_round.py.)
         h = self.harness()
+        h.set_review_window(0.005, 0.01)
         h.set_backlogs([story(7, "in-review", "afk")])
         h.set_view_story(story(7, "in-review", "afk"))
-        h.set_pull_requests([{"number": 70,
-                              "body": "<!-- ralph-managed-pr:v1 -->\n\nRefs #7\n"}])
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #7\n"
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": "a" * 40, "baseRefOid": "b" * 40,
+             "reviews": [], "comments": []})
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        rounds = [ln for ln in log if ln.startswith("gh pr list")]
-        self.assertEqual(len(rounds), 1, log)
+        self.assertTrue(any(ln.startswith("gh pr view 70") for ln in log), log)
         self.assertEqual(h.agent_calls(), [], log)
-        self.assertIn("review round", proc.stdout)
-        self.assertIn("waiting for the review path", proc.stdout)
+        self.assertIn("stays in review", proc.stdout)
+
+    def reviewed_pull_request(self, h, issue=7, head="a" * 40):
+        """A marked pull request whose head already carries its Ralph review."""
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % issue
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": head, "baseRefOid": "b" * 40, "comments": [],
+             "reviews": [{"body": "<!-- ralph-review:v1 head=%s -->" % head}]})
+
+    def test_waiting_for_review_spends_no_invocation_and_starts_no_other_story(self):
+        # AC (#54): the tick waits inside its own process; waiting costs no
+        # model invocation, and no other Story is picked up while it waits.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "afk"), story(8, "ready", "afk")])
+        h.set_view_story(story(7, "in-review", "afk"))
+        self.reviewed_pull_request(h)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertEqual(h.agent_calls(), [], log)
+        self.assertGreater(len([ln for ln in log if ln.startswith("gh pr view")]),
+                           1, log)  # it polled durable state
+        self.assertFalse(any("issue edit 8" in ln for ln in log), log)
+
+    def test_the_tick_still_holds_its_lock_while_it_waits_for_review(self):
+        # AC (#54): waiting happens inside the tick, so an overlapping tick
+        # cannot start work on this superproject meanwhile.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "afk")])
+        h.set_view_story(story(7, "in-review", "afk"))
+        self.reviewed_pull_request(h)
+        proc = h.run(lock_probe=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertIn("tick-lock held", log)
+        self.assertNotIn("tick-lock free", log)
+
+    def test_the_expired_window_hands_off_without_moving_the_reviewed_head(self):
+        # AC (#54): expiry writes a Handoff and ends the tick cleanly. It must
+        # be comment-only -- a commit would move the head the review is bound to.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "afk")])
+        h.set_view_story(story(7, "in-review", "afk"))
+        self.reviewed_pull_request(h)
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        handoff = [ln for ln in log
+                   if ln.startswith("gh issue comment 7") and "ralph:handoff" in ln]
+        self.assertEqual(len(handoff), 1, log)
+        self.assertFalse(any(ln.startswith("git commit") or ln.startswith("git push")
+                             for ln in log), log)
+        self.assertIn("window", proc.stdout)
+        # The Story stays In Review, which is what makes the next tick resume it
+        # (and rediscover its pull request) ahead of any state:ready work.
+        self.assertFalse(any("issue edit 7" in ln for ln in log), log)
 
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()
