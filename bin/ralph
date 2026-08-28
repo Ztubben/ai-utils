@@ -27,6 +27,7 @@
 #   ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH] Block a deadlocked Story and ask a human to arbitrate.
 #   ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH] Act on a human Approve / Request changes.
 #   ralph --blocked-stories [BACKLOG]  List open state:blocked story numbers.
+#   ralph --complete-story STORY [CONFIG] [ROOT] [--pr PATH] [--prd PATH]  Complete a review-approved Story.
 #   ralph --checkpoint STORY SUMMARY [CONFIG]  Write a Handoff (WIP commits + issue comment) and stop.
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
@@ -65,6 +66,7 @@ usage: ralph --init [CONFIG]
        ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH]
        ralph --blocked-stories [BACKLOG]
+       ralph --complete-story STORY [CONFIG] [ROOT] [--pr PATH] [--prd PATH]
        ralph --complete-afk STORY [CONFIG] [PRD]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
@@ -241,8 +243,9 @@ usage: ralph --init [CONFIG]
                           needs no further waiting, 14 when the window closed
                           (the caller owes a Handoff), 15 when the Story was
                           escalated and blocked (the caller may go straight on
-                          to other Stories), 1 when a step failed, 2 on bad
-                          config or input.
+                          to other Stories), 16 when the Story passed both
+                          halves of the gate and was completed, 1 when a step
+                          failed, 2 on bad config or input.
   --escalate-review STORY End automated negotiation for one deadlocked Story.
        [CONFIG] [ROOT]    Summarizes every unsettled blocking finding on the
        [--pr PATH]        pull request with both sides' arguments, requests a
@@ -296,6 +299,22 @@ usage: ralph --init [CONFIG]
                           arbitrated since the last tick. Reads a JSON backlog
                           from BACKLOG (or - for stdin); with no BACKLOG, scans
                           live via gh. Exits 0, or 2 on bad input.
+  --complete-story STORY   Complete a Story whose current head has passed both
+       [CONFIG] [ROOT]     halves of the gate: CI green, and the one
+       [--pr PATH]         ralph/model-review context satisfied by an approving
+       [--prd PATH]        model review or by a human's Approve. An AFK Orphan
+                           Story is merged into base per branching.afk_merge
+                           (default squash, so base gets one clean commit while
+                           the pull request keeps the whole negotiation as its
+                           audit history) and closed as Passing; an AFK Feature
+                           Story closes as Passing without merging, because a
+                           Feature's code integrates when the Feature merges
+                           (ADR-0006). A HIL Story of either kind is never
+                           merged: it records a bench anchor at the exact head
+                           and moves to state:awaiting-bench, still open. Never
+                           targets main. Exits 0 on success, 1 on a gh failure,
+                           2 on a refusal (a shut gate reaches GitHub not at
+                           all).
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
        [CONFIG] [PRD]     stdin) per story kind (ADR-0006). An Orphan Story is
                           auto-merged into base per afk_merge and closed; a
@@ -474,6 +493,10 @@ main() {
     --arbitrate-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_human.py" arbitrate "$@"
+      ;;
+    --complete-story)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_review_complete.py" complete "$@"
       ;;
     --blocked-stories)
       shift

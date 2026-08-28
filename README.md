@@ -123,6 +123,14 @@ scheduler (every ~5h)
         │                          │           defect or safety regression, and never
         │                          │           extends the round limit.
         │                          │
+        │                          ├── CI green + review gate satisfied ─►
+        │                          │   ralph --complete-story
+        │                          │     AFK  ─► squash-merge into base, close
+        │                          │             as Passing (a Feature story
+        │                          │             closes without merging)
+        │                          │     HIL  ─► bench anchor + state:awaiting-
+        │                          │             bench, still open, never merged
+        │                          │
         │                          ├── human Approve ─► gate released over any
         │                          │   open findings, escalation cleared, the
         │                          │   override recorded on the Story
@@ -477,6 +485,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
+| `ralph --complete-story STORY [CONFIG] [ROOT] [--pr PATH] [--prd PATH]` | Complete a Story whose current head passed **both** halves of the gate: CI green, and the one `ralph/model-review` context satisfied by an approving model review or by a human's Approve. An AFK Orphan Story is merged into base per `branching.afk_merge` (default squash — base gets one clean commit, the pull request keeps the whole negotiation as its audit history) and closed as Passing; an AFK Feature Story closes as Passing without merging (its code integrates when the Feature merges, ADR-0006). A HIL Story is never merged: it records a bench anchor at the exact head and moves to `state:awaiting-bench`, still open. Never targets `main`. |
 | `ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH]` | Act on the human's native GitHub review. **Approve** is authoritative: it releases the `ralph/model-review` check on the reviewed head even over unresolved model findings, clears any escalation (`state:blocked` → `state:in-review`), and records the override on the Story naming the reviewer and what it overrode. **Request changes** is authoritative feedback: the Story returns to `state:in-review` and the assigned implementation model is launched with the human's own words, append-only like any fix round. An ordinary comment changes no label, check, or state. Each native review is acted on exactly once. |
 | `ralph --blocked-stories [BACKLOG]` | Print the open `state:blocked` story numbers — the Stories a human may have arbitrated since the last tick. |
 | `ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]` | End automated negotiation for one deadlocked Story: summarize every unsettled blocking finding on the pull request with both sides' arguments, request a native GitHub review from `notify.github`, and move the Story from `state:in-review` to `state:blocked`. One Story only — unrelated Stories stay selectable, and whether the loop halts remains `limits.circuit_breaker`'s decision, which this newly blocked Story now counts toward. |

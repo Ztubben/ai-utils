@@ -710,6 +710,72 @@ class OrchestrationTest(unittest.TestCase):
         # No check was released: only an Approve does that.
         self.assertFalse(any("statuses/" in ln for ln in log), log)
 
+    def approved_pull_request(self, h, issue=7, head="a" * 40, ci="SUCCESS"):
+        """A marked pull request whose head carries a satisfied review gate."""
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % issue
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": head, "baseRefOid": "b" * 40, "comments": [],
+             "reviews": [{"body": "<!-- ralph-review:v1 head=%s -->" % head,
+                          "state": "COMMENTED", "id": "R-0",
+                          "author": {"login": "ralph"}}],
+             "statusCheckRollup": [
+                 {"name": "test", "status": "COMPLETED", "conclusion": ci},
+                 {"context": "ralph/model-review", "state": "SUCCESS"}]})
+
+    def test_an_approved_afk_story_merges_and_closes_as_passing(self):
+        # AC (#59): the whole AFK flow, end to end against fake binaries.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "afk")], [], [], [])
+        h.set_view_stories(story(7, "in-review", "afk"))
+        self.approved_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        merge = [ln for ln in log if "pr merge 70" in ln]
+        self.assertTrue(merge, log)
+        self.assertIn("--squash", merge[0])
+        self.assertTrue(any("issue close 7" in ln for ln in log), log)
+        self.assertEqual(h.agent_calls(), [], log)
+        # It never targets main.
+        self.assertFalse(any("main" in ln for ln in log), log)
+
+    def test_an_approved_hil_story_parks_at_awaiting_bench_unmerged(self):
+        # AC (#59): the whole HIL flow -- same approvals, no merge, still open.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "hil")], [], [], [])
+        h.set_view_stories(story(7, "in-review", "hil"))
+        self.approved_pull_request(h)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("issue edit 7" in ln and "state:awaiting-bench" in ln
+                            for ln in log), log)
+        self.assertFalse(any("pr merge" in ln for ln in log), log)
+        self.assertFalse(any("issue close" in ln for ln in log), log)
+
+    def test_red_ci_completes_nothing_however_approving_the_review(self):
+        # AC (#59): it merges only when *both* halves hold for this head.
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([story(7, "in-review", "afk")], [], [], [])
+        h.set_view_stories(story(7, "in-review", "afk"))
+        self.approved_pull_request(h, ci="FAILURE")
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("pr merge" in ln for ln in log), log)
+        self.assertFalse(any("issue close" in ln for ln in log), log)
+
     def test_green_afk_story_opens_marked_pr_and_enters_review(self):
         h = self.harness()
         h.set_backlogs([story(7, "ready", "afk")], [])  # then no-work -> stop

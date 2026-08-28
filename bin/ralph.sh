@@ -229,6 +229,7 @@ assign_story_models() {
 # the Story In Review for the next tick.
 RC_REVIEW_WINDOW=14
 RC_REVIEW_ESCALATED=15
+RC_REVIEW_COMPLETED=16
 await_review() {
   local issue="$1" story_file rc=0
   story_file="$(mktemp)"
@@ -381,7 +382,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --arbitrate-review --blocked-stories --check-breaker; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -437,6 +438,14 @@ tick() {
             "$RC_REVIEW_WINDOW")
               log "review window closed for #$issue; writing a Handoff and ending the tick"
               checkpoint_review "$issue"
+              ;;
+            "$RC_REVIEW_COMPLETED")
+              # The Story is finished -- merged and closed, or parked at
+              # awaiting-bench -- so it is off the backlog and the tick can
+              # spend the rest of its budget on the next one.
+              log "#$issue passed the review gate and was completed"
+              n=$(( n + 1 ))
+              continue
               ;;
             "$RC_REVIEW_ESCALATED")
               # Deadlock stops this Story, not the loop: it is already

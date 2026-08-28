@@ -313,6 +313,31 @@ not HITL) and `docs/adr/0001–0005`.
   queue-driven tick harnesses — every pass consuming a `gh issue list` shifts the mock
   backlog queue, which is why a new pass goes last. A human deciding while the Story is
   still In Review needs none of it: the bounded wait sees it on the next poll.
+- `lib/ralph_review_complete.py` closes the loop (#59, PRD #42): pure
+  `gate_for(pr, comments) -> Gate` and `completion_plan(...) -> Plan`, the live
+  `complete(story, pr, config, root)`, and the `--complete-story STORY [CONFIG] [ROOT]
+  [--pr PATH] [--prd PATH]` CLI. `next_step` returns the new `COMPLETE` when the gate
+  holds, and `--await-review` exits **16** so the tick completes the Story and carries
+  straight on to the next one. GOTCHAS: (1) the gate has **two independent halves** read
+  off the *current head's* `statusCheckRollup`: CI is every entry except
+  `ralph/model-review`, which is not CI and is judged separately. `_verdict` handles both
+  rollup shapes — a CheckRun's `status`+`conclusion` and a StatusContext's `state` — so
+  no caller has to know which produced an entry. Pending is not green: it merges only
+  when both halves hold, which is why a satisfied review with CI still running is `WAIT`.
+  (2) The review half is satisfied by the context reading success (an approving model
+  review writes it; a human's Approve writes over it) *or* by a recorded human approval
+  of that exact commit — a status write that never landed must not veto an authoritative
+  human decision. (3) HIL and AFK take the same gate and diverge only here: a HIL Story
+  is **never** merged and never closed, it records a bench anchor at the exact head and
+  parks at `state:awaiting-bench`. Model review never replaces physical verification.
+  (4) An AFK **Feature** Story closes as Passing *without* merging and leaves its marked
+  pull request open — its siblings share it, and a Feature's code integrates only when
+  the Feature merges (ADR-0006). Only an Orphan Story merges, and `branching.afk_merge`
+  (default `squash`) is honoured: squash is what leaves base one clean commit while the
+  pull request keeps every round, fix and dispute. (5) `complete` fetches the PRD itself
+  when the Story has a `Parent:`, so no caller has to know to do it first. (6) This is
+  the review-gated successor to `--complete-afk`/`--complete-hil`, which remain as the
+  pre-review paths; do not add review logic to those.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the

@@ -12,6 +12,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
+import ralph_review_complete  # noqa: E402
 import ralph_review_deadlock  # noqa: E402
 import ralph_review_human  # noqa: E402
 import ralph_review_respond  # noqa: E402
@@ -22,7 +23,7 @@ REVIEW = "review"      # the head has no review yet: launch a Negotiation Round
 RESPOND = "respond"    # the review requested changes: answer it with a fix round
 ESCALATE = "escalate"  # the rounds are spent and it is still unsettled: ask a human
 ARBITRATE = "arbitrate"  # a human decided; act on it before anything else
-SETTLED = "settled"    # a human released the gate: the models are finished here
+COMPLETE = "complete"  # both halves of the gate are satisfied: finish the Story
 WAIT = "wait"          # nothing Ralph can act on; keep polling, spend nothing
 GONE = "gone"          # no marked pull request, or it is no longer open
 
@@ -39,6 +40,10 @@ EXIT_WINDOW_EXPIRED = 14
 # the loop did not. The caller may go straight on to the next Story rather than
 # writing a Handoff for one that is now blocked.
 EXIT_ESCALATED = 15
+
+# And so is completion: the Story is finished, so the tick is free to go
+# straight on to the next one rather than ending on it.
+EXIT_COMPLETED = 16
 
 # However long the window is, a poll never falls further apart than this: the
 # backoff is there to stop hammering the API, not to sleep through the arrival
@@ -78,10 +83,11 @@ def next_step(pull_request, comments=None, max_rounds=None):
     decision = ralph_review_human.human_decision(pull_request)
     if decision is not None and not ralph_review.arbitrated(comments, decision.id):
         return ARBITRATE
-    if ralph_review_human.approval_for(comments, head):
-        # The gate is released on this exact commit. Open model findings do not
-        # reopen it: a model never holds authority over a human decision.
-        return SETTLED
+    if ralph_review_complete.gate_for(pull_request, comments).ok:
+        # Both halves hold at this exact commit: CI is green and the review
+        # context is satisfied -- by an approving review, or by a human's
+        # Approve, which open model findings never reopen.
+        return COMPLETE
     # Reviews and answers alternate, so which side owes a move is simply which
     # of them is behind.  A dispute leaves the head where it was, which is why
     # this counts rounds at the head rather than asking whether the head has
@@ -159,14 +165,11 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None):
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
                               elapsed=elapsed)
-        if step == SETTLED:
-            return WaitResult(SETTLED, polls=polls, invocations=invocations,
-                              elapsed=elapsed)
-        if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE):
+        if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE, COMPLETE):
             # Escalation is Ralph's own bookkeeping -- a comment, a review
             # request, a label -- so it costs no model invocation. Arbitration
             # may or may not launch one, depending on what the human decided.
-            if step not in (ESCALATE, ARBITRATE):
+            if step not in (ESCALATE, ARBITRATE, COMPLETE):
                 invocations += 1
             ok, errors = act(step, pull_request)
             if not ok:
@@ -174,12 +177,11 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None):
                 # each time; the next tick retries it once instead.
                 return WaitResult(FAILED, errors=errors, polls=polls,
                                   invocations=invocations, elapsed=elapsed)
-            if step == ESCALATE:
-                # Nothing is left to wait for: the Story is blocked and the
-                # human has been asked. Sitting out the rest of the window
-                # would hold the tick's lock over work that has stopped.
-                return WaitResult(ESCALATE, polls=polls,
-                                  invocations=invocations,
+            if step in (ESCALATE, COMPLETE):
+                # Nothing is left to wait for. Either the Story is blocked with
+                # a human asked, or it is finished. Sitting out the rest of the
+                # window would hold the tick's lock over work that has stopped.
+                return WaitResult(step, polls=polls, invocations=invocations,
                                   elapsed=now() - started)
             elapsed = now() - started
         if policy.expired(elapsed):
@@ -241,6 +243,10 @@ def _cmd_await(rest):
             return []
 
     def act(step, pull_request):
+        if step == COMPLETE:
+            rc = ralph_review_complete.complete(story, pull_request,
+                                                validated.config, root)
+            return rc == 0, [] if rc == 0 else ["completion exited %d" % rc]
         if step == ARBITRATE:
             rc = ralph_review_human.arbitrate(story, pull_request,
                                               validated.config, root)
@@ -272,10 +278,9 @@ def _cmd_await(rest):
         print("OK: #%s is blocked after a deadlocked negotiation; a human was "
               "asked to arbitrate. Unrelated Stories keep running." % number)
         return EXIT_ESCALATED
-    if result.kind == SETTLED:
-        print("OK: a human released the model-review gate on #%s; the models "
-              "have nothing further to negotiate" % number)
-        return 0
+    if result.kind == COMPLETE:
+        print("OK: #%s passed both halves of the gate and was completed" % number)
+        return EXIT_COMPLETED
     if result.kind == GONE:
         print("OK: nothing to negotiate for #%s; the pull request is not open "
               "for automated review" % number)

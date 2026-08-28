@@ -165,9 +165,9 @@ class NextStep(unittest.TestCase):
                 reviewed, comments=[self.changes_requested()], max_rounds=2),
             ralph_review_wait.ARBITRATE)
 
-    def test_an_approval_already_acted_on_settles_the_negotiation(self):
-        # AC (#58): the gate is released, so the models have nothing left to do
-        # even though a blocking finding is still on the record.
+    def test_an_approval_already_acted_on_completes_the_story(self):
+        # AC (#58/#59): the gate is satisfied, so the Story is finished even
+        # though a blocking model finding is still on the record.
         reviewed = pull_request(reviews=[
             {"body": ralph_review.review_marker(HEAD)}, self.approving()])
 
@@ -176,15 +176,39 @@ class NextStep(unittest.TestCase):
                 reviewed,
                 comments=[self.changes_requested(), self.acted_on()],
                 max_rounds=2),
-            ralph_review_wait.SETTLED)
+            ralph_review_wait.COMPLETE)
 
-    def test_an_approval_of_an_older_head_does_not_settle_the_new_one(self):
+    def test_an_approval_of_an_older_head_does_not_carry_to_the_new_one(self):
         moved = pull_request(head="c" * 40, reviews=[self.approving()])
 
         self.assertEqual(
             ralph_review_wait.next_step(
                 moved, comments=[self.acted_on()], max_rounds=2),
             ralph_review_wait.REVIEW)
+
+    def test_a_satisfied_review_check_with_green_ci_completes_the_story(self):
+        # AC (#59): an approving model review satisfies the gate on its own.
+        approved = dict(pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}]),
+            statusCheckRollup=[
+                {"name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                {"context": "ralph/model-review", "state": "SUCCESS"}])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(approved, comments=[], max_rounds=2),
+            ralph_review_wait.COMPLETE)
+
+    def test_a_satisfied_review_but_pending_ci_keeps_waiting(self):
+        # AC (#59): it merges only when *both* halves hold for this head.
+        pending = dict(pull_request(reviews=[
+            {"body": ralph_review.review_marker(HEAD)}]),
+            statusCheckRollup=[
+                {"name": "test", "status": "IN_PROGRESS", "conclusion": None},
+                {"context": "ralph/model-review", "state": "SUCCESS"}])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(pending, comments=[], max_rounds=2),
+            ralph_review_wait.WAIT)
 
     def test_an_ordinary_human_comment_changes_nothing(self):
         # AC (#58): a comment is a comment; the negotiation carries on.
