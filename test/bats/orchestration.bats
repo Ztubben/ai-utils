@@ -22,6 +22,12 @@ setup() {
   export RALPH_LOG="$SP/ralph.log"
   export RALPH_GH_QUEUE_DIR="$SP/ghq"
   export RALPH_SESSION_LIMIT_EXIT=91
+  # The tick is often launched *by* a Ralph iteration, whose environment names
+  # the real CLI and its in-flight story; inheriting those would drive the live
+  # claude binary instead of the mock on PATH.
+  export RALPH_CLAUDE=claude
+  unset RALPH_ITERATION_ACTION RALPH_ITERATION_ISSUE RALPH_SESSION_LIMIT_MARKER \
+        RALPH_CONFIG RALPH_MAX_ITERATIONS RALPH_CLI
   export PATH="$MB:$PATH"
 
   cat >"$MB/gh" <<'EOF'
@@ -104,6 +110,27 @@ story() {
   [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
   grep -q 'issue comment 5' "$RALPH_LOG"
   [[ "$output" == *"session limit"* ]]
+}
+
+@test "current claude session-limit wording ends the tick without retrying" {
+  # #65: the CLI signals the limit only in its output, with an ordinary failure
+  # exit code rather than the legacy 91. One launch, then a Handoff.
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
+  story 5 in-progress > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && RALPH_CLAUDE_EXIT=1 RALPH_CLAUDE_EMIT=\"You've hit your session limit · resets 9pm (Europe/Stockholm)\" '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  grep -q 'issue comment 5' "$RALPH_LOG"
+  [[ "$output" == *"session limit"* ]]
+}
+
+@test "legacy usage-limit marker still ends the tick" {
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
+  story 5 in-progress > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT='Claude usage limit reached.' '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  grep -q 'issue comment 5' "$RALPH_LOG"
 }
 
 @test "halt on needs-human without launching an iteration" {

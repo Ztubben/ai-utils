@@ -121,6 +121,35 @@ not HITL) and `docs/adr/0001–0005`.
   `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving the
   script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
   queue that pops one backlog fixture per call to simulate stories completing).
+- `lib/ralph_session.py` owns the one question the tick must never get wrong (#65): did the
+  launched agent hit its **session limit**, or not? Reached from bash via
+  `ralph --classify-session RC` (agent output on stdin, verdict as the exit code —
+  `EXIT_SESSION_EXHAUSTED` is 10, the tick's own `RC_SESSION_LIMIT`). It replaced a single exit
+  code (91) + a single literal (`"usage limit reached"`) that the claude CLI stopped emitting:
+  the miss made `run_iteration` return partial-progress, so the tick relaunched the same story
+  until `RALPH_MAX_ITERATIONS` ran out (a live retry-storm on 2026-08-27). Detection is layered
+  on purpose — an exit-code **set** (`RALPH_SESSION_LIMIT_EXIT` takes a comma list), a **family**
+  of wording regexes matching the *shape* of a limit notice, and an **additive**
+  `RALPH_SESSION_LIMIT_MARKER` (it can widen but never replace the built-ins; a replaceable
+  marker is how one stale literal became the only detector). GOTCHA — the counter-hazard is the
+  substring rule biting again: the tick greps the agent's whole transcript, and an agent working
+  *on this code* writes "session limit" in prose constantly. So a match only counts on the final
+  non-empty line (or the last 3 when the process also failed) — a provider's notice is
+  *terminating* output; the agent's prose is not. Covered by `test/unit/test_session_limit.py`
+  plus tick-level tests in `test_orchestrate.py`/`orchestration.bats`.
+  TODO when PRD #42 lands: `AgentAdapter.classify()` in `lib/ralph_agent.py` carries its own
+  copy of the old exit-91/`"usage limit reached"` logic and has the identical bug — collapse it
+  to a call into this module rather than re-deriving it.
+- GOTCHA (tick tests) — the tick test harnesses (`test_orchestrate.py`, `test_freshness.py`,
+  `orchestration.bats`) mock `claude`/`gh`/`git` on PATH but build their env from
+  `os.environ`. When the suite is run *from inside a Ralph iteration* (the normal case — Ralph
+  works its own repo), that environment already carries `RALPH_CLAUDE=/path/to/real/claude` and
+  `RALPH_ITERATION_*` from the tick that launched the agent. Inherited, they make the
+  tick-under-test launch the **real** claude CLI: a nested agent session, tests that hang for
+  minutes and then fail with zero mock-claude calls, and the nested session's own `git` calls
+  polluting `$RALPH_LOG`. The harnesses now pin `RALPH_CLAUDE=claude` (so PATH resolves the
+  mock) and strip the inherited `RALPH_*` knobs. Any new harness that shells out to `bin/ralph.sh`
+  must do the same.
 - `lib/ralph_init.py` is the one-shot bootstrap seam (`ralph --init`): same pure-`Plan`/
   `run_plan`/CLI shape as the completion stages. `init_plan(base, base_exists, default_branch,
   prio_max)` returns the ordered gh/git commands to `gh label create --force` the canonical

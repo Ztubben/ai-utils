@@ -39,8 +39,10 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 : "${RALPH_CONFIG:=.ralph.yml}"
 : "${RALPH_CLAUDE:=claude}"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
-: "${RALPH_SESSION_LIMIT_EXIT:=91}"         # claude CLI exit signalling session-limit exhaustion
-: "${RALPH_SESSION_LIMIT_MARKER:=usage limit reached}"
+# Session-limit detection lives in lib/ralph_session.py (#65), reached through
+# `ralph --classify-session`, so the tick and the provider adapters read one
+# answer. Its knobs (RALPH_SESSION_LIMIT_EXIT, RALPH_SESSION_LIMIT_MARKER) are
+# read from the environment there; no defaults are pinned here.
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
 
 log() { printf 'ralph: %s\n' "$*"; }
@@ -81,8 +83,8 @@ sync_branch() {
 }
 
 # Launch one fresh-context claude iteration for the selected story. Returns:
-#   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (by exit
-#                         code or output marker) -- the story gets checkpointed;
+#   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (per
+#                         `ralph --classify-session`) -- the story gets checkpointed;
 #   RC_STORY_COMPLETE (11) when the iteration emitted the done-signal marker,
 #                         meaning the gate is green and every acceptance criterion
 #                         is checked -- the story gets promoted;
@@ -107,8 +109,11 @@ run_iteration() {
   set -e
   [[ -n "$out" ]] && printf '%s\n' "$out"
 
-  if [[ "$rc" -eq "$RALPH_SESSION_LIMIT_EXIT" ]] \
-     || printf '%s' "$out" | grep -qiF "$RALPH_SESSION_LIMIT_MARKER"; then
+  # Session-limit takes priority over the done-signal: a truncated run is never
+  # complete. `--classify-session` exits RC_SESSION_LIMIT (10) on exhaustion.
+  local verdict=0
+  printf '%s' "$out" | "$RALPH_BIN" --classify-session "$rc" || verdict=$?
+  if [[ "$verdict" -eq "$RC_SESSION_LIMIT" ]]; then
     return "$RC_SESSION_LIMIT"
   fi
   if printf '%s' "$out" | grep -qF "$RALPH_STORY_COMPLETE_MARKER"; then
