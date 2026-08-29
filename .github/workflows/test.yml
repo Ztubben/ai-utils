@@ -33,6 +33,11 @@ jobs:
         with:
           python-version: '3.x'
 
+      # The two libraries README's Requirements names. lib/*.py is otherwise
+      # stdlib-only, so there is no requirements file to install from.
+      - name: Install the Python dependencies
+        run: python -m pip install --upgrade PyYAML jsonschema
+
       # The orchestration tests drive bin/ralph against mocked `claude` and `gh`
       # on PATH; test/run.sh skips them when bats is absent, so install it and
       # keep CI covering the seam the suite prefers.
