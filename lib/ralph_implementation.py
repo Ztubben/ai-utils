@@ -1,9 +1,15 @@
 """Promote locally green implementation work into model review (#49).
 
 This is intentionally separate from final AFK/HIL completion.  Both Story
-types first push their working branch, create (or update) a marked pull
-request, and enter ``state:in-review``.  Nothing here merges, closes, or moves
-a HIL Story to awaiting-bench.
+types first push their own working branch, create (or update) their own marked
+pull request, and enter ``state:in-review``.  Nothing here merges, closes, or
+moves a HIL Story to awaiting-bench.
+
+Each Story owns exactly one pull request (#71, PRD #69).  Only the base
+differs: an Orphan Story's targets the configured base branch, a Feature
+Story's targets its Feature integration branch, which is created off the base
+branch the first time one of that Feature's Stories opens a pull request -- so
+a Feature costs nothing until its first Story starts.
 """
 import json
 import os
@@ -24,14 +30,19 @@ DEFAULT_BASE = "develop"
 
 class Plan:
     def __init__(self, ok, errors, commands, base=None, branch=None,
-                 pr_number=None, updated=False):
+                 pr_number=None, updated=False, feature=None,
+                 created_feature=False):
         self.ok = ok
         self.errors = errors
         self.commands = commands
+        # What the pull request targets, which is the Feature integration
+        # branch for a Feature Story and the configured base branch otherwise.
         self.base = base
         self.branch = branch
         self.pr_number = pr_number
         self.updated = updated
+        self.feature = feature
+        self.created_feature = created_feature
 
 
 def pull_request_body(number):
@@ -46,13 +57,16 @@ def implementation_green_plan(
         story, base=DEFAULT_BASE,
         branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN, prd=None,
         feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
-        existing_pr=None):
+        existing_pr=None, feature_exists=True):
     """Return the ordered push/PR/state plan for locally green work.
 
     ``existing_pr`` must be an already-open, marked PR for the resolved head.
     Supplying an unmarked PR is refused: it is outside the automated-review
-    opt-in boundary.  The function is pure; live PR discovery belongs to the
-    CLI wrapper.
+    opt-in boundary.  ``feature_exists`` says whether the Story's Feature
+    integration branch is already on the remote; when it is not, the plan
+    creates it off the base branch first, because the pull request has nowhere
+    to target until it exists.  The function is pure; live PR and branch
+    discovery belong to the CLI wrapper.
     """
     errors = []
     if (base or "").strip().lower() == PROTECTED_BRANCH:
@@ -67,11 +81,12 @@ def implementation_green_plan(
             "state: implementation-green requires state:in-progress or "
             "state:in-review (got %s)" % (fields.get("state") or "none"))
 
-    branch = None
+    branch, topology = None, None
     try:
-        branch = ralph_iterate.resolve_branch(
-            story, prd=prd, branch_pattern=branch_pattern,
+        topology = ralph_iterate.resolve_topology(
+            story, prd=prd, base=base, branch_pattern=branch_pattern,
             feature_pattern=feature_pattern)
+        branch = topology.branch
     except ValueError as exc:
         errors.append("branch: %s" % exc)
 
@@ -86,10 +101,19 @@ def implementation_green_plan(
     number = story["number"]
     title = story.get("title") or ("Story #%s" % number)
     body = pull_request_body(number)
-    commands = [["git", "push", "-u", "origin", "HEAD:" + branch]]
+    target = topology.base
+    commands = []
+    created_feature = topology.feature is not None and not feature_exists
+    if created_feature:
+        # Lazily, and off the base branch as it stands on the remote: a Feature
+        # costs nothing until one of its Stories is first green.
+        commands.append(["git", "fetch", "origin", base])
+        commands.append(["git", "push", "origin",
+                         "origin/%s:refs/heads/%s" % (base, topology.feature)])
+    commands.append(["git", "push", "-u", "origin", "HEAD:" + branch])
     if existing_pr is None:
         commands.append([
-            "gh", "pr", "create", "--base", base, "--head", branch,
+            "gh", "pr", "create", "--base", target, "--head", branch,
             "--title", title, "--body", body,
         ])
     else:
@@ -103,9 +127,10 @@ def implementation_green_plan(
             "--add-label", IN_REVIEW_LABEL,
             "--remove-label", IN_PROGRESS_LABEL,
         ])
-    return Plan(True, [], commands, base=base, branch=branch,
+    return Plan(True, [], commands, base=target, branch=branch,
                 pr_number=(existing_pr or {}).get("number"),
-                updated=existing_pr is not None)
+                updated=existing_pr is not None,
+                feature=topology.feature, created_feature=created_feature)
 
 
 class CommandResult:
@@ -149,6 +174,19 @@ def open_pull_requests(branch, cwd=None):
     if not isinstance(prs, list):
         return None, "gh pr list returned a non-list result"
     return prs, None
+
+
+def remote_branch_exists(branch, cwd=None):
+    """Is *branch* already a head on origin?
+
+    Read from the remote rather than the checkout: the Feature branch is
+    created by whichever Story of the Feature is green first, which may well
+    have been a different tick on a different machine.
+    """
+    proc = subprocess.run(
+        ["git", "ls-remote", "--exit-code", "--heads", "origin", branch],
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return proc.returncode == 0
 
 
 def _load(path):
@@ -198,11 +236,14 @@ def _cmd_green(rest):
                 % preview.branch)
             return 2
         existing = prs[0] if prs else None
+        feature_exists = (
+            preview.feature is None
+            or remote_branch_exists(preview.feature, cwd=os.getcwd()))
         plan = implementation_green_plan(
             story, base=branching["base"],
             branch_pattern=branching["branch_pattern"], prd=prd,
             feature_pattern=branching["feature_pattern"],
-            existing_pr=existing)
+            existing_pr=existing, feature_exists=feature_exists)
 
     if not plan.ok:
         sys.stderr.write("REFUSED: implementation-green\n")
@@ -217,8 +258,9 @@ def _cmd_green(rest):
             sys.stderr.write(run.failed.output.rstrip() + "\n")
         return 1
     verb = "updated PR #%s" % plan.pr_number if plan.updated else "opened PR"
-    print("OK: %s for #%s; moved to %s" %
-          (verb, story["number"], IN_REVIEW_LABEL))
+    made = " (created %s)" % plan.feature if plan.created_feature else ""
+    print("OK: %s for #%s against %s%s; moved to %s" %
+          (verb, story["number"], plan.base, made, IN_REVIEW_LABEL))
     return 0
 
 

@@ -133,6 +133,18 @@ class ResumePlan(unittest.TestCase):
         plan = ralph_handoff.resume_plan(story(number=8, state="in-progress"), base="develop")
         self.assertNotIn("develop", _flat(plan.commands))
 
+    def test_a_feature_story_resumes_onto_its_own_branch(self):
+        """PRD #69: every Story owns a branch, so resume is one rule again."""
+        feature_story = story(number=8, state="in-progress")
+        feature_story["body"] = feature_story["body"].replace(
+            "Parent: None", "Parent: #42")
+        plan = ralph_handoff.resume_plan(feature_story, base="develop")
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual(plan.branch, "ralph/8-wire-up-the-adc")
+        checkout = next(c for c in plan.commands if c[:2] == ["git", "checkout"])
+        self.assertIn("ralph/8-wire-up-the-adc", checkout)
+        self.assertNotIn("feature/42", _flat(plan.commands))
+
     def test_never_touches_main(self):
         plan = ralph_handoff.resume_plan(story(state="in-progress"), base="develop")
         self.assertNotIn("main", _flat(plan.commands))
