@@ -57,11 +57,12 @@ class BranchName(unittest.TestCase):
 
 
 class ResolveBranch(unittest.TestCase):
-    """Working-branch resolution per story kind (ADR-0006).
+    """Branch and base resolution per story kind (ADR-0006, as amended).
 
-    An Orphan Story works on its own story branch (branch_pattern); a Feature
-    story works directly on its Feature's integration branch (feature_pattern),
-    named from the PRD issue's number and title.
+    Every story works on its own story branch (branch_pattern over the story
+    issue). Only the pull-request base differs by kind: an Orphan Story's is
+    the configured base branch, a Feature story's is its Feature integration
+    branch (feature_pattern over the PRD issue).
     """
 
     ORPHAN = {"number": 7, "title": "Wire up the ADC",
@@ -83,24 +84,46 @@ class ResolveBranch(unittest.TestCase):
             ralph_iterate.branch_name(self.ORPHAN),
         )
 
-    def test_feature_story_resolves_to_prd_feature_branch(self):
+    def test_orphan_base_is_the_configured_base_branch(self):
+        topology = ralph_iterate.resolve_topology(self.ORPHAN, base="develop")
+        self.assertEqual(topology.branch, "ralph/7-wire-up-the-adc")
+        self.assertEqual(topology.base, "develop")
+        self.assertIsNone(topology.feature)
+
+    def test_feature_story_works_on_its_own_story_branch(self):
+        """A Feature story is no longer the exception that shares a branch."""
         self.assertEqual(
             ralph_iterate.resolve_branch(self.FEATURE_STORY, prd=self.PRD),
-            "feature/18-per-feature-integration-branches",
+            "ralph/24-working-branch-resolution",
         )
 
-    def test_feature_branch_honors_custom_patterns(self):
-        self.assertEqual(
-            ralph_iterate.resolve_branch(
-                self.FEATURE_STORY, prd=self.PRD,
-                feature_pattern="feat/{issue}/{slug}"),
-            "feat/18/per-feature-integration-branches",
-        )
+    def test_feature_story_base_is_its_feature_branch(self):
+        topology = ralph_iterate.resolve_topology(
+            self.FEATURE_STORY, prd=self.PRD, base="develop")
+        self.assertEqual(topology.branch, "ralph/24-working-branch-resolution")
+        self.assertEqual(topology.base,
+                         "feature/18-per-feature-integration-branches")
+        self.assertEqual(topology.feature, topology.base)
+
+    def test_both_story_kinds_use_the_same_branch_pattern(self):
+        orphan = ralph_iterate.resolve_topology(
+            self.ORPHAN, branch_pattern="wip/{issue}")
+        feature = ralph_iterate.resolve_topology(
+            self.FEATURE_STORY, prd=self.PRD, branch_pattern="wip/{issue}")
+        self.assertEqual(orphan.branch, "wip/7")
+        self.assertEqual(feature.branch, "wip/24")
+
+    def test_feature_base_honors_custom_patterns(self):
+        topology = ralph_iterate.resolve_topology(
+            self.FEATURE_STORY, prd=self.PRD,
+            feature_pattern="feat/{issue}/{slug}")
+        self.assertEqual(topology.base,
+                         "feat/18/per-feature-integration-branches")
 
     def test_feature_slug_truncated_to_50_chars_from_prd_title(self):
         prd = dict(self.PRD, title="word " * 40)
-        name = ralph_iterate.resolve_branch(self.FEATURE_STORY, prd=prd)
-        slug = name[len("feature/18-"):]
+        base = ralph_iterate.resolve_topology(self.FEATURE_STORY, prd=prd).base
+        slug = base[len("feature/18-"):]
         self.assertLessEqual(len(slug), 50)
         self.assertFalse(slug.endswith("-"))
 
@@ -115,11 +138,25 @@ class ResolveBranch(unittest.TestCase):
     def test_feature_story_without_prd_context_is_an_error(self):
         with self.assertRaises(ValueError):
             ralph_iterate.resolve_branch(self.FEATURE_STORY)
+        with self.assertRaises(ValueError):
+            ralph_iterate.resolve_topology(self.FEATURE_STORY)
 
     def test_prd_number_must_match_parent(self):
         wrong = dict(self.PRD, number=99)
         with self.assertRaises(ValueError):
             ralph_iterate.resolve_branch(self.FEATURE_STORY, prd=wrong)
+        with self.assertRaises(ValueError):
+            ralph_iterate.resolve_topology(self.FEATURE_STORY, prd=wrong)
+
+    def test_resolve_branch_is_the_topology_branch(self):
+        """No caller can compute a branch and a base that disagree."""
+        for story, prd in ((self.ORPHAN, None), (self.FEATURE_STORY, self.PRD)):
+            self.assertEqual(
+                ralph_iterate.resolve_branch(story, prd=prd),
+                ralph_iterate.resolve_topology(story, prd=prd).branch)
+
+    def test_default_base_matches_schema_default(self):
+        self.assertEqual(ralph_iterate.DEFAULT_BASE, "develop")
 
     def test_default_feature_pattern_matches_schema_default(self):
         self.assertEqual(ralph_iterate.DEFAULT_FEATURE_PATTERN, "feature/{issue}-{slug}")
@@ -195,7 +232,32 @@ class CliBranchName(unittest.TestCase):
                          "", prd_path)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(proc.stdout.strip(),
+                         "ralph/24-working-branch-resolution")
+
+    def test_base_flag_reports_the_feature_branch(self):
+        prd_path = self._write_json(
+            {"number": 18, "title": "Per-Feature integration branches",
+             "body": "Depends on: None\n"})
+        proc = self._run({"number": 24, "title": "Working-branch resolution",
+                          "body": "Parent: #18\nDepends on: None\n"},
+                         "", prd_path, "--base")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(proc.stdout.strip(),
                          "feature/18-per-feature-integration-branches")
+
+    def test_base_flag_reports_the_base_branch_for_an_orphan(self):
+        proc = self._run({"number": 7, "title": "Wire up the ADC",
+                          "body": "Parent: None\nDepends on: None\n"},
+                         os.path.join(FIXTURES, "config", "valid", "full.yml"),
+                         "", "--base")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(proc.stdout.strip(), "develop")
+
+    def test_default_output_is_one_branch_name(self):
+        """Existing callers read the whole of stdout as a branch name."""
+        proc = self._run({"number": 7, "title": "Wire up the ADC"})
+        self.assertEqual(proc.stdout.strip().splitlines(),
+                         ["ralph/7-wire-up-the-adc"])
 
     def test_feature_story_with_config_uses_feature_pattern(self):
         prd_path = self._write_json(
@@ -204,7 +266,7 @@ class CliBranchName(unittest.TestCase):
         proc = self._run({"number": 24, "title": "Working-branch resolution",
                           "body": "Parent: #18\nDepends on: None\n"},
                          os.path.join(FIXTURES, "config", "valid", "full.yml"),
-                         prd_path)
+                         prd_path, "--base")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(proc.stdout.strip(),
                          "feature/18-per-feature-integration-branches")
@@ -283,6 +345,22 @@ class AgentPromptV1(unittest.TestCase):
         """Branch resolution must go through the shipped CLI for both kinds."""
         self.assertIn("ralph --branch-name", self.text,
                        "branch step must use `ralph --branch-name` CLI")
+
+    def test_branch_step_resolves_the_base_too(self):
+        """Both halves of the topology come from the CLI, not from guesswork."""
+        self.assertIn("--base", self.text,
+                       "branch step must resolve the pull-request base via the CLI")
+
+    def test_feature_story_works_on_its_own_branch_off_the_feature_tip(self):
+        """No shared working branch: a Feature story branches off the tip."""
+        low = self.text.lower()
+        self.assertIn("its own story branch", low,
+                       "prompt must send every story to its own story branch")
+        self.assertIn("feature tip", low,
+                       "a Feature story's branch must be cut from the current "
+                       "Feature tip, not from a stale fork point")
+        self.assertNotIn("shared feature branch", low,
+                         "the shared working branch is gone (PRD #69)")
 
     def test_hard_sync_from_origin_before_work(self):
         """Prompt must instruct a hard sync from origin before starting work."""

@@ -139,11 +139,12 @@ class AfkCompletePlanFeatureStory(unittest.TestCase):
         kwargs.setdefault("prd", prd_issue())
         return ralph_afk.afk_complete_plan(feature_story(), **kwargs)
 
-    def test_pushes_head_to_feature_branch(self):
+    def test_pushes_head_to_its_own_story_branch(self):
+        """PRD #69: a Feature story works on its own branch, not a shared one."""
         plan = self._plan()
         self.assertTrue(plan.ok, plan.errors)
         push = next(c for c in plan.commands if c[:2] == ["git", "push"])
-        self.assertIn("HEAD:feature/18-per-feature-integration-branches", push)
+        self.assertIn("HEAD:ralph/25-afk-completion-for-feature-stories", push)
 
     def test_closes_issue_with_completion_comment(self):
         plan = self._plan()
@@ -162,10 +163,9 @@ class AfkCompletePlanFeatureStory(unittest.TestCase):
                        if c[:3] == ["gh", "issue", "close"])
         self.assertLess(push_i, close_i)
 
-    def test_honors_custom_feature_pattern(self):
-        plan = self._plan(feature_pattern="feat/{issue}/{slug}")
-        self.assertIn("HEAD:feat/18/per-feature-integration-branches",
-                      _flat(plan.commands))
+    def test_honors_custom_branch_pattern(self):
+        plan = self._plan(branch_pattern="wip/{issue}/{slug}")
+        self.assertIn("HEAD:wip/25/afk-completion-for-feature-stories", _flat(plan.commands))
 
     def test_never_touches_main(self):
         plan = self._plan()

@@ -161,11 +161,12 @@ class HilCompletePlanFeatureStory(unittest.TestCase):
         kwargs.setdefault("head_sha", SHA)
         return ralph_hil.hil_complete_plan(story or feature_story(), **kwargs)
 
-    def test_pushes_head_to_feature_branch(self):
+    def test_pushes_head_to_its_own_story_branch(self):
+        """PRD #69: a Feature story works on its own branch, not a shared one."""
         plan = self._plan()
         self.assertTrue(plan.ok, plan.errors)
         push = next(c for c in plan.commands if c[:2] == ["git", "push"])
-        self.assertIn("HEAD:feature/18-per-feature-integration-branches", push)
+        self.assertIn("HEAD:ralph/26-hil-completion-for-feature-stories", push)
 
     def test_no_pr_created(self):
         plan = self._plan()
@@ -220,10 +221,9 @@ class HilCompletePlanFeatureStory(unittest.TestCase):
         self.assertTrue(any(new_sha in tok for tok in _flat(second.commands)))
         self.assertFalse(any(SHA in tok for tok in _flat(second.commands)))
 
-    def test_honors_custom_feature_pattern(self):
-        plan = self._plan(feature_pattern="feat/{issue}/{slug}")
-        self.assertIn("HEAD:feat/18/per-feature-integration-branches",
-                      _flat(plan.commands))
+    def test_honors_custom_branch_pattern(self):
+        plan = self._plan(branch_pattern="wip/{issue}/{slug}")
+        self.assertIn("HEAD:wip/26/hil-completion-for-feature-stories", _flat(plan.commands))
 
     def test_refuses_feature_story_without_prd(self):
         plan = ralph_hil.hil_complete_plan(feature_story(), base="develop",
@@ -360,7 +360,7 @@ class CliCompleteHil(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             with open(log) as fh:
                 calls = fh.read()
-            self.assertIn("HEAD:feature/18-per-feature-integration-branches", calls)
+            self.assertIn("HEAD:ralph/26-hil-completion-for-feature-stories", calls)
             self.assertIn("issue comment 26", calls)
             self.assertIn(SHA, calls)  # the anchor comment carries the SHA
             self.assertIn("state:awaiting-bench", calls)

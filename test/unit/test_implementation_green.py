@@ -88,11 +88,12 @@ class ImplementationGreenPlan(unittest.TestCase):
         unmarked = {"number": 2, "body": "human-owned"}
         self.assertEqual(ralph_review.review_candidates([unmarked, marked]), [marked])
 
-    def test_feature_story_pushes_feature_head_and_opens_review_pr(self):
+    def test_feature_story_pushes_its_own_story_branch(self):
+        """PRD #69: a Feature story owns its branch, it does not share one."""
         plan = ralph_implementation.implementation_green_plan(
             story(parent=42), prd=prd())
         self.assertTrue(plan.ok, plan.errors)
-        self.assertIn("HEAD:feature/42-provider-neutral-review", flattened(plan))
+        self.assertIn("HEAD:ralph/49-review-the-implementation", flattened(plan))
         self.assertTrue(any(c[:3] == ["gh", "pr", "create"] for c in plan.commands))
 
     def test_refuses_main(self):

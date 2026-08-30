@@ -8,7 +8,8 @@
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
 #   ralph --run                   Run one unattended tick (bin/ralph.sh): select, work, promote.
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
-#   ralph --branch-name STORY [CONFIG] [PRD]  Print the working branch per story kind (ADR-0006).
+#   ralph --branch-name STORY [CONFIG] [PRD] [--base]  Print a story's working branch, or its
+#                                 pull-request base with --base (ADR-0006).
 #   ralph --run-gating [CONFIG]   Run the configured gating steps locally, fail-fast.
 #   ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
 #                                 Resolve the implementation/review model profiles.
@@ -53,7 +54,7 @@ usage: ralph --init [CONFIG]
        ralph --dry-run [PATH]
        ralph --run
        ralph --ready-features [PATH]
-       ralph --branch-name STORY [CONFIG] [PRD]
+       ralph --branch-name STORY [CONFIG] [PRD] [--base]
        ralph --run-gating [CONFIG]
        ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]
        ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]
@@ -119,14 +120,18 @@ usage: ralph --init [CONFIG]
                           Reads a JSON backlog from PATH (or - for stdin);
                           with no PATH, scans the live backlog via gh.
   --branch-name STORY     Print the working branch for a story (gh --json; -
-       [CONFIG] [PRD]     for stdin), per story kind (ADR-0006). An Orphan
-                          Story (Parent: None) resolves via branch_pattern
-                          (default ralph/{issue}-{slug}); a Feature story
-                          (Parent: #N) resolves via feature_pattern (default
-                          feature/{issue}-{slug}) from its PRD issue, given
-                          as PRD (gh --json path). CONFIG is optional (pass
-                          "" to skip). Exits 2 when a Feature story is given
-                          without its PRD context.
+       [CONFIG] [PRD]     for stdin). Every story -- Orphan or Feature --
+       [--base]           works on its own story branch, named via
+                          branch_pattern (default ralph/{issue}-{slug}).
+                          With --base, print what that branch is cut from and
+                          what its pull request targets instead: the base
+                          branch for an Orphan Story (Parent: None), and the
+                          Feature integration branch via feature_pattern
+                          (default feature/{issue}-{slug}) for a Feature story
+                          (Parent: #N), named from its PRD issue, given as PRD
+                          (gh --json path). CONFIG is optional (pass "" to
+                          skip). Exits 2 when a Feature story is given without
+                          its PRD context.
   --run-gating [CONFIG]   Run the configured gating steps (default .ralph.yml)
                           locally in order, fail-fast, low-verbosity. Exits 0
                           when all pass, 1 on a gating failure, 2 on bad config.
