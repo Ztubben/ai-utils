@@ -10,6 +10,8 @@ Failure modes:
   - Rebase conflict or red gate: push branch, comment on PRD, label
     ready-for-human, stop — NO needs-human circuit breaker
   - Base is main: refuse outright
+  - An unverified HIL Story of the Feature: refuse outright, naming each one
+    (PRD #69 — the physical gate now stands at the Feature boundary)
 """
 import json
 import os
@@ -38,8 +40,105 @@ def prd_issue(number=18, title="Per-Feature integration branches"):
     }
 
 
+def child(number, parent=18, type_="afk", state="OPEN",
+          label="state:awaiting-bench"):
+    return {
+        "number": number,
+        "title": "Story %d" % number,
+        "labels": [{"name": "type:" + type_}, {"name": label}],
+        "body": "## Acceptance Criteria\n- [ ] it works\n\nParent: #%d\n"
+                "Depends on: None\n" % parent
+                + ("\n## Bench Test Procedure\n- poke it\n"
+                   if type_ == "hil" else ""),
+        "state": state,
+    }
+
+
 def _flat(commands):
     return [tok for cmd in commands for tok in cmd]
+
+
+class TheFeatureBoundaryHilGate(unittest.TestCase):
+    """PRD #69: unverified hardware code reaches the Feature branch, not base."""
+
+    def _plan(self, backlog):
+        return ralph_feature.feature_complete_plan(
+            prd_issue(), base="develop", backlog=backlog)
+
+    def test_an_open_hil_story_refuses_the_integration(self):
+        plan = self._plan([prd_issue(), child(20, type_="hil")])
+
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.steps, [])
+        self.assertIn("#20", " ".join(plan.errors))
+
+    def test_the_refusal_names_every_unverified_hil_story(self):
+        plan = self._plan([prd_issue(), child(20, type_="hil"),
+                           child(21, type_="afk"),
+                           child(22, type_="hil")])
+
+        message = " ".join(plan.errors)
+        self.assertIn("#20", message)
+        self.assertIn("#22", message)
+        self.assertNotIn("#21", message)
+
+    def test_it_proceeds_once_every_hil_story_is_closed(self):
+        plan = self._plan([prd_issue(),
+                           child(20, type_="hil", state="CLOSED"),
+                           child(22, type_="hil", state="CLOSED")])
+
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertTrue(plan.steps)
+
+    def test_an_all_afk_feature_is_unaffected(self):
+        plan = self._plan([prd_issue(), child(20), child(21, state="CLOSED")])
+
+        self.assertTrue(plan.ok, plan.errors)
+
+    def test_another_features_open_hil_story_is_not_this_features_problem(self):
+        plan = self._plan([prd_issue(), child(30, parent=99, type_="hil")])
+
+        self.assertTrue(plan.ok, plan.errors)
+
+    def test_a_hil_story_still_in_review_counts_as_unverified(self):
+        plan = self._plan([prd_issue(),
+                           child(20, type_="hil", label="state:in-review")])
+
+        self.assertFalse(plan.ok)
+
+    def test_the_refusal_stops_this_feature_and_nothing_else(self):
+        plan = self._plan([prd_issue(), child(20, type_="hil")])
+
+        self.assertNotIn("needs-human", " ".join(plan.errors))
+        self.assertEqual(plan.steps, [])
+
+    def test_the_feature_still_integrates_as_one_merge_into_base(self):
+        plan = self._plan([prd_issue(), child(20, state="CLOSED")])
+        step = next(s for s in plan.steps if s["name"] == "pr-create")
+        create, merge = step["commands"]
+
+        self.assertEqual(create[create.index("--base") + 1], "develop")
+        self.assertEqual(create[create.index("--head") + 1],
+                         "feature/18-per-feature-integration-branches")
+        self.assertIn("--merge", merge)
+        self.assertNotIn("--squash", merge)
+
+    def test_the_feature_pull_request_is_not_offered_for_model_review(self):
+        """Every Story it contains was reviewed on its own pull request."""
+        import ralph_review
+
+        plan = self._plan([prd_issue(), child(20, state="CLOSED")])
+        step = next(s for s in plan.steps if s["name"] == "pr-create")
+
+        self.assertNotIn(ralph_review.MANAGED_PR_MARKER,
+                         " ".join(_flat(step["commands"])))
+
+    def test_a_backlog_that_was_not_supplied_leaves_the_gate_unevaluated(self):
+        # The live CLI reads the backlog and refuses when it cannot; the pure
+        # plan simply reports what it was given.
+        plan = ralph_feature.feature_complete_plan(prd_issue(), base="develop")
+
+        self.assertTrue(plan.ok, plan.errors)
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +391,28 @@ class CliCompleteFeature(unittest.TestCase):
             self.assertIn("pr merge", calls)
             self.assertIn("issue close 18", calls)
             self.assertNotIn("main", calls)
+
+    def test_an_unverified_hil_story_refuses_the_integration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp)
+            backlog = json.dumps([prd_issue(), child(20, type_="hil")])
+            gh = os.path.join(tmp, "gh")
+            with open(gh, "w") as fh:
+                fh.write('#!/usr/bin/env bash\n'
+                         'echo "gh $*" >> "$RALPH_LOG"\n'
+                         'if [[ "$1 $2" == "issue list" ]]; then\n'
+                         '  cat <<\'JSON\'\n%s\nJSON\n'
+                         'fi\n' % backlog)
+            os.chmod(gh, os.stat(gh).st_mode | stat.S_IEXEC)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            proc = self._run(prd_issue(), config, tmp, log)
+
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertIn("#20", proc.stderr)
+            with open(log) as fh:
+                calls = fh.read()
+            self.assertNotIn("pr merge", calls)
+            self.assertNotIn("issue close", calls)
 
     def test_refuses_main_base_exits_two(self):
         with tempfile.TemporaryDirectory() as tmp:
