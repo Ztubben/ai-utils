@@ -567,6 +567,14 @@ not HITL) and `docs/adr/0001–0005`.
   same-model refusal is unaffected (a pair is one identity either way round). Fixed roles:
   committed `models.alternate: false` (schema default true) or `--fixed-roles` on
   `--assign-models` only — `--resolve-models` rejects the flag rather than ignoring it.
+- The tick harness (`test/unit/test_orchestrate.py`) mocks `git ls-remote --exit-code --heads
+  origin <branch>` from `TickHarness.set_remote_branches(...)` — unpinned means "origin has
+  none", which is what an unstarted Feature looks like, so a Feature Story's first green
+  iteration creates its Feature branch. `TheStoryIsTheUnitOfThePullRequest` (#77) drives
+  PRD #69's whole topology through `bin/ralph.sh` offline. GOTCHA: the Feature completion
+  pass's gating steps shell `make` (from `full.yml`), so a test that expects the pass to
+  reach `gh pr create` must call `harness.mock_make()` — otherwise gating fails and the
+  blocker path runs instead, which looks like "nothing happened".
 - **Test harness gotcha**: the tick harnesses (`test/unit/test_orchestrate.py`,
   `test/unit/test_freshness.py`, `test/bats/orchestration.bats`) inherit the ambient
   environment. A Ralph iteration exports the provider binary overrides (`RALPH_CLAUDE` /

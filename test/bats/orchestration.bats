@@ -267,6 +267,9 @@ prd() {
   # Queue 1: backlog with eligible PRD #10 (ready-features scan)
   echo "[$(prd 10),$(story 11 ready afk | sed 's/"state":"OPEN"/"state":"CLOSED"/;s/Parent: None/Parent: #10/')]" \
     > "$SP/ghq/1.json"
+  # Queue 2: the same backlog again -- --complete-feature reads it to check
+  # the Feature's HIL Stories before integrating (PRD #69).
+  cp "$SP/ghq/1.json" "$SP/ghq/2.json"
   # issue view returns the PRD for --complete-feature
   prd 10 > "$SP/ghq/story.json"
   # Mock make for gating steps

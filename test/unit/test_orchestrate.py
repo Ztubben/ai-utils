@@ -56,6 +56,22 @@ def story(number, state, type_="afk", prio=1, needs_human=False):
             "body": body, "state": "OPEN"}
 
 
+def feature_story(number, state, type_="afk", parent=42, prio=1):
+    """A Story belonging to the Feature whose PRD is *parent*."""
+    s = story(number, state, type_, prio=prio)
+    s["body"] = s["body"].replace("Parent: None", "Parent: #%d" % parent)
+    return s
+
+
+def prd_issue(number=42, title="Per-Story pull requests", state="OPEN"):
+    return {"number": number, "title": title, "state": state,
+            "labels": [{"name": "prd"}, {"name": "state:ready"}],
+            "body": "## What to build\nthe Feature\n\nDepends on: None\n"}
+
+
+FEATURE_BRANCH = "feature/42-per-story-pull-requests"
+
+
 def _write_exec(path, contents):
     with open(path, "w") as fh:
         fh.write(contents)
@@ -162,6 +178,18 @@ class TickHarness:
         with open(os.path.join(self.queue, "pr-view.json"), "w") as fh:
             json.dump(view if view is not None else (listing or [{}])[0], fh)
 
+    def mock_make(self):
+        """full.yml's gating steps shell `make`; the completion pass runs them."""
+        _write_exec(os.path.join(self.tmp, "mockbin", "make"), textwrap.dedent("""\
+            #!/usr/bin/env bash
+            echo "make $*" >> "$RALPH_LOG"
+            """))
+
+    def set_remote_branches(self, *names):
+        """The branches `git ls-remote` reports origin already carries."""
+        with open(os.path.join(self.queue, "branches.txt"), "w") as fh:
+            fh.write("".join(name + "\n" for name in names))
+
     def set_view_story(self, s):
         with open(os.path.join(self.queue, "story.json"), "w") as fh:
             json.dump(s, fh)
@@ -221,6 +249,13 @@ class TickHarness:
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
+            if [[ "$1" == "ls-remote" ]]; then
+              # Which branches origin already has. Unpinned means "none", which
+              # is what an unstarted Feature looks like.
+              b="${@: -1}"
+              grep -qxF "$b" "$RALPH_GH_QUEUE_DIR/branches.txt" 2>/dev/null || exit 2
+              exit 0
+            fi
             if [[ "$1" == "rev-parse" ]]; then
               case "$2" in
                 --*) ;;
@@ -872,6 +907,223 @@ class OrchestrationTest(unittest.TestCase):
         log = h.log_lines()
         self.assertTrue(h.agent_calls(), log)
         self.assertFalse(any("pr merge" in ln or "pr create" in ln for ln in log), log)
+
+
+class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
+    """PRD #69, end to end at the tick, entirely offline.
+
+    Two successive Stories of one Feature each open their own marked pull
+    request against the Feature integration branch; the first merges into it;
+    the second is based on the branch its predecessor merged into, and its
+    first Negotiation Round is round one. The Orphan Story path runs beside it
+    unchanged, as this Feature's regression boundary.
+    """
+
+    def harness(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        return TickHarness(tmp)
+
+    def test_no_provider_override_survives_into_the_tick(self):
+        """Offline by construction: only the fakes on PATH can be launched."""
+        env = self.harness().env()
+        for adapter in ralph_agent.PROVIDERS.values():
+            self.assertNotIn(adapter.binary_env, env)
+
+    # -- the Feature's first Story ------------------------------------------
+
+    def test_the_first_story_creates_the_feature_branch_and_its_own_pr(self):
+        h = self.harness()
+        h.set_backlogs([prd_issue(), feature_story(20, "ready")], [], [], [])
+        h.set_view_stories(prd_issue(), feature_story(20, "in-progress"))
+        h.set_remote_branches()  # the Feature has not started yet
+
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertTrue(any("git push origin origin/develop:refs/heads/%s"
+                            % FEATURE_BRANCH in ln for ln in log), log)
+        self.assertTrue(any("git push -u origin HEAD:ralph/20-story-20" in ln
+                            for ln in log), log)
+        create = next(ln for ln in log if "pr create" in ln)
+        self.assertIn("--base %s" % FEATURE_BRANCH, create)
+        self.assertIn("--head ralph/20-story-20", create)
+        self.assertIn("ralph-managed-pr:v1", create)
+        self.assertFalse(any("pr merge" in ln or "issue close" in ln
+                             for ln in log), log)
+
+    def test_the_feature_branch_is_not_recreated_once_it_exists(self):
+        h = self.harness()
+        h.set_backlogs([prd_issue(), feature_story(20, "ready")], [], [], [])
+        h.set_view_stories(prd_issue(), feature_story(20, "in-progress"))
+        h.set_remote_branches(FEATURE_BRANCH)
+
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("refs/heads/%s" % FEATURE_BRANCH in ln
+                             for ln in log), log)
+        self.assertTrue(any("--base %s" % FEATURE_BRANCH in ln for ln in log), log)
+
+    def approved(self, h, issue, head="a" * 40):
+        with open(os.path.join(h.queue, "head.txt"), "w") as fh:
+            fh.write(head + "\n")
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % issue
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": head, "baseRefOid": "b" * 40, "comments": [],
+             "reviews": [{"body": "<!-- ralph-review:v1 head=%s -->" % head,
+                          "state": "COMMENTED", "id": "R-0",
+                          "author": {"login": "ralph"}}],
+             "statusCheckRollup": [
+                 {"name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                 {"context": "ralph/model-review", "state": "SUCCESS"}]})
+
+    def test_the_first_story_merges_into_the_feature_branch_and_closes(self):
+        h = self.harness()
+        h.set_review_window(0.005, 0.01)
+        h.set_backlogs([prd_issue(), feature_story(20, "in-review")],
+                       [], [], [])
+        h.set_view_stories(prd_issue(), feature_story(20, "in-review"))
+        h.set_remote_branches(FEATURE_BRANCH)
+        self.approved(h, 20)
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        merge = next(ln for ln in log if "pr merge 70" in ln)
+        self.assertIn("--squash", merge)
+        self.assertIn("--delete-branch", merge)
+        self.assertTrue(any("issue close 20" in ln for ln in log), log)
+
+    # -- the Feature's second Story -----------------------------------------
+
+    def test_the_second_story_opens_its_own_pr_on_the_feature_branch(self):
+        """Its base is the branch its predecessor merged into: the current tip."""
+        h = self.harness()
+        h.set_backlogs([prd_issue(),
+                        dict(feature_story(20, "in-review"), state="CLOSED"),
+                        feature_story(21, "ready")], [], [], [])
+        h.set_view_stories(prd_issue(), feature_story(21, "in-progress"))
+        h.set_remote_branches(FEATURE_BRANCH)
+
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        create = next(ln for ln in log if "pr create" in ln)
+        self.assertIn("--base %s" % FEATURE_BRANCH, create)
+        self.assertIn("--head ralph/21-story-21", create)
+        self.assertNotIn("ralph/20-story-20", create)
+        self.assertTrue(any("Refs #21" in ln for ln in log), log)
+        # The Feature branch already carries its predecessor, so nothing
+        # recreates it off the base branch under the second Story's feet.
+        self.assertFalse(any("origin/develop:refs/heads/" in ln for ln in log), log)
+
+    def test_the_second_storys_first_round_is_round_one(self):
+        """The bug PRD #69 was written for, reproduced at the tick.
+
+        Under the shared pull request the round budget was the *Feature's*: a
+        later Story inherited every round its predecessors spent and escalated
+        to a human at the limit having never been reviewed. Here the pull
+        request carries two earlier Stories' review stamps and the budget is
+        one -- and the Story, which has spent nothing, is still reviewed.
+        """
+        h = self.harness()
+        h.set_review_window(0.005, 0.01, max_rounds=1)
+        h.set_backlogs([prd_issue(), feature_story(21, "in-review")],
+                       [], [], [], [])
+        h.set_view_stories(prd_issue(), feature_story(21, "in-review"))
+        h.set_remote_branches(FEATURE_BRANCH)
+        head = "c" * 40
+        with open(os.path.join(h.queue, "head.txt"), "w") as fh:
+            fh.write(head + "\n")
+        body = "<!-- ralph-managed-pr:v1 -->\n\nRefs #21\n"
+        h.set_pull_requests(
+            [{"number": 70, "body": body}],
+            {"number": 70, "body": body, "state": "OPEN",
+             "headRefOid": head, "baseRefOid": "b" * 40, "comments": [],
+             "reviews": [
+                 {"body": "<!-- ralph-review:v1 head=%s -->" % ("a" * 40)},
+                 {"body": "<!-- ralph-review:v1 head=%s -->" % ("b" * 40)}]})
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("state:blocked" in ln for ln in log), log)
+        self.assertFalse(any("--add-reviewer" in ln for ln in log), log)
+        self.assertTrue(h.agent_calls(), log)  # it reviewed, round one
+
+    # -- the Feature boundary ------------------------------------------------
+
+    def test_a_feature_is_not_integrated_while_a_hil_story_is_open(self):
+        """Two gates agree, and the tick reaches the outer one first.
+
+        A Feature is only *eligible* for the pass once every one of its Stories
+        is closed, so an open HIL Story stops it before the pass is even
+        invoked. The pass's own refusal -- which names each unverified Story --
+        is the net under that, exercised in test_feature_complete.py.
+        """
+        h = self.harness()
+        closed = dict(feature_story(20, "in-review"), state="CLOSED")
+        open_hil = feature_story(21, "awaiting-bench", type_="hil")
+        backlog = [prd_issue(), closed, open_hil]
+        h.set_backlogs([], backlog, backlog, [])
+        h.set_view_stories(prd_issue())
+        h.mock_make()
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        self.assertFalse(any("pr merge" in ln for ln in log), log)
+        self.assertFalse(any("issue close 42" in ln for ln in log), log)
+        self.assertNotIn("completion pass", proc.stdout)
+
+    def test_a_feature_integrates_as_one_merge_once_its_hil_story_closes(self):
+        h = self.harness()
+        verified = dict(feature_story(21, "awaiting-bench", type_="hil"),
+                        state="CLOSED")
+        backlog = [prd_issue(),
+                   dict(feature_story(20, "in-review"), state="CLOSED"),
+                   verified]
+        h.set_backlogs([], backlog, backlog, [])
+        h.set_view_stories(prd_issue())
+        h.mock_make()
+
+        proc = h.run()
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        create = next(ln for ln in log if "pr create" in ln)
+        self.assertIn("--base develop", create)
+        self.assertIn("--head %s" % FEATURE_BRANCH, create)
+        merge = next(ln for ln in log if "pr merge" in ln)
+        self.assertIn("--merge", merge)
+        self.assertTrue(any("issue close 42" in ln for ln in log), log)
+
+    # -- the regression boundary ---------------------------------------------
+
+    def test_an_orphan_story_runs_through_the_same_tick_unchanged(self):
+        h = self.harness()
+        h.set_backlogs([story(7, "ready", "afk")], [], [], [])
+        h.set_view_story(story(7, "in-progress", "afk"))
+
+        proc = h.run(agent_emit=STORY_COMPLETE_MARKER)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        create = next(ln for ln in log if "pr create" in ln)
+        self.assertIn("--base develop", create)
+        self.assertIn("--head ralph/7-story-7", create)
+        # No Feature, so origin is never asked about one and none is created.
+        self.assertFalse(any("ls-remote" in ln for ln in log), log)
+        self.assertFalse(any("refs/heads/feature/" in ln for ln in log), log)
 
 
 class TheTickDrivesWhicheverAdapterTheCatalogSelects(unittest.TestCase):
