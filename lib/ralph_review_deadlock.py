@@ -149,7 +149,7 @@ def escalate(story, pull_request, config, root, comments=None):
             sys.stderr.write("ralph: could not read the Story's rounds: %s\n" % exc)
             return 2
     handle = ((config or {}).get("notify") or {}).get("github")
-    rounds = len(ralph_review.review_stamps(pull_request))
+    rounds = ralph_review.rounds_spent(comments)
     plan = escalate_plan(story, pull_request, unsettled(comments), rounds,
                          handle)
     if not plan.ok:

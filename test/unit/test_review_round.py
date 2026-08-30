@@ -654,29 +654,46 @@ class DurableResultRecord(unittest.TestCase):
 
 
 class RoundNumbering(unittest.TestCase):
-    def test_a_fresh_pull_request_is_round_one(self):
-        self.assertEqual(ralph_review_round.next_round(pull_request()), 1)
+    """Rounds are counted on the Story, not on whatever shares its PR."""
+
+    def recorded(self, *heads):
+        return [{"body": ralph_review.result_record(
+            dict(fixture("valid-inline.json"), head=head, round=index + 1))}
+            for index, head in enumerate(heads)]
+
+    def test_a_story_with_no_recorded_round_is_round_one(self):
+        self.assertEqual(ralph_review_round.next_round([]), 1)
+        self.assertEqual(ralph_review_round.next_round(None), 1)
 
     def test_each_published_review_advances_the_round(self):
-        reviewed = pull_request(reviews=[
-            {"body": ralph_review.review_marker("0" * 40)},
-            {"body": ralph_review.review_marker("1" * 40)},
-        ])
-        self.assertEqual(ralph_review_round.next_round(reviewed), 3)
+        self.assertEqual(
+            ralph_review_round.next_round(self.recorded("0" * 40, "1" * 40)), 3)
 
     def test_a_human_review_is_not_a_negotiation_round(self):
-        human = pull_request(reviews=[{"body": "looks good to me"}])
+        human = [{"body": "looks good to me"}]
         self.assertEqual(ralph_review_round.next_round(human), 1)
 
     def test_re_reviewing_one_head_still_advances_the_round(self):
         # A disputed round is judged again at the same commit. Counting heads
         # would hand it the number it just used, so a round limit measured in
         # rounds would never be reached by a model that only ever disputes.
-        disputed = pull_request(reviews=[
-            {"body": ralph_review.review_marker(HEAD)},
-            {"body": ralph_review.review_marker(HEAD)},
+        self.assertEqual(
+            ralph_review_round.next_round(self.recorded(HEAD, HEAD)), 3)
+
+    def test_a_sibling_storys_rounds_are_not_this_storys(self):
+        """PRD #69: the count is the Story's, however busy its Feature was.
+
+        Under the shared pull request a Feature's later Stories inherited every
+        round their predecessors had spent, and one escalated at the limit
+        having never been reviewed. A Story's rounds live on the Story.
+        """
+        busy_pull_request = pull_request(reviews=[
+            {"body": ralph_review.review_marker("a" * 40)},
+            {"body": ralph_review.review_marker("b" * 40)},
+            {"body": ralph_review.review_marker("c" * 40)},
         ])
-        self.assertEqual(ralph_review_round.next_round(disputed), 3)
+        self.assertEqual(len(ralph_review.review_stamps(busy_pull_request)), 3)
+        self.assertEqual(ralph_review_round.next_round([]), 1)
 
 
 class ADisputedHeadIsJudgedAgain(unittest.TestCase):

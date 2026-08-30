@@ -110,17 +110,17 @@ def _json_objects(text):
                 yield text[start:index + 1]
 
 
-def next_round(pull_request):
-    """Which Negotiation Round this pull request is owed next.
+def next_round(comments):
+    """Which Negotiation Round this **Story** is owed next.
 
-    Counted from the reviews Ralph has already published, so the number is a
-    fact about the pull request rather than loop-local bookkeeping.  Reviews,
-    not distinct heads: a disputed round is judged again at the same commit,
-    and counting heads would hand it the number it just used -- which would
-    make a round limit unreachable by a model that only ever disputes.  A human
-    review is not a round and never advances it.
+    Counted from the review results recorded on the Story issue, so the number
+    is a durable fact about the Story rather than loop-local bookkeeping -- and
+    a fact about the Story rather than about whatever else shares its pull
+    request.  A Story's first round is round one however many Stories preceded
+    it in the same Feature.  A human review records nothing here and so never
+    advances it.
     """
-    return len(ralph_review.review_stamps(pull_request)) + 1
+    return ralph_review.rounds_spent(comments) + 1
 
 
 def review_prompt(context, prompt_path=REVIEW_PROMPT):
@@ -145,7 +145,7 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
     # though the commit has not moved, because that is what a dispute is.
     if not ralph_review.needs_review(pull_request, comments):
         return RoundResult(True, [], ALREADY_REVIEWED, head=head)
-    round_no = next_round(pull_request)
+    round_no = next_round(comments)
     outcome, errors = launch(review_prompt(context))
     if outcome is None:
         return RoundResult(False, errors, REFUSED, head=head)
@@ -342,7 +342,7 @@ def run_round(story, pull_request, config, root, comments=None):
               % (head, pull_request.get("number", "?")))
         return 0
 
-    round_no = next_round(pull_request)
+    round_no = next_round(comments)
     try:
         context, diff = ralph_review_context.bundle_for(
             story, pull_request, round_no, root, comments=comments)

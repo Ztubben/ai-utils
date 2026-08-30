@@ -130,10 +130,12 @@ def next_step(pull_request, comments=None, max_rounds=None, protected=()):
         owed = RESPOND
     if owed is None:
         return WAIT
-    # The budget is spent in *rounds*, counted across the whole pull request:
-    # a review of an amended head and a re-review after a dispute both cost
-    # one, because both spend an invocation on the same disagreement.
-    spent = len(ralph_review.review_stamps(pull_request))
+    # The budget is spent in *rounds*, counted against this **Story**: a review
+    # of an amended head and a re-review after a dispute both cost one, because
+    # both spend an invocation on the same disagreement.  Counted on the Story
+    # rather than on the pull request, so a Story's budget is its own however
+    # many Stories preceded it in the same Feature.
+    spent = ralph_review.rounds_spent(comments)
     if max_rounds is not None and spent >= max_rounds:
         return ESCALATE
     return owed

@@ -122,6 +122,15 @@ class TheEscalationComment(unittest.TestCase):
         self.assertIn("The behaviour is already covered.", body)
         self.assertIn("test_review_result.py:210", body)
 
+    def test_it_reports_the_rounds_this_story_itself_spent(self):
+        """The deadlock report is about the disagreement it names."""
+        body = ralph_review_deadlock.escalation_comment(
+            story(), ralph_review_deadlock.unsettled(deadlocked()),
+            rounds=ralph_review.rounds_spent(deadlocked()), handle="someone")
+
+        self.assertEqual(ralph_review.rounds_spent(deadlocked()), 2)
+        self.assertIn("2", body)
+
     def test_it_names_the_human_and_says_the_models_are_finished(self):
         body = self.body()
 

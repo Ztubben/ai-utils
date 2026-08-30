@@ -223,7 +223,7 @@ def _apply_requested_changes(story, pull_request, decision, config, root,
     head = pull_request.get("headRefOid")
     try:
         context, _diff = ralph_review_context.bundle_for(
-            story, pull_request, ralph_review_round.next_round(pull_request),
+            story, pull_request, ralph_review_round.next_round(comments),
             root, comments=comments, for_role="implementation")
     except (OSError, ValueError, RuntimeError) as exc:
         sys.stderr.write("ralph: could not assemble review context: %s\n" % exc)

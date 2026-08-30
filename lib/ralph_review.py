@@ -243,6 +243,32 @@ def negotiation_history(comments):
     return history
 
 
+def story_rounds(comments):
+    """Every Negotiation Round this Story has spent, oldest first.
+
+    Read off the Story's own recorded review results rather than off a pull
+    request's reviews.  The two agree once each Story owns its pull request,
+    but reading the Story makes that agreement structural: a count taken from
+    the pull request was, under the shared-pull-request topology, a count of
+    the *Feature's* rounds, and a Feature's second Story inherited every round
+    its predecessors had spent -- one deployment escalated a Story to a human
+    at the round limit having never been reviewed once.
+    """
+    return [entry for entry in negotiation_history(comments)
+            if entry["kind"] == "review"]
+
+
+def rounds_spent(comments):
+    """How many Negotiation Rounds this Story has spent.
+
+    Rounds, not distinct heads: a disputed round is judged again at the same
+    commit and costs an invocation just the same, so counting heads would make
+    a round limit unreachable by a model that only ever disputes.  A human
+    review records nothing here and so never advances the count.
+    """
+    return len(story_rounds(comments))
+
+
 def previous_findings(comments):
     """The findings of the most recently recorded review, whatever head it judged.
 

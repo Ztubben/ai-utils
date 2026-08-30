@@ -128,6 +128,27 @@ class NextStep(unittest.TestCase):
                 max_rounds=2),
             ralph_review_wait.ESCALATE)
 
+    def test_the_budget_is_the_storys_own_not_its_pull_requests(self):
+        """PRD #69: a Story spends only the rounds recorded against it.
+
+        Reviews the Story did not itself spend can no longer exhaust its
+        budget -- which is exactly how a Feature's third Story once escalated
+        at the limit having never been reviewed once.
+        """
+        self.assertEqual(
+            ralph_review_wait.next_step(
+                self.stamps(3), comments=[self.changes_requested()],
+                max_rounds=2),
+            ralph_review_wait.RESPOND)
+
+    def test_a_story_with_no_recorded_round_is_never_escalated(self):
+        elsewhere = pull_request(reviews=[
+            {"body": ralph_review.review_marker("0" * 40)} for _ in range(5)])
+
+        self.assertEqual(
+            ralph_review_wait.next_step(elsewhere, comments=[], max_rounds=1),
+            ralph_review_wait.REVIEW)
+
     def test_a_negotiation_inside_its_budget_keeps_negotiating(self):
         self.assertEqual(
             ralph_review_wait.next_step(
