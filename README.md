@@ -63,6 +63,7 @@ human must verify on the bench.
 | **Tick** | One scheduled run of the loop (every ~5 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. Only one tick per superproject runs at a time (guarded by a `flock`). |
 | **Iteration** | A single fresh-context agent process inside a tick. Ralph **never compacts context** — when it fills, the iteration writes a *Handoff* and the next iteration resumes with clean context. |
 | **Handoff** | The checkpoint an iteration leaves so a story can resume: a summary as an issue comment + WIP commits on the story branch. |
+| **Story pull request** | The one Ralph-managed pull request a story owns, from its own branch into its own base. An Orphan story targets the base branch; a story belonging to a Feature targets that Feature's integration branch, which merges into the base branch as one piece when the Feature is complete ([ADR-0006](docs/adr/0006-per-feature-integration-branches.md)). A Feature's stories never share one, so the reviewed diff and the round budget are each story's own. |
 | **Gating steps** | The build/test/lint checks Ralph must pass before a story counts. You declare them in `.ralph.yml`. |
 | **Learnings** | Durable, reusable knowledge Ralph records in nested `AGENTS.md` files in the superproject (there is no `progress.txt`). |
 
@@ -298,7 +299,8 @@ gating:
 # Ralph integrates into `base` and never touches `main`.
 branching:
   base: develop                            # default: develop
-  branch_pattern: "ralph/{issue}-{slug}"   # {issue}/{slug} substituted
+  branch_pattern: "ralph/{issue}-{slug}"   # every story's own working branch
+  feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue
   afk_merge: squash                        # merge | squash | rebase (default: squash)
 
 # Failure-handling limits.
@@ -495,20 +497,20 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --check-config [PATH]` | Validate `.ralph.yml` (default `./.ralph.yml`) against the schema. |
 | `ralph --lint-story PATH` | Validate a story issue (gh JSON shape; `-` for stdin) against the canonical format. |
 | `ralph --dry-run [PATH]` | Scan the backlog and print the next action (`resume #N` / `start #N` / `no-work` / `halt`), changing nothing. Reads a JSON backlog from `PATH`, or scans live via `gh`. |
-| `ralph --branch-name STORY [CONFIG]` | Print the story branch name from `branch_pattern`. |
+| `ralph --branch-name STORY [CONFIG] [PRD] [--base]` | Print the story's working branch from `branch_pattern` — every story has one, Orphan or Feature. With `--base`, print what that branch is cut from and what its pull request targets instead: the base branch for an Orphan Story, the Feature integration branch (`feature_pattern`, from the PRD issue) for a Feature story. |
 | `ralph --run-gating [CONFIG]` | Run the configured gating steps locally, in order, fail-fast. |
 | `ralph --resolve-models [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model]` | Resolve the implementation/review roles to exact model identities from the committed catalog; an override by profile key wins over the default. Refuses a same-model pair without the acknowledgement. |
 | `ralph --assign-models STORY [CONFIG] [--implementation KEY] [--review KEY] [--allow-same-model] [--fixed-roles]` | Record the story's implementation/review model identities as durable labels (`model:impl:<id>` / `model:review:<id>`, created on demand). Idempotent; an already-assigned story is never rewritten. An unassigned story takes its turn in the role alternation unless `--fixed-roles` (or `models.alternate: false`) holds the order. |
 | `ralph --launch-agent ROLE [CONFIG] [--story PATH] [--implementation KEY] [--review KEY] [--allow-same-model]` | Launch one role's agent in a fresh process through its provider adapter. With `--story`, the story's recorded assignment picks the model. Prompt on stdin, output on stdout; exit code is the outcome (0 normal, 10 session exhaustion, 12 infrastructure failure). |
 | `ralph --reassign-model STORY ROLE PROFILE [CONFIG] --reason TEXT [--allow-same-model]` | Replace one role's recorded model assignment. **Human-only** — nothing in the tick calls it: a provider outage is retried and resumed with the negotiation round intact, and substituting a model is a person's decision. Moves the assignment label to the new identity and records an audit comment carrying the previous identity, the new one and the reason. Refuses a role with no assignment to replace, a profile outside the allowlist, a no-op replacement, a missing reason, and a swap that would collapse both roles onto one identity. |
 | `ralph --normalize-usage PROVIDER [PATH]` | Print one provider's reported token usage (JSON on stdin, or at `PATH`) in the neutral categories — input, cached input, reasoning, output, total — each marked `reported` or `unavailable`. A category the provider does not expose is never estimated or zero-filled. |
-| `ralph --implementation-green STORY [CONFIG] [PRD]` | Push locally green AFK or HIL work, create or update its marked pull request, and move the Story to `state:in-review`. Refuses `main` and unmarked existing PRs; never merges, closes, or enters awaiting-bench. |
+| `ralph --implementation-green STORY [CONFIG] [PRD]` | Push locally green AFK or HIL work to the Story's own branch, create or update the Story's own marked pull request against its base — the base branch for an Orphan Story, the Feature integration branch (created off the base branch on first use) for a Feature Story — and move the Story to `state:in-review`. Refuses `main` and unmarked existing PRs; never merges, closes, or enters awaiting-bench. |
 | `ralph --review-context STORY PR ROUND [ROOT]` | Print the diff-first evidence bundle for one fresh Review Agent round, bound to the pull request's exact head: base/head diff, acceptance criteria, scoped `AGENTS.md`, `CONTEXT.md`/ADRs, CI status, durable PR discussion — no implementation session or Handoff. |
 | `ralph --validate-review PAYLOAD [DIFF]` | Validate a Review Agent's structured result (`-` for stdin) against the versioned contract in [`docs/review-contract.md`](docs/review-contract.md) before it is rendered as a GitHub review. Names the offending field paths on rejection; with the reviewed `DIFF`, also rejects a source location the diff never touched. |
 | `ralph --render-review REVIEW PR [DIFF]` | Render a validated review result onto its pull request: inline threads for located findings, review body for cross-cutting ones, and the one stable required check `ralph/model-review` carrying the verdict. Re-validates first; a result for a stale head posts nothing. |
 | `ralph --review-round STORY [CONFIG] [ROOT] [--pr PATH]` | Run one Negotiation Round for a Story In Review: find its marked pull request, skip a head that already carries its review, then launch the Story's assigned Review Agent once — fresh, read-only, holding no GitHub credential — validate what comes back, and publish it. Runs concurrently with CI and never waits for a check. |
 | `ralph --await-review STORY [CONFIG] [ROOT]` | Wait out one bounded review window inside the tick: poll durable GitHub state with backing-off intervals (`review.wait_minutes`, default 60), run whichever round the state calls for — a review of an unreviewed head, or an answer to one that requested changes — and otherwise just wait, with no context and no invocation. Exits 14 when the window closes, which is the tick's cue to write a Handoff. |
-| `ralph --complete-story STORY [CONFIG] [ROOT] [--pr PATH] [--prd PATH]` | Complete a Story whose current head passed **both** halves of the gate: CI green, and the one `ralph/model-review` context satisfied by an approving model review or by a human's Approve. An AFK Orphan Story is merged into base per `branching.afk_merge` (default squash — base gets one clean commit, the pull request keeps the whole negotiation as its audit history) and closed as Passing; an AFK Feature Story closes as Passing without merging (its code integrates when the Feature merges, ADR-0006). A HIL Story is never merged: it records a bench anchor at the exact head and moves to `state:awaiting-bench`, still open. Never targets `main`. |
+| `ralph --complete-story STORY [CONFIG] [ROOT] [--pr PATH] [--prd PATH]` | Complete a Story whose current head passed **both** halves of the gate: CI green, and the one `ralph/model-review` context satisfied by an approving model review or by a human's Approve. An AFK Story merges its own pull request into its own base per `branching.afk_merge` (default squash — the base gets one clean commit, the pull request keeps the whole negotiation as its audit history) and closes as Passing: into the base branch for an Orphan Story, into the Feature integration branch for a Feature Story, whose code reaches the base branch when the Feature merges (ADR-0006). A HIL Feature Story merges the same way and then records a bench anchor at the exact reviewed head and moves to `state:awaiting-bench`, still open, so the Stories after it can build on it; a HIL Orphan Story is not merged at all before verification. Never targets `main`. |
 | `ralph --arbitrate-review STORY [CONFIG] [ROOT] [--pr PATH]` | Act on the human's native GitHub review. **Approve** is authoritative: it releases the `ralph/model-review` check on the reviewed head even over unresolved model findings, clears any escalation (`state:blocked` → `state:in-review`), and records the override on the Story naming the reviewer and what it overrode. **Request changes** is authoritative feedback: the Story returns to `state:in-review` and the assigned implementation model is launched with the human's own words, append-only like any fix round. An ordinary comment changes no label, check, or state. Each native review is acted on exactly once. |
 | `ralph --blocked-stories [BACKLOG]` | Print the open `state:blocked` story numbers — the Stories a human may have arbitrated since the last tick. |
 | `ralph --escalate-review STORY [CONFIG] [ROOT] [--pr PATH]` | End automated negotiation for one deadlocked Story: summarize every unsettled blocking finding on the pull request with both sides' arguments, request a native GitHub review from `notify.github`, and move the Story from `state:in-review` to `state:blocked`. One Story only — unrelated Stories stay selectable, and whether the loop halts remains `limits.circuit_breaker`'s decision, which this newly blocked Story now counts toward. |
@@ -518,17 +520,24 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --checkpoint STORY SUMMARY [CONFIG]` | Write a Handoff: commit + push WIP to the story branch, post a summary comment, stop. |
 | `ralph --resume STORY [CONFIG]` | Resume a checkpointed in-progress story (check out its branch, surface the latest Handoff). |
 | `ralph --record-attempt STORY REASON [CONFIG]` | Record a failed Attempt; block the story at `max_attempts`. |
+| `ralph --reset-on-block STORY REASON [CONFIG] [PRD]` | Demote a blocked Feature Story and say where its work is. Every story works on its own branch, so the work is already quarantined from its siblings: this pushes that branch, comments the reason and the branch name, and moves the story to `state:blocked`. The Feature branch is never rewound. An Orphan Story is unchanged (no commands). |
 | `ralph --check-breaker [BACKLOG] [CONFIG]` | Trip the circuit breaker (apply `needs-human`, tag the handle) if enough stories are blocked. |
 | `ralph --read-learnings DIR [ROOT]` | Print the nested `AGENTS.md` learnings to read at story start (nearest-first). |
 | `ralph --learn-target PATH [ROOT]` | Print the nearest `AGENTS.md` to promote a learning to. |
 
 **Implementation-green is symmetric; final completion is asymmetric:**
 
-- Both types first follow `push → marked PR create/update → state:in-review`.
-  An unmarked human pull request is outside the automated-review boundary.
-- After review, AFK may merge and close; HIL moves to Awaiting Bench Verification
-  without an automatic merge or close. The open HIL issue keeps dependents
-  ineligible until a human closes it after bench verification.
+- Both types first follow `push → marked PR create/update → state:in-review`,
+  on the Story's own branch and its own pull request. An unmarked human pull
+  request is outside the automated-review boundary.
+- After review, both types merge into the Story's own base — the base branch for
+  an Orphan Story, the Feature integration branch for a Feature Story. AFK then
+  closes as Passing; HIL moves to Awaiting Bench Verification without closing.
+  The open HIL issue keeps dependents ineligible until a human closes it after
+  bench verification, and a Feature is refused integration into the base branch
+  while any of its HIL Stories is still open (ADR-0006).
+- A HIL **Orphan** Story is the one exception that is not merged: nothing stands
+  between it and the base branch, so it waits for the bench first.
 
 The Python logic in `lib/` is pure (returns result objects; no I/O side effects),
 and side-effecting commands use a **plan → run** split: a pure planner emits the
@@ -580,7 +589,9 @@ human-gated one; human approval where it genuinely matters (a protected-path
 change, a deadlock, an override) is enforced by Ralph itself, not by GitHub.
 Administrators stay outside the restriction, so a human can still merge a
 feature-integration pull request (ADR-0006), which carries no model review of its
-own. To reproduce the setting:
+own. A **feature branch needs no protection of its own** — every Story that
+merges into one was reviewed and CI-checked on its own pull request first, and
+the base branch is where the gate has to hold. To reproduce the setting:
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
@@ -596,6 +607,14 @@ gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
 }
 JSON
 ```
+
+**Upgrading a repository that ran the shared-pull-request topology.** Drop
+`branching.rescue_pattern` from `.ralph.yml` — it is no longer a schema key, and
+`ralph --check-config` names it. Then close or retarget by hand any still-open
+shared Feature pull request; its Feature's remaining Stories pick up the new
+topology at their next start, and nothing is re-implemented. The full migration
+is written up in
+[ADR-0006](docs/adr/0006-per-feature-integration-branches.md#migrating-a-feature-already-in-flight).
 
 **The pushing credential needs `workflow` scope.** GitHub refuses a push that
 creates or updates anything under `.github/workflows/` from a token without it,

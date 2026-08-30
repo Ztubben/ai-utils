@@ -113,6 +113,32 @@ class ContextGlossaryDefinesTheVocabulary(unittest.TestCase):
         self.assertIn("submodule", body,
                       "Superproject must remain the submodule-mount case")
 
+    def test_defines_the_per_story_pull_request_vocabulary(self):
+        for term in ("Story Pull Request", "Feature Branch", "Orphan Story",
+                     "Reset-on-block"):
+            self.assertIn(term, self.terms,
+                          "CONTEXT.md must define %s" % term)
+
+    def test_a_story_owns_its_pull_request_not_its_feature(self):
+        """PRD #69: the shared working branch and shared PR are gone."""
+        body = self.terms.get("Story Pull Request", "").lower()
+        self.assertIn("never share", body,
+                      "Story Pull Request must say a Feature's stories never "
+                      "share one")
+        feature = self.terms.get("Feature Branch", "").lower()
+        self.assertIn("its own story branch", feature,
+                      "Feature Branch must say each story works on its own "
+                      "branch")
+        self.assertNotIn("worked directly on the feature branch", feature)
+        self.assertNotIn("plus at most one in-progress story", feature,
+                         "the feature branch no longer carries a story's "
+                         "work in progress at its tip")
+
+    def test_reset_on_block_no_longer_rewinds_or_rescues(self):
+        body = self.terms.get("Reset-on-block", "").lower()
+        self.assertIn("nothing is rewound", body)
+        self.assertNotIn("rescue branch", body)
+
 
 class Adr0001CarriesTheTargetRepositoryAmendment(unittest.TestCase):
     """ADR-0001's superproject-only invariant is replaced by the

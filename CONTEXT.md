@@ -28,13 +28,16 @@ The unit of work described by one PRD: the set of stories whose parent is that P
 _Avoid_: epic, milestone (use "feature")
 
 **Orphan Story**:
-A story with no parent PRD — it belongs to no Feature (e.g. a standalone bugfix or chore). Orphan stories are worked on their own story branch and integrate directly into the base branch when Passing.
+A story with no parent PRD — it belongs to no Feature (e.g. a standalone bugfix or chore). Orphan stories are worked on their own story branch and integrate directly into the base branch when Passing. Every story works on its own story branch; what distinguishes an Orphan Story is only that its pull request targets the base branch rather than a Feature Branch.
 
 **Feature Branch**:
-The integration branch for one Feature, created from the base branch when the Feature's first story starts and named after the PRD issue. All of the Feature's stories are worked directly on the feature branch — there are no per-story branches within a Feature — and it merges into the base branch only when the Feature is complete. Invariant: a feature branch contains only Passing story work, plus at most one in-progress story's WIP at the tip.
+The integration branch for one Feature, created from the base branch when the Feature's first story opens its pull request, and named after the PRD issue. Each of the Feature's stories works on its own story branch cut from the current feature-branch tip and merges into the feature branch through its own pull request; the feature branch merges into the base branch only when the Feature is complete. Invariant: a feature branch contains only reviewed, merged story work — no story's work in progress ever reaches it.
+
+**Story Pull Request**:
+The one Ralph-managed pull request a story owns, from its story branch into its base — the base branch for an Orphan Story, its Feature Branch for a Feature story. The story is the unit of the pull request, so the reviewed diff is that story's change alone and the Negotiation Round budget is that story's own. A Feature's stories never share one.
 
 **Reset-on-block**:
-When a Feature's story is demoted to `state:blocked`, its commits are rewound off the feature branch and preserved on a pushed rescue branch, restoring the feature branch to the last Passing story boundary. The demotion comment on the issue must describe the failure and name the rescue branch.
+When a Feature's story is demoted to `state:blocked`, its work stays where it already is — on its own story branch, which never reached the feature branch — and that branch is pushed so a human can reach it. The demotion comment on the issue must describe the failure and name the branch. Nothing is rewound and no sibling story is disturbed.
 
 **AFK Story** (Away-From-Keyboard):
 A story whose acceptance criteria are fully verifiable by CI alone, with no hardware in the loop (e.g. pure-software logic, parsing, refactors, build config). It is Passing as soon as CI is green; Ralph may immediately continue to the next story.
@@ -54,7 +57,7 @@ _Avoid_: vertical slice, tracer bullet (use "independently verifiable")
 The project-specific set of quality checks Ralph must run and pass before a story counts (e.g. build, unit tests, lint). Declared by each superproject, run **locally** by Ralph (a local mirror of CI, kept low-verbosity to save cost and context), and configurable — the superproject decides which steps Ralph runs.
 
 **Awaiting Bench Verification**:
-The state a HIL story enters after Ralph has implemented it and CI is green, but before the human has confirmed the behavior on the bench. On entering this state the story records its completion commit, and the human verifies at that commit. Ralph may keep implementing other stories that are **not blocked by** a story in this state — including siblings on the same feature branch — but it must not start a story that depends on one.
+The state a HIL story enters after Ralph has implemented it and CI is green, but before the human has confirmed the behavior on the bench. On entering this state the story records its completion commit, and the human verifies at that commit. Ralph may keep implementing other stories that are **not blocked by** a story in this state — including siblings of the same Feature, which build on its merged code — but it must not start a story that depends on one. A Feature is refused integration into the base branch while any of its HIL stories is still unverified, so unverified hardware code reaches the Feature Branch and never the base branch.
 
 **Passing** (a.k.a. **Done**):
 For an AFK story: CI is green. For a HIL story: CI is green **and** the human has bench-verified it. Ralph making CI green is never sufficient to mark a HIL story Passing.
@@ -69,7 +72,7 @@ A single fresh-context agent process within a tick. Ralph **never compacts conte
 _Avoid_: pass, loop, session (use "iteration")
 
 **Handoff**:
-The summary an iteration leaves for the next so a story can resume with clean context: what was done, and the code implemented so far. Stored in the superproject only — the summary as an issue comment (story in `state:in-progress`), the code as WIP commits on the story's working branch (the feature branch for a Feature story, the story branch `ralph/<issue#>-slug` for an Orphan Story), never on `main`. A context-full termination that produces a Handoff is a normal checkpoint, not a failed Attempt.
+The summary an iteration leaves for the next so a story can resume with clean context: what was done, and the code implemented so far. Stored in the superproject only — the summary as an issue comment (story in `state:in-progress`), the code as WIP commits on the story's own working branch (`ralph/<issue#>-slug`, whichever kind of story it is), never on `main`. A context-full termination that produces a Handoff is a normal checkpoint, not a failed Attempt.
 
 **Learnings**:
 Durable, reusable knowledge (conventions, gotchas, HAL patterns) Ralph records in nested `AGENTS.md` files in the superproject, read at story start and updated on genuine discoveries. Global across all features. Distinct from a Handoff, which is transient per-story resume state. At story completion Ralph promotes reusable knowledge to `AGENTS.md` and leaves story-specific notes on the issue. There is no `progress.txt`.

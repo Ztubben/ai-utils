@@ -41,7 +41,15 @@ not HITL) and `docs/adr/0001–0005`.
   Don't confuse gh's `state` (OPEN/CLOSED) with the `state:` label (ready/in-progress/…).
   Backlog fixtures (JSON arrays of gh-shaped issues) live under `test/fixtures/backlogs/`.
 - `lib/ralph_iterate.py` holds the deterministic seams of one iteration: `branch_name`/
-  `slugify` (pure — story branch from `branch_pattern`, `{issue}`/`{slug}` substituted) and
+  `slugify` (pure — story branch from `branch_pattern`, `{issue}`/`{slug}` substituted),
+  `resolve_topology` (#70, PRD #69 — the two names one Story has: the working branch it
+  commits on and the base its pull request targets; `resolve_branch` is the first half.
+  Every Story works on its own story branch, Orphan or Feature; **only the base differs**,
+  an Orphan Story's being `branching.base` and a Feature Story's its Feature branch from
+  `feature_pattern` over the PRD issue. Resolved together on purpose — a caller that
+  computed them apart could push one Story's branch and open its pull request against
+  another Story's base. `--branch-name` still prints one branch name by default, so
+  existing callers are untouched, and reports the base under `--base`) and
   `run_gating` (shells the configured steps in order, fail-fast, captures stdout+stderr,
   returns a `GatingResult`). `--run-gating` is low-verbosity: passing steps print only a
   check line, a failing step's output goes to stderr. The judgment-heavy TDD itself lives
@@ -76,6 +84,16 @@ not HITL) and `docs/adr/0001–0005`.
   and that is what US-009's attempt counter must operate on. The judgment-heavy "when to
   checkpoint / never compact" discipline lives in the checked-in prompt
   `prompts/handoff.v1.md` (drift-guarded).
+- **The Story is the unit of the pull request** (PRD #69, #70–#77). Read ADR-0006's
+  *Amended* bullets before touching branching, completion, or round counting: a Feature's
+  Stories no longer share a working branch or a pull request, so the Negotiation Round
+  budget is counted on the **Story** (`ralph_review.rounds_spent(comments)`, off the
+  recorded review results) and never on the pull request (#72) — the old count was the
+  *Feature's*, and a live deployment escalated a Feature's third Story at `max_rounds` with
+  zero rounds against it. The physical gate moved with the topology: `ralph_feature.
+  unverified_hil_stories` refuses a Feature integration while any of its HIL Stories is
+  open, naming each, and the live CLI **fails closed** on a backlog it cannot read (#74).
+  `branching.rescue_pattern` and the feature-branch boundary record are gone (#75).
 - `lib/ralph_failure.py` is the failure-handling seam (US-009, ADR-0004): same
   `Plan`/`run_plan`/CLI shape. A failed **Attempt** is recorded as an issue comment
   carrying `ATTEMPT_MARKER`; `count_attempts` is built on
@@ -90,7 +108,11 @@ not HITL) and `docs/adr/0001–0005`.
   select). CLI: `--record-attempt STORY REASON [CONFIG]`, `--check-breaker [BACKLOG]
   [CONFIG]`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
   state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
-  `prompts/failure.v1.md` (drift-guarded).
+  `prompts/failure.v1.md` (drift-guarded). `reset_on_block_plan` no longer rewinds
+  anything (#75, PRD #69): with per-Story branches a blocked Story's work is quarantined
+  from its siblings by construction, so the plan is push-its-own-branch → demotion comment
+  naming that branch and the reason → `state:blocked`, never `--force`. An Orphan Story
+  keeps the empty-plan behaviour and the caller's `attempt_plan` demotion.
 - `lib/ralph_models.py` is the model-profile seam (#44, PRD #42): pure logic, **no**
   `Plan`/git/gh (resolution decides, it does not mutate). `profiles(config)` reads the
   catalog into `{key: ModelProfile(key, provider, model)}`; `resolve_roles(config,
@@ -113,10 +135,16 @@ not HITL) and `docs/adr/0001–0005`.
 - `lib/ralph_review.py` owns the exact durable pull-request opt-in marker and
   `is_managed_pr`; an unmarked PR is never eligible for automated review. Locally green
   implementation promotion (#49) lives in `lib/ralph_implementation.py`: its pure
-  `implementation_green_plan` pushes the resolved Story/Feature branch, creates a marked PR
-  or updates the already-open marked PR, and moves both AFK and HIL Stories to
-  `state:in-review`. It never merges, closes, or emits `state:awaiting-bench`, and refuses
-  `main` and an unmarked existing PR. `bin/ralph.sh` calls `--implementation-green` for the
+  `implementation_green_plan` pushes the Story's own branch, creates a marked PR
+  or updates the already-open marked PR **against the Story's resolved base**, and moves
+  both AFK and HIL Stories to `state:in-review`. It never merges, closes, or emits
+  `state:awaiting-bench`, and refuses `main` and an unmarked existing PR. Since #71
+  (PRD #69) each Story owns exactly one pull request: a Feature Story's targets its Feature
+  branch, which the plan creates off the base branch when `feature_exists=False` (the CLI
+  asks origin, via `remote_branch_exists`, and only for a Story that has a Feature at all).
+  GOTCHA: the review bundle needed **no** change for this — its diff is the pull request's
+  own `baseRefOid..headRefOid`, so once the base is the Feature branch that range *is* the
+  Story's change and a sibling's commits sit behind it. `bin/ralph.sh` calls `--implementation-green` for the
   done signal; the older AFK/HIL completion modules are no longer implementation-green paths.
 - `lib/ralph_review_context.py` builds the diff-first, commit-bound evidence bundle for one
   Negotiation Round (#50, PRD #42): pure `build_context(...) -> ContextResult` plus the
@@ -336,11 +364,14 @@ not HITL) and `docs/adr/0001–0005`.
   human decision. (3) HIL and AFK take the same gate and diverge only here: a HIL Story
   is **never** merged and never closed, it records a bench anchor at the exact head and
   parks at `state:awaiting-bench`. Model review never replaces physical verification.
-  (4) An AFK **Feature** Story closes as Passing *without* merging and leaves its marked
-  pull request open — its siblings share it, and a Feature's code integrates only when
-  the Feature merges (ADR-0006). Only an Orphan Story merges, and `branching.afk_merge`
-  (default `squash`) is honoured: squash is what leaves base one clean commit while the
-  pull request keeps every round, fix and dispute. (5) `complete` fetches the PRD itself
+  (4) Since #73 (PRD #69) completion is uniform: every Story merges **its own** pull
+  request into **its own** base per `branching.afk_merge` (default `squash` — one clean
+  commit on the base while the pull request keeps every round, fix and dispute) and deletes
+  the branch. An AFK Story closes as Passing there; a HIL **Feature** Story merges the same
+  way and *then* parks at `state:awaiting-bench`, so its successors build on its code. The
+  one Story that is still never merged before the bench is a HIL **Orphan** Story: nothing
+  stands between it and the base branch. Its anchor names the reviewed commit plus
+  `git fetch origin refs/pull/N/head`, because the branch is gone after the merge. (5) `complete` fetches the PRD itself
   when the Story has a `Parent:`, so no caller has to know to do it first. (6) This is
   the review-gated successor to `--complete-afk`/`--complete-hil`, which remain as the
   pre-review paths; do not add review logic to those.
