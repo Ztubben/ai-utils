@@ -36,8 +36,7 @@
 #   ralph --resume STORY [CONFIG]  Resume a checkpointed in-progress story (check out its branch).
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
 #   ralph --complete-feature PRD [CONFIG]  Integrate a complete Feature into base (ADR-0006).
-#   ralph --record-boundary STORY [CONFIG] [PRD] SHA  Record the feature-branch boundary SHA at story start.
-#   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Quarantine a blocked Feature story on a rescue branch.
+#   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Demote a blocked Feature story, naming its branch.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
 #   ralph --needs-freshness ISSUE# [BACKLOG]  Print yes/no: does this Feature story need a base merge?
 #   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
@@ -79,7 +78,6 @@ usage: ralph --init [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG] [--comment-only]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
-       ralph --record-boundary STORY [CONFIG] [PRD] SHA
        ralph --reset-on-block STORY REASON [CONFIG] [PRD]
        ralph --check-breaker [BACKLOG] [CONFIG]
        ralph --needs-freshness ISSUE# [BACKLOG]
@@ -395,22 +393,15 @@ usage: ralph --init [CONFIG]
                           failed Attempts the story moves to state:blocked. A
                           context-full checkpoint is not an Attempt. Exits 0 on
                           success, 1 on a gh failure, 2 on bad config.
-  --record-boundary STORY Record the feature-branch boundary SHA at story start
-       [CONFIG] [PRD] SHA (gh --json shape; - for stdin). For a Feature story
-                          (Parent: #N), posts a boundary comment on the issue
-                          recording SHA so reset-on-block can rewind to it. For
-                          an Orphan Story, does nothing (exits 0). PRD is the
-                          gh --json path for the Feature's PRD issue. Exits 0
-                          on success, 1 on a gh failure, 2 on bad config or
-                          refusal.
-  --reset-on-block STORY  Quarantine a blocked Feature story on a rescue branch
-       REASON [CONFIG]    (gh --json shape; - for stdin). Pushes the story's
-       [PRD]              work to a rescue branch (rescue_pattern), rewinds the
-                          feature branch to the recorded boundary SHA, and posts
-                          a demotion comment naming the rescue branch. Orphan
-                          Stories are unchanged (exits 0, no commands). Exits 0
-                          on success, 1 on a git/gh failure, 2 on bad config
-                          or refusal.
+  --reset-on-block STORY  Demote a blocked Feature story and say where its work
+       REASON [CONFIG]    is (gh --json shape; - for stdin). Every story works
+       [PRD]              on its own branch, so the work is already quarantined
+                          from its siblings: this pushes that branch, posts a
+                          demotion comment naming it and the REASON, and moves
+                          the story to state:blocked. The Feature branch is
+                          never rewound. Orphan Stories are unchanged (exits 0,
+                          no commands). Exits 0 on success, 1 on a git/gh
+                          failure, 2 on bad config or refusal.
   --check-breaker         Trip the circuit breaker if limits.circuit_breaker stories
        [BACKLOG] [CONFIG] are state:blocked: apply needs-human and tag the configured
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
@@ -569,10 +560,6 @@ main() {
     --record-attempt)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-attempt "$@"
-      ;;
-    --record-boundary)
-      shift
-      exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-boundary "$@"
       ;;
     --reset-on-block)
       shift
