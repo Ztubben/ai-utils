@@ -1,10 +1,14 @@
 """Contract tests for review-gated completion (#59).
 
 The end of the loop. Once the current head's CI is green and the model-review
-gate is satisfied -- by an approving review or by a human's approval -- an AFK
-Story is squash-merged and closes as Passing, and a HIL Story is parked at
-Awaiting Bench Verification instead, because model review never replaces
-physical verification. Neither path ever targets main.
+gate is satisfied -- by an approving review or by a human's approval -- a Story
+merges its own pull request into its own base: the base branch for an Orphan
+Story, the Feature integration branch for a Feature Story. An AFK Story closes
+there as Passing. A HIL Feature Story merges too and then parks at Awaiting
+Bench Verification, because model review never replaces physical verification
+and the gate that enforces that now stands at the Feature boundary. A HIL
+Orphan Story has no Feature branch to merge into and is not merged at all.
+Neither path ever targets main.
 """
 import json
 import os
@@ -154,15 +158,43 @@ class CompletingAnAfkStory(unittest.TestCase):
         self.assertFalse(plan.ok)
         self.assertEqual(plan.commands, [])
 
-    def test_a_feature_story_closes_as_passing_without_merging_anything(self):
-        # ADR-0006: a Feature's code integrates when the Feature merges, not
-        # story by story. The marked pull request stays open for its siblings.
-        plan = self.plan(story=story(parent=42), prd=prd())
+    def test_an_orphan_story_merges_into_the_base_branch(self):
+        plan = self.plan(base="develop")
+
+        self.assertEqual(plan.base, "develop")
+        self.assertTrue(plan.merged)
+
+    def test_a_feature_story_merges_into_its_feature_branch_and_closes(self):
+        # PRD #69: the Story is the unit of the pull request, so a Feature
+        # Story completes exactly as an Orphan Story does, one base along.
+        plan = self.plan(story=story(parent=42), prd=prd(), base="develop")
 
         self.assertTrue(plan.ok, plan.errors)
+        self.assertTrue(plan.merged)
+        self.assertEqual(plan.base, "feature/42-prd-model-review")
         flat = [" ".join(c) for c in plan.commands]
-        self.assertFalse(any("pr merge" in c for c in flat), flat)
+        self.assertTrue(any("pr merge 70" in c for c in flat), flat)
         self.assertTrue(any(c.startswith("gh issue close 59") for c in flat), flat)
+
+    def test_a_feature_story_says_where_its_code_reaches_the_base_branch(self):
+        flat = self.flat(story=story(parent=42), prd=prd(), base="develop")
+        close = next(c for c in flat if c.startswith("gh issue close"))
+
+        self.assertIn("feature/42-prd-model-review", close)
+        self.assertIn("Feature #42", close)
+
+    def test_the_merge_strategy_follows_afk_merge_whatever_the_base(self):
+        for method, flag in (("merge", "--merge"), ("squash", "--squash"),
+                             ("rebase", "--rebase")):
+            for kwargs in ({}, {"story": story(parent=42), "prd": prd()}):
+                flat = self.flat(afk_merge=method, **kwargs)
+                merge = next(c for c in flat if "pr merge" in c)
+                self.assertIn(flag, merge)
+
+    def test_a_finished_story_branch_is_deleted_on_merge(self):
+        for kwargs in ({}, {"story": story(parent=42), "prd": prd()}):
+            merge = next(c for c in self.flat(**kwargs) if "pr merge" in c)
+            self.assertIn("--delete-branch", merge)
 
     def test_a_feature_story_without_its_prd_is_refused(self):
         plan = self.plan(story=story(parent=42))
@@ -197,7 +229,16 @@ class CompletingAHilStory(unittest.TestCase):
         kwargs.setdefault("comments", [])
         return ralph_review_complete.completion_plan(**kwargs)
 
-    def test_it_parks_at_awaiting_bench_and_stays_open(self):
+    def flat(self, **kwargs):
+        return [" ".join(c) for c in self.plan(**kwargs).commands]
+
+    def feature(self, **kwargs):
+        kwargs.setdefault("story", story(type_="hil", parent=42))
+        kwargs.setdefault("prd", prd())
+        kwargs.setdefault("base", "develop")
+        return self.plan(**kwargs)
+
+    def test_an_orphan_story_parks_at_awaiting_bench_and_stays_open(self):
         plan = self.plan()
 
         self.assertTrue(plan.ok, plan.errors)
@@ -207,6 +248,7 @@ class CompletingAHilStory(unittest.TestCase):
         self.assertIn("--remove-label state:in-review", label)
         self.assertFalse(any("issue close" in c for c in flat), flat)
         self.assertFalse(any("pr merge" in c for c in flat), flat)
+        self.assertFalse(plan.merged)
 
     def test_the_bench_anchor_names_the_verified_commit(self):
         # The human bench-verifies at a commit, never at a moving branch tip.
@@ -214,12 +256,45 @@ class CompletingAHilStory(unittest.TestCase):
 
         self.assertTrue(any(HEAD in c for c in flat), flat)
 
-    def test_model_review_never_replaces_the_bench(self):
-        plan = self.plan(pull_request=pull_request(
-            checks=[check(), status()]))
+    def test_a_feature_story_merges_then_parks_for_the_bench(self):
+        # PRD #69: its successors in the Feature build on its code, so it
+        # lands on the Feature branch before the bench session happens.
+        plan = self.feature()
 
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertTrue(plan.merged)
+        self.assertTrue(plan.parked)
+        self.assertEqual(plan.base, "feature/42-prd-model-review")
         flat = [" ".join(c) for c in plan.commands]
-        self.assertFalse(any("pr merge" in c for c in flat), flat)
+        self.assertTrue(any("pr merge 70" in c for c in flat), flat)
+        label = next(c for c in flat if c.startswith("gh issue edit"))
+        self.assertIn("--add-label state:awaiting-bench", label)
+        self.assertFalse(any("issue close" in c for c in flat), flat)
+
+    def test_a_merged_feature_storys_anchor_is_still_the_reviewed_commit(self):
+        flat = self.flat(story=story(type_="hil", parent=42), prd=prd())
+        anchor = next(c for c in flat if "Bench anchor" in c)
+
+        self.assertIn(HEAD, anchor)
+        # The branch is deleted on merge, so the anchor says how to reach the
+        # commit the physical evidence is bound to.
+        self.assertIn("refs/pull/70/head", anchor)
+
+    def test_it_merges_before_it_parks(self):
+        flat = self.flat(story=story(type_="hil", parent=42), prd=prd())
+        merge = next(i for i, c in enumerate(flat) if "pr merge" in c)
+        label = next(i for i, c in enumerate(flat)
+                     if c.startswith("gh issue edit"))
+
+        self.assertLess(merge, label)
+
+    def test_model_review_never_replaces_the_bench(self):
+        for plan in (self.plan(pull_request=pull_request(
+                        checks=[check(), status()])),
+                     self.feature()):
+            flat = [" ".join(c) for c in plan.commands]
+            self.assertFalse(any("issue close" in c for c in flat), flat)
+            self.assertTrue(any("state:awaiting-bench" in c for c in flat), flat)
 
     def test_it_never_targets_main(self):
         plan = self.plan(base="main")

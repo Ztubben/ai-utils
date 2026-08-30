@@ -4,10 +4,16 @@ Everything before this stage has been argument.  This is the stage that acts on
 it, and it acts only on facts carried by the *current head*: the CI checks that
 head actually ran, and the one model-review context that head actually carries.
 
-An AFK Story with both satisfied is merged into the base branch and closed as
-Passing.  A HIL Story with exactly the same approvals is not merged: it moves to
-Awaiting Bench Verification and stays open, because model review never replaces
-physical verification.  Neither path ever targets `main`.
+A Story with both satisfied merges its **own** pull request into its **own**
+base -- the base branch for an Orphan Story, the Feature integration branch for
+a Feature Story -- and an AFK Story closes there as Passing.  A HIL Feature
+Story merges on exactly the same terms and then moves to Awaiting Bench
+Verification, so the Stories after it can build on its code; the physical gate
+does not disappear, it moves to the Feature boundary, where a Feature is
+refused integration into the base branch while any of its HIL Stories is still
+unverified.  A HIL Orphan Story has no Feature branch between it and the base
+branch, so it is not merged at all before a human has been to the bench.
+Neither path ever targets `main`.
 """
 import fnmatch
 import json
@@ -257,10 +263,11 @@ def completion_plan(story, pull_request, comments, base="develop",
     if fields.get("state") != "in-review":
         errors.append("state: completion requires state:in-review (got %s)"
                       % (fields.get("state") or "none"))
+    topology = None
     try:
-        ralph_iterate.resolve_branch(story, prd=prd,
-                                     branch_pattern=branch_pattern,
-                                     feature_pattern=feature_pattern)
+        topology = ralph_iterate.resolve_topology(
+            story, prd=prd, base=base, branch_pattern=branch_pattern,
+            feature_pattern=feature_pattern)
     except ValueError as exc:
         errors.append("branch: %s" % exc)
 
@@ -273,45 +280,57 @@ def completion_plan(story, pull_request, comments, base="develop",
     number = story["number"]
     head = pull_request.get("headRefOid")
     _, parent = ralph_story._parse_parent(story.get("body") or "")
+    target = topology.base
+    # The Story's own pull request, merged into the Story's own base, by the
+    # strategy the repository configured -- the default squash is what leaves
+    # the base one clean commit while the pull request keeps the whole
+    # negotiation: every round, every fix, every dispute.
+    merge = ["gh", "pr", "merge", str(pull_request["number"]),
+             ralph_afk.MERGE_FLAG[afk_merge], "--delete-branch"]
 
     if kind == "hil":
         # Model review never replaces the bench. The Story parks at the exact
         # commit the human is to verify -- never a moving branch tip, which a
-        # sibling Story could move under them.
+        # sibling Story could move under them. GitHub keeps that commit
+        # reachable through the pull request's own ref after the branch is
+        # deleted, which is why the anchor names how to fetch it.
         anchor = (
             "Bench anchor: %s\n\nModel review is satisfied (%s) and CI is green, "
-            "so #%s is Awaiting Bench Verification. Verify at this exact commit "
-            "(`git checkout %s`), not the branch tip. It is not Passing, and it "
-            "is not merged, until you confirm it on the bench. See the story's "
-            "## Bench Test Procedure." % (head, gate.review_source, number, head))
-        return Plan(True, [], [
-            ["gh", "issue", "comment", str(number), "--body", anchor],
-            ["gh", "issue", "edit", str(number),
-             "--add-label", AWAITING_BENCH_LABEL,
-             "--remove-label", IN_REVIEW_LABEL],
-        ], base=base, parked=True, gate=gate)
+            "so #%s is Awaiting Bench Verification. Verify at this exact commit, "
+            "not a branch tip:\n\n```sh\ngit fetch origin refs/pull/%s/head\n"
+            "git checkout %s\n```\n\nIt is not Passing until you confirm it on "
+            "the bench. See the story's ## Bench Test Procedure."
+            % (head, gate.review_source, number,
+               pull_request.get("number", "?"), head))
+        label = ["gh", "issue", "edit", str(number),
+                 "--add-label", AWAITING_BENCH_LABEL,
+                 "--remove-label", IN_REVIEW_LABEL]
+        if parent is None:
+            # An Orphan Story's base *is* the base branch, so there is nothing
+            # between unverified hardware code and `develop`: it is not merged.
+            return Plan(True, [],
+                        [["gh", "issue", "comment", str(number), "--body", anchor],
+                         label],
+                        base=target, parked=True, gate=gate)
+        # A Feature Story merges into its Feature branch on the same terms as
+        # an AFK one, so the Stories that follow it can build on its code. The
+        # gate that used to stand here now stands at the Feature boundary.
+        return Plan(True, [],
+                    [merge,
+                     ["gh", "issue", "comment", str(number), "--body", anchor],
+                     label],
+                    base=target, merged=True, parked=True, gate=gate)
 
-    if parent is not None:
-        # A Feature Story is Passing here, but its code integrates with the
-        # Feature, not on its own. The marked pull request stays open: its
-        # siblings are still using it.
-        return Plan(True, [], [
-            ["gh", "issue", "close", str(number), "--comment",
-             "Model review satisfied (%s) and CI green at %s; marked Passing "
-             "(AFK). Integrates when Feature #%d merges."
-             % (gate.review_source, head, parent)],
-        ], base=base, gate=gate)
-
+    integrates = ("Feature #%d" % parent) if parent is not None else target
     return Plan(True, [], [
-        # Squash, so the base branch receives one clean commit while the pull
-        # request keeps the whole negotiation -- every round, every fix, every
-        # dispute -- as its audit history.
-        ["gh", "pr", "merge", str(pull_request["number"]),
-         ralph_afk.MERGE_FLAG[afk_merge], "--delete-branch"],
+        merge,
         ["gh", "issue", "close", str(number), "--comment",
          "Model review satisfied (%s) and CI green at %s; merged into %s and "
-         "marked Passing (AFK)." % (gate.review_source, head, base)],
-    ], base=base, merged=True, gate=gate)
+         "marked Passing (AFK).%s"
+         % (gate.review_source, head, target,
+            "" if parent is None else
+            " It reaches %s when %s merges." % (base, integrates))],
+    ], base=target, merged=True, gate=gate)
 
 
 def fetch_prd(story, root):
@@ -395,14 +414,13 @@ def complete(story, pull_request, config, root, comments=None, prd=None,
             sys.stderr.write(run.failed.output.rstrip() + "\n")
         return 1
     if plan.parked:
-        print("OK: #%s is Awaiting Bench Verification at %s; not merged"
-              % (story["number"], pull_request.get("headRefOid")))
-    elif plan.merged:
+        print("OK: #%s is Awaiting Bench Verification at %s%s"
+              % (story["number"], pull_request.get("headRefOid"),
+                 "; merged into %s" % plan.base if plan.merged
+                 else "; not merged"))
+    else:
         print("OK: #%s merged into %s and closed as Passing"
               % (story["number"], plan.base))
-    else:
-        print("OK: #%s closed as Passing; it integrates when its Feature merges"
-              % story["number"])
     return 0
 
 
