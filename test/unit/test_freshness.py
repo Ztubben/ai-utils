@@ -24,6 +24,7 @@ RALPH_SH = os.path.join(REPO_ROOT, "bin", "ralph.sh")
 FULL_CONFIG = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid", "full.yml")
 
 sys.path.insert(0, LIB_DIR)
+import ralph_agent  # noqa: E402
 import ralph_select  # noqa: E402
 
 
@@ -225,6 +226,11 @@ class FreshnessTickHarness:
     def env(self, claude_exit="0", claude_emit=""):
         e = dict(os.environ)
         e["PATH"] = os.path.join(self.tmp, "mockbin") + os.pathsep + e["PATH"]
+        # See TickHarness.env in test_orchestrate.py: an inherited provider
+        # binary override would bypass the mock claude on PATH and launch a real
+        # agent from inside the test suite.
+        for adapter in ralph_agent.PROVIDERS.values():
+            e.pop(adapter.binary_env, None)
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = "91"

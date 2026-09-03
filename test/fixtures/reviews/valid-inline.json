@@ -1,0 +1,37 @@
+{
+  "contract": "ralph-review/v1",
+  "verdict": "request_changes",
+  "head": "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d",
+  "model": "claude-opus-5",
+  "round": 1,
+  "summary": "One acceptance criterion is unmet: rejection does not name the offending fields. A second, non-blocking naming suggestion is recorded for the author's judgement.",
+  "findings": [
+    {
+      "id": "F-1",
+      "blocking": true,
+      "category": "acceptance_criteria",
+      "claim": "validate_review returns a bare list, so the CLI cannot name the offending field paths on rejection.",
+      "evidence": "lib/ralph_review_result.py:11-15 appends '(root): review payload must be an object' and returns it with no field path for any other failure.",
+      "requirement": "Acceptance criterion: 'A CLI subcommand validates a review payload and names the offending fields on rejection'.",
+      "verification": "Validate a payload whose finding carries a duplicate identifier and assert the error names findings/1/id.",
+      "location": {
+        "path": "lib/ralph_review_result.py",
+        "line": 12,
+        "end_line": 15
+      }
+    },
+    {
+      "id": "F-2",
+      "blocking": false,
+      "category": "style_preference",
+      "claim": "'errors' would read better as 'field_errors' alongside the schema errors collected later.",
+      "evidence": "lib/ralph_review_result.py:12 names the accumulator 'errors' while the surrounding modules name theirs after what they collect.",
+      "requirement": "None; this is a preference and is explicitly non-blocking.",
+      "verification": "None required.",
+      "location": {
+        "path": "lib/ralph_review_result.py",
+        "line": 15
+      }
+    }
+  ]
+}

@@ -13,6 +13,10 @@ Canonical shape (ADR-0002, CONTEXT.md):
   - a `Parent:` body line linking the story to its Feature's PRD issue
     (`Parent: #N`), or `Parent: None` for an Orphan Story
   - terminology standardized on HIL, never HITL
+  - at most one `model:impl:<id>` and one `model:review:<id>` label -- the
+    durable record of which exact model identities were assigned to the two
+    roles (#46). They are optional (an unassigned story carries neither) and
+    additive: they never replace or excuse the state:/type: vocabulary.
 A PRD issue (carries the `prd` label) is not a story: it is exempt from the
 state/type/acceptance/Parent rules and never selected for implementation,
 but its own `Depends on:` list is surfaced for cross-Feature ordering.
@@ -20,7 +24,7 @@ A design-decision Blocker (carries `ready-for-human`) is not a third story
 type: it is kept out of `state:ready` so the loop never picks it up, and is
 exempt from the state/type/acceptance rules until a human reclassifies it.
 Otherwise a workable story additionally requires:
-  - exactly one state:* label (ready|in-progress|awaiting-bench|blocked)
+  - exactly one state:* label (ready|in-progress|in-review|awaiting-bench|blocked)
   - exactly one type:* label (afk|hil)
   - a `## Acceptance Criteria` checklist with at least one `- [ ]` item
   - HIL stories also carry a `## Bench Test Procedure` section
@@ -29,10 +33,19 @@ import json
 import re
 import sys
 
-STATES = ("ready", "in-progress", "awaiting-bench", "blocked")
+STATES = ("ready", "in-progress", "in-review", "awaiting-bench", "blocked")
 TYPES = ("afk", "hil")
 BLOCKER_LABEL = "ready-for-human"
 PRD_LABEL = "prd"
+
+# The durable model assignment (#46, PRD #42): one label per role carrying the
+# *exact configured model identifier*, not the profile key. Profile keys are a
+# configuration-local convenience and can be re-pointed; the identity is what
+# makes a retry, a resume, or an audit reproducible. `ralph_models` owns
+# resolving and persisting them; this module owns their shape on the story.
+MODEL_ROLES = ("implementation", "review")
+MODEL_LABEL_PREFIXES = {"implementation": "model:impl:",
+                        "review": "model:review:"}
 
 
 class StoryResult:
@@ -86,6 +99,35 @@ def _parse_parent(body):
     return True, int(number.group(1)) if number else None
 
 
+def model_label(role, model):
+    """The assignment label recording `model` as the identity running `role`."""
+    return MODEL_LABEL_PREFIXES[role] + model
+
+
+def model_assignment(story):
+    """Return ({role: assigned model identity or None}, errors).
+
+    A role is assigned when exactly one of its labels is present. Two labels for
+    one role is an ambiguous assignment -- refusing beats silently picking one,
+    because the whole point of the label is to be the single durable answer to
+    "which model is this story's implementation agent?".
+    """
+    names = _label_names(story)
+    assignment, errors = {}, []
+    for role in MODEL_ROLES:
+        prefix = MODEL_LABEL_PREFIXES[role]
+        found = [n[len(prefix):].strip() for n in names if n.startswith(prefix)]
+        found = [f for f in found if f]
+        if len(found) > 1:
+            errors.append(
+                "labels: at most one %s label is allowed (found %s)"
+                % (prefix, ", ".join(prefix + f for f in sorted(found))))
+            assignment[role] = None
+        else:
+            assignment[role] = found[0] if found else None
+    return assignment, errors
+
+
 def validate_story(story):
     errors = []
     names = _label_names(story)
@@ -107,6 +149,9 @@ def validate_story(story):
     elif prios and not prios[0].isdigit():
         errors.append("labels: a prio: label must be numeric (prio:N, lower = higher priority)")
     prio = int(prios[0]) if len(prios) == 1 and prios[0].isdigit() else None
+
+    models, model_errors = model_assignment(story)
+    errors.extend(model_errors)
 
     if "HITL" in body or "HITL" in (story.get("title") or ""):
         errors.append("terminology: use HIL, not HITL")
@@ -161,6 +206,7 @@ def validate_story(story):
         "is_blocker": is_blocker,
         "is_prd": is_prd,
         "has_bench": _has_section(body, "Bench Test Procedure"),
+        "models": models,
     }
     return StoryResult(not errors, errors, fields)
 

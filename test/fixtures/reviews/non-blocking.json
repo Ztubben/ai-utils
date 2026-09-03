@@ -1,0 +1,28 @@
+{
+  "contract": "ralph-review/v1",
+  "verdict": "approve",
+  "head": "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d",
+  "model": "claude-opus-5",
+  "round": 1,
+  "summary": "The acceptance criteria are met. Two suggestions are recorded; neither blocks, and both are the author's to take or leave.",
+  "findings": [
+    {
+      "id": "F-4",
+      "blocking": false,
+      "category": "speculative_improvement",
+      "claim": "The changed-line map could be cached if a later round validates several payloads against one diff.",
+      "evidence": "lib/ralph_review_result.py:11-15 recomputes the map per call; today there is one call per round, so nothing is slow yet.",
+      "requirement": "None; speculative and explicitly non-blocking.",
+      "verification": "None required."
+    },
+    {
+      "id": "F-5",
+      "blocking": false,
+      "category": "preexisting_issue",
+      "claim": "The surrounding module imports sys only for its CLI entry point.",
+      "evidence": "The import predates this change and is unrelated to the reviewed lines.",
+      "requirement": "None; unrelated pre-existing issue and explicitly non-blocking.",
+      "verification": "None required."
+    }
+  ]
+}

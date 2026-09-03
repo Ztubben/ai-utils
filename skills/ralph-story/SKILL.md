@@ -24,7 +24,9 @@ mandated and not overridable (it is fixed in the config schema, ADR-0002).
 ### Labels
 
 - **State** (exactly one, mutually exclusive):
-  `state:ready` → `state:in-progress` → `state:awaiting-bench` → closed (= Passing/Done).
+  `state:ready` → `state:in-progress` → `state:in-review` →
+  `state:awaiting-bench` → closed (= Passing/Done). AFK Stories close directly
+  from In Review; HIL Stories move through Awaiting Bench Verification first.
   New stories authored for the loop start at `state:ready`.
 - **Type** (exactly one): `type:afk` or `type:hil`.
   - `type:afk` — acceptance criteria are fully verifiable by CI alone (pure software, parsing,

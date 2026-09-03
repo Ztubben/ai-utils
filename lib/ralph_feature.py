@@ -8,10 +8,18 @@ onto the current base branch; (3) run the full gating steps; (4) create the
 Feature's single PR and merge it with a **merge commit** (never squash), then
 close the PRD with a comment.
 
+Integration is refused outright while any HIL Story of the Feature is still
+open (PRD #69). A HIL Feature Story now merges into the Feature branch before it
+is bench-verified, so its successors can build on it; the physical gate that
+used to stand at the Story boundary therefore stands here instead. Unverified
+hardware code reaches the Feature branch, never the base branch, and the refusal
+names every Story a human still has to take to the bench.
+
 A rebase conflict in (2) or a red gate in (3) is a Feature-level blocker: push
 the branch as-is, comment the details on the PRD, label it `ready-for-human`,
 and stop — the `needs-human` circuit breaker is NOT tripped (independent features
-don't poison each other).
+don't poison each other). The same is true of the HIL refusal: it stops this
+Feature and nothing else.
 
 The deterministic, host-testable seam mirrors AFK/HIL completion: a pure command
 *plan* (`feature_complete_plan`) returns the ordered steps without running
@@ -27,6 +35,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
+import ralph_select  # noqa: E402
 
 PROTECTED_BRANCH = "main"
 DEFAULT_BASE = "develop"
@@ -49,9 +58,25 @@ class PlanResult:
         self.on_fail_ran = on_fail_ran
 
 
+def unverified_hil_stories(prd, raw_backlog):
+    """The Feature's HIL Stories that no human has bench-verified yet.
+
+    Open is the whole test: a HIL Story is closed by the human who verified it
+    on the bench, so an open one is unverified by definition -- whether it is
+    Awaiting Bench Verification, still In Review, or blocked.  Ascending, so a
+    refusal reads the same way twice.
+    """
+    stories = ralph_select.normalize(raw_backlog)
+    return sorted(
+        story["number"] for story in stories
+        if not story.get("is_prd") and not story.get("closed")
+        and story.get("parent") == prd.get("number")
+        and story.get("type") == "hil" and story["number"] is not None)
+
+
 def feature_complete_plan(prd, base=DEFAULT_BASE,
                           feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
-                          gating=None):
+                          gating=None, backlog=None):
     """Build the ordered step plan to integrate a complete Feature into base.
 
     Pure: computes steps, runs nothing. Each step is a dict with:
@@ -60,11 +85,26 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
       - fallback_ok (optional): if True, step failure is tolerated (cosmetic)
       - on_fail (optional): list of argv lists to run on failure (blocker path)
 
-    Refuses (ok=False, no steps) when base is `main`.
+    Refuses (ok=False, no steps) when base is `main`, and when *backlog* shows
+    any HIL Story of this Feature still open -- naming each one, because the
+    person reading the refusal is the person who has to bench-verify them.
+    Pass `backlog=None` only where the backlog genuinely cannot be read; the
+    live CLI reads it and refuses rather than integrating unchecked.
     """
     errors = []
     if (base or "").strip().lower() == PROTECTED_BRANCH:
         errors.append("branching/base: refusing to integrate into main (ADR-0001)")
+
+    unverified = (unverified_hil_stories(prd, backlog)
+                  if backlog is not None else [])
+    if unverified:
+        errors.append(
+            "hil: Feature #%s has unverified HIL %s (%s); a Feature is not "
+            "integrated into %s until every one of them is bench-verified and "
+            "closed" % (prd.get("number"),
+                        "Story" if len(unverified) == 1 else "Stories",
+                        ", ".join("#%d" % number for number in unverified),
+                        base))
 
     if errors:
         return Plan(False, errors, [], base=base)
@@ -225,10 +265,26 @@ def _cmd_complete(rest):
         sys.stderr.write("ralph: could not read PRD: %s\n" % exc)
         return 2
 
+    # The config-level refusals are settled before the backlog is read: a
+    # Feature that may not be integrated at all is not worth a gh call.
     plan = feature_complete_plan(
         prd, base=branching["base"],
-        feature_pattern=branching["feature_pattern"],
-        gating=gating)
+        feature_pattern=branching["feature_pattern"], gating=gating)
+    if plan.ok:
+        # Fails closed: a backlog that cannot be read is not permission to
+        # integrate a Feature whose HIL Stories may be unverified.
+        try:
+            backlog = ralph_select._scan_gh()
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            sys.stderr.write("REFUSED: feature completion\n"
+                             "  - backlog: could not read the Feature's "
+                             "Stories, so its HIL Stories cannot be checked: "
+                             "%s\n" % exc)
+            return 2
+        plan = feature_complete_plan(
+            prd, base=branching["base"],
+            feature_pattern=branching["feature_pattern"],
+            gating=gating, backlog=backlog)
     if not plan.ok:
         sys.stderr.write("REFUSED: feature completion\n")
         for err in plan.errors:

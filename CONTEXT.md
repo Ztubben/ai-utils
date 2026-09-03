@@ -4,8 +4,12 @@ Reusable, project-agnostic tooling shared across embedded projects as a git subm
 
 ## Language
 
+**Target Repository**:
+The repository whose backlog Ralph works and whose code Ralph modifies. It owns everything project-specific: the committed `.ralph.yml`, the gating steps, CI, credentials, model profiles, protected control-plane policy, and the notify handle. Usually the target repository is the superproject that mounts `ai-utils` as a submodule, in which case Ralph never mutates the mounted `ai-utils` checkout. When `ai-utils` is itself the checkout root it is its own target repository and Ralph works its backlog directly; its target-repository configuration is an instance of the shipped contracts, never a default inherited by embedding repositories (ADR-0001 amendment).
+_Avoid_: host repo, project repo, consuming repo (use "target repository")
+
 **Superproject**:
-The parent embedded project that mounts `ai-utils` as a submodule. The Ralph Loop runs against the superproject and only ever modifies the superproject — never `ai-utils` itself.
+The parent embedded project that mounts `ai-utils` as a submodule — the target repository of that mount. Ralph runs against it and, in this arrangement, never modifies the mounted `ai-utils` checkout.
 _Avoid_: parent repo, host project (use "superproject")
 
 **Ralph Loop**:
@@ -24,13 +28,16 @@ The unit of work described by one PRD: the set of stories whose parent is that P
 _Avoid_: epic, milestone (use "feature")
 
 **Orphan Story**:
-A story with no parent PRD — it belongs to no Feature (e.g. a standalone bugfix or chore). Orphan stories are worked on their own story branch and integrate directly into the base branch when Passing.
+A story with no parent PRD — it belongs to no Feature (e.g. a standalone bugfix or chore). Orphan stories are worked on their own story branch and integrate directly into the base branch when Passing. Every story works on its own story branch; what distinguishes an Orphan Story is only that its pull request targets the base branch rather than a Feature Branch.
 
 **Feature Branch**:
-The integration branch for one Feature, created from the base branch when the Feature's first story starts and named after the PRD issue. All of the Feature's stories are worked directly on the feature branch — there are no per-story branches within a Feature — and it merges into the base branch only when the Feature is complete. Invariant: a feature branch contains only Passing story work, plus at most one in-progress story's WIP at the tip.
+The integration branch for one Feature, created from the base branch when the Feature's first story opens its pull request, and named after the PRD issue. Each of the Feature's stories works on its own story branch cut from the current feature-branch tip and merges into the feature branch through its own pull request; the feature branch merges into the base branch only when the Feature is complete. Invariant: a feature branch contains only reviewed, merged story work — no story's work in progress ever reaches it.
+
+**Story Pull Request**:
+The one Ralph-managed pull request a story owns, from its story branch into its base — the base branch for an Orphan Story, its Feature Branch for a Feature story. The story is the unit of the pull request, so the reviewed diff is that story's change alone and the Negotiation Round budget is that story's own. A Feature's stories never share one.
 
 **Reset-on-block**:
-When a Feature's story is demoted to `state:blocked`, its commits are rewound off the feature branch and preserved on a pushed rescue branch, restoring the feature branch to the last Passing story boundary. The demotion comment on the issue must describe the failure and name the rescue branch.
+When a Feature's story is demoted to `state:blocked`, its work stays where it already is — on its own story branch, which never reached the feature branch — and that branch is pushed so a human can reach it. The demotion comment on the issue must describe the failure and name the branch. Nothing is rewound and no sibling story is disturbed.
 
 **AFK Story** (Away-From-Keyboard):
 A story whose acceptance criteria are fully verifiable by CI alone, with no hardware in the loop (e.g. pure-software logic, parsing, refactors, build config). It is Passing as soon as CI is green; Ralph may immediately continue to the next story.
@@ -50,14 +57,14 @@ _Avoid_: vertical slice, tracer bullet (use "independently verifiable")
 The project-specific set of quality checks Ralph must run and pass before a story counts (e.g. build, unit tests, lint). Declared by each superproject, run **locally** by Ralph (a local mirror of CI, kept low-verbosity to save cost and context), and configurable — the superproject decides which steps Ralph runs.
 
 **Awaiting Bench Verification**:
-The state a HIL story enters after Ralph has implemented it and CI is green, but before the human has confirmed the behavior on the bench. On entering this state the story records its completion commit, and the human verifies at that commit. Ralph may keep implementing other stories that are **not blocked by** a story in this state — including siblings on the same feature branch — but it must not start a story that depends on one.
+The state a HIL story enters after Ralph has implemented it and CI is green, but before the human has confirmed the behavior on the bench. On entering this state the story records its completion commit, and the human verifies at that commit. Ralph may keep implementing other stories that are **not blocked by** a story in this state — including siblings of the same Feature, which build on its merged code — but it must not start a story that depends on one. A Feature is refused integration into the base branch while any of its HIL stories is still unverified, so unverified hardware code reaches the Feature Branch and never the base branch.
 
 **Passing** (a.k.a. **Done**):
 For an AFK story: CI is green. For a HIL story: CI is green **and** the human has bench-verified it. Ralph making CI green is never sufficient to mark a HIL story Passing.
 _Avoid_: complete, finished, closed (use "passing" / "Done")
 
 **Tick**:
-One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes any story already in `state:in-progress` (from a prior checkpoint) before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Only one tick per superproject runs at a time, guarded by a `flock` lockfile in `.git/`; an overlapping tick exits immediately. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
+One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes active work — a Story in `state:in-progress` from an implementation checkpoint or in `state:in-review` during model-review negotiation — before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Only one tick per superproject runs at a time, guarded by a `flock` lockfile in `.git/`; an overlapping tick exits immediately. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
 _Avoid_: run, cron run (use "tick")
 
 **Iteration**:
@@ -65,11 +72,45 @@ A single fresh-context agent process within a tick. Ralph **never compacts conte
 _Avoid_: pass, loop, session (use "iteration")
 
 **Handoff**:
-The summary an iteration leaves for the next so a story can resume with clean context: what was done, and the code implemented so far. Stored in the superproject only — the summary as an issue comment (story in `state:in-progress`), the code as WIP commits on the story's working branch (the feature branch for a Feature story, the story branch `ralph/<issue#>-slug` for an Orphan Story), never on `main`. A context-full termination that produces a Handoff is a normal checkpoint, not a failed Attempt.
+The summary an iteration leaves for the next so a story can resume with clean context: what was done, and the code implemented so far. Stored in the superproject only — the summary as an issue comment (story in `state:in-progress`), the code as WIP commits on the story's own working branch (`ralph/<issue#>-slug`, whichever kind of story it is), never on `main`. A context-full termination that produces a Handoff is a normal checkpoint, not a failed Attempt.
 
 **Learnings**:
 Durable, reusable knowledge (conventions, gotchas, HAL patterns) Ralph records in nested `AGENTS.md` files in the superproject, read at story start and updated on genuine discoveries. Global across all features. Distinct from a Handoff, which is transient per-story resume state. At story completion Ralph promotes reusable knowledge to `AGENTS.md` and leaves story-specific notes on the issue. There is no `progress.txt`.
 _Avoid_: progress log, patterns file (use "learnings" / "AGENTS.md")
+
+**Model Profile**:
+An allowlisted entry in the target repository's model catalog: a stable profile key, the provider adapter that runs it, and the exact configured model identifier. Roles are selected by profile key; the exact model identity is what gets persisted on the story. Replacing a story's recorded assignment is a **human-only** action that rewrites the durable labels and records an audit comment naming the previous identity, the new one, and the reason — Ralph never substitutes a model on its own, because a provider outage is something to retry and resume, not a reason to change who is judging the work.
+
+**Alternation**:
+Treating the two selected Model Profiles as a *pair* and swapping which one implements and which one reviews. The resolved role order (the committed defaults, or the operator's `--implementation` / `--review` order) is the first newly assigned story's order; each later newly assigned story swaps the pair, so authorship and review influence stay balanced over the backlog. Alternation advances **only** when a story carrying no assignment starts — a resume, a retried Attempt, and a further Negotiation Round all read their roles off the story's own labels, so no story ever swaps models midway. The alternation phase is loop-local state under the target repository's git dir (next to the tick lock), and `models.alternate: false` keeps the roles fixed.
+_Avoid_: rotation, round-robin (use "alternation")
+
+**Implementation Agent**:
+The provider-neutral role that implements a story — a fresh-context model process behind one adapter contract, whichever provider backs the assigned Model Profile. It is the only role permitted to edit, commit, and push, and it does so through Ralph's controlled workflow.
+_Avoid_: the coder, the implementer (use "Implementation Agent")
+
+**Review Agent**:
+The provider-neutral role that independently reviews a story implemented by the other model. It gets a fresh context for every Negotiation Round, is read-only, and holds no GitHub credential — a trusted Ralph-side wrapper validates its structured output and renders it as an ordinary GitHub review.
+_Avoid_: the reviewer model, the critic (use "Review Agent")
+
+**In Review**:
+The state a story occupies from a locally green implementation until model review is resolved: the marked pull request exists and Ralph is waiting on the Review Agent, on fixes, on disputes, or on human adjudication. A story stays In Review across every Negotiation Round; deadlock blocks that story alone.
+
+**Finding**:
+One reviewer objection, carrying a stable identifier, a blocking classification, a source location where applicable, the claim, its evidence, and the governing requirement. A Finding is blocking only for an acceptance-criteria violation, a demonstrable defect, a safety regression, an explicit-rule violation, materially missing tests, or risky scope creep — preferences and unrelated pre-existing issues are explicitly non-blocking. The Implementation Agent answers each Finding by accepting it (an append-only fix commit) or disputing it with evidence.
+
+**Negotiation Round**:
+One review-and-respond cycle against an immutable pull-request head: a fresh Review Agent reviews, the Implementation Agent responds, and a fresh Review Agent adjudicates the new head. Round one is a full in-scope review; later rounds adjudicate open Findings and may raise a new blocker only for a fix-induced regression or a serious missed correctness/safety defect. Infrastructure failures and invalid provider output never consume a round. Exhausting the round limit (default 2) moves that story to `state:blocked` and requests native human review.
+
+**Human Arbitration**:
+The human settling a Story through GitHub's own review controls — there are no commands to learn. An **Approve** is authoritative: it releases the model-review gate on the commit it approved, even while model Findings remain unresolved, clears any escalation, and is recorded on the Story naming the reviewer and the Findings it overrode. A **Request changes** is authoritative feedback: the Story returns to In Review and the assigned Implementation Agent is launched with the human's own words, appending its work like any fix round. An ordinary comment enriches the review context and changes no label, check, or state. Each native review is acted on exactly once. A model never holds authority over a human decision.
+_Avoid_: manual override, human approval command (use "Human Arbitration")
+
+**Control Plane**:
+The parts of the target repository that govern Ralph's own review gate — review workflows, prompts, schemas, configuration, and override policy. Each target repository declares its control-plane categories or path patterns; a story touching them always requires native human approval and is never auto-merged, even when it began as an AFK Story.
+
+**Token Ledger**:
+The durable per-story record of provider-reported token usage: one versioned machine-readable event per Implementation Agent or Review Agent invocation (role, phase, model, provider, round, head, run identity), kept as a single machine-managed issue comment with a readable table. Telemetry only — it gates nothing, and no invocation is blocked or altered by what it records. The counts come from the provider's own machine-readable output, normalized into five neutral categories — input, cached input, reasoning, output, total. Categories a provider does not expose are recorded as unavailable rather than estimated, and an invocation that produced nothing publishable is recorded all the same: the tokens were still spent.
 
 **needs-human**:
 The label Ralph applies (with a comment tagging the user) when the circuit breaker trips — a second story has failed to `state:blocked` — signalling the loop has halted and the user must intervene and reset.

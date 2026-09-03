@@ -111,6 +111,7 @@ class InitCli(unittest.TestCase):
             with open(log) as fh:
                 calls = fh.read()
             self.assertIn("gh label create state:in-progress", calls)
+            self.assertIn("gh label create state:in-review", calls)
             self.assertIn("gh label create type:hil", calls)
             self.assertIn("gh label create needs-human", calls)
             self.assertIn("origin/main:refs/heads/develop", calls)  # base created

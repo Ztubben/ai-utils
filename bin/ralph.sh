@@ -7,27 +7,33 @@
 #      overlapping tick exits immediately (lockfile in .git/, ADR: Tick).
 #   2. validates .ralph.yml at tick start (fails loud, ADR-0001).
 #   3. drives the pure selection engine (`ralph --dry-run`) which is resume-first:
-#      any state:in-progress story is resumed before scanning for new state:ready
+#      any active Story (state:in-progress or state:in-review) is resumed before
+#      scanning for new state:ready
 #      work.
-#   4. launches a fresh-context `claude` iteration per selected story and works
-#      as many eligible stories in sequence as the session budget allows, until
-#      no eligible work remains (no-work) or the loop halts (needs-human).
+#   4. launches a fresh-context Implementation Agent iteration per selected
+#      story -- through the provider-neutral adapter interface, so which
+#      provider runs is the target repository's model catalog's decision, not
+#      this script's -- and works as many eligible stories in sequence as the
+#      session budget allows, until no eligible work remains (no-work) or the
+#      loop halts (needs-human).
 #   5. when an iteration signals the story is green (the done-signal marker),
-#      promotes it: `ralph --complete-afk` for a type:afk story,
-#      `ralph --complete-hil` (park at state:awaiting-bench) for HIL; both
-#      branch on Feature membership per ADR-0006.
+#      promotes it with `ralph --implementation-green`: both AFK and HIL open
+#      or update a marked pull request and enter state:in-review, using the
+#      canonical Story/Feature branch resolution from ADR-0006.
 #      Without this promotion the still-in-progress story would be re-selected
 #      forever (the engine is resume-first), so a green story must move off the
 #      backlog before the loop advances.
-#   6. when `claude` signals session-limit exhaustion, checkpoints the current
+#   6. when the agent signals session-limit exhaustion, checkpoints the current
 #      story via a Handoff (`ralph --checkpoint`) and ends the tick cleanly.
 #
-# Ralph only ever modifies the superproject and never touches main. The heavy
-# lifting (TDD, gating) lives in the `claude` iteration driven by
+# Ralph only ever modifies its target repository (the superproject when ai-utils is
+# mounted as a submodule; ai-utils itself when it is the checkout root -- ADR-0001
+# amendment) and never touches main. The heavy
+# lifting (TDD, gating) lives in the agent iteration driven by
 # prompts/iterate.v1.md, which reports a green story via a done-signal marker;
 # this script is only the orchestration shell -- selecting, promoting green
 # stories, and checkpointing -- kept thin so it can be driven by tests against
-# mocked `claude`/`gh`/`git` on PATH.
+# mocked provider CLIs/`gh`/`git` on PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,13 +43,18 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 # Tunables (env-overridable so tests and superprojects can adjust them).
 : "${RALPH_LOCK_DIR:=.git}"                 # flock lives in the superproject's .git/
 : "${RALPH_CONFIG:=.ralph.yml}"
-: "${RALPH_CLAUDE:=claude}"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
-# Session-limit detection lives in lib/ralph_session.py (#65), reached through
-# `ralph --classify-session`, so the tick and the provider adapters read one
-# answer. Its knobs (RALPH_SESSION_LIMIT_EXIT, RALPH_SESSION_LIMIT_MARKER) are
-# read from the environment there; no defaults are pinned here.
+# Session-limit detection lives in lib/ralph_session.py (#65), so the tick and
+# the provider adapters read one answer. The tick never classifies directly: the
+# adapter behind `ralph --launch-agent` calls that module and reports the verdict
+# as its exit code. The knobs (RALPH_SESSION_LIMIT_EXIT,
+# RALPH_SESSION_LIMIT_MARKER) are read from the environment there; no defaults
+# are pinned here.
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
+# The identity every token-usage event of this tick is stamped with (#62), so a
+# later script can group one run's invocations across the Stories it worked.
+: "${RALPH_RUN_ID:=tick-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+export RALPH_RUN_ID
 
 log() { printf 'ralph: %s\n' "$*"; }
 
@@ -82,16 +93,27 @@ sync_branch() {
   git reset --hard "origin/$branch" 2>/dev/null || true
 }
 
-# Launch one fresh-context claude iteration for the selected story. Returns:
-#   RC_SESSION_LIMIT (10) when claude signalled session-limit exhaustion (per
-#                         `ralph --classify-session`) -- the story gets checkpointed;
+# Launch one fresh-context Implementation Agent iteration for the selected story.
+# `ralph --launch-agent` resolves the configured implementation Model Profile,
+# runs it in a fresh process, and reports the outcome as its exit code -- so the
+# provider is named nowhere in this script. Returns:
+#   RC_SESSION_LIMIT (10) when the agent signalled session-limit exhaustion (the
+#                         adapter's verdict, from lib/ralph_session.py) -- the
+#                         story gets checkpointed;
 #   RC_STORY_COMPLETE (11) when the iteration emitted the done-signal marker,
 #                         meaning the gate is green and every acceptance criterion
 #                         is checked -- the story gets promoted;
+#   RC_INFRA_FAILURE (12) when the launch itself failed (crash, missing CLI) --
+#                         no progress to promote; the story is resumed later;
 #   0                     otherwise (partial progress -- resume it next pass).
-# Session-limit takes priority: a truncated run never counts as complete.
+# Session-limit takes priority: a truncated run never counts as complete. These
+# codes are the shared exit-code contract in lib/ralph_agent.py (EXIT_*).
 RC_SESSION_LIMIT=10
 RC_STORY_COMPLETE=11
+RC_INFRA_FAILURE=12
+# Not part of that contract: the launcher never got as far as running an agent,
+# so the same call will fail identically on the next pass. This one ends the tick.
+RC_LAUNCH_UNAVAILABLE=13
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -103,21 +125,46 @@ run_iteration() {
   fi
   prompt+=$'\n\n---\nNext action: '"$action #$issue"$'. Work only this story this iteration.\n'
 
+  # Hand the story to the launcher so its recorded model assignment (#46) picks
+  # the implementation model: a resume or a retry runs the model the story was
+  # assigned, never whatever the config now defaults to. Best-effort -- if the
+  # story cannot be fetched the launcher falls back to the committed defaults.
+  local story_file
+  story_file="$(mktemp)"
+  local story_arg=()
+  if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    story_arg=(--story "$story_file")
+  fi
+
   set +e
-  out="$(printf '%s' "$prompt" | "$RALPH_CLAUDE" --dangerously-skip-permissions --print 2>&1)"
+  out="$(printf '%s' "$prompt" | "$RALPH_BIN" --launch-agent implementation "$RALPH_CONFIG" "${story_arg[@]}" 2>&1)"
   rc=$?
   set -e
+  rm -f "$story_file"
   [[ -n "$out" ]] && printf '%s\n' "$out"
 
   # Session-limit takes priority over the done-signal: a truncated run is never
-  # complete. `--classify-session` exits RC_SESSION_LIMIT (10) on exhaustion.
-  local verdict=0
-  printf '%s' "$out" | "$RALPH_BIN" --classify-session "$rc" || verdict=$?
-  if [[ "$verdict" -eq "$RC_SESSION_LIMIT" ]]; then
+  # complete. The adapter already classified the run through lib/ralph_session.py
+  # and returned RC_SESSION_LIMIT (10) on exhaustion, so the tick just reads it.
+  if [[ "$rc" -eq "$RC_SESSION_LIMIT" ]]; then
     return "$RC_SESSION_LIMIT"
   fi
   if printf '%s' "$out" | grep -qF "$RALPH_STORY_COMPLETE_MARKER"; then
     return "$RC_STORY_COMPLETE"
+  fi
+  if [[ "$rc" -eq "$RC_INFRA_FAILURE" ]]; then
+    return "$RC_INFRA_FAILURE"
+  fi
+  # Only a clean exit is partial progress. Any other code means the launcher
+  # itself refused -- a bad config, a refused role resolution, or a `ralph` that
+  # does not know the subcommand (exit 2) -- so no agent ran at all. That is
+  # distinct from RC_INFRA_FAILURE, where the provider did start and may have
+  # done work before dying. Reporting it as progress re-selects the same story
+  # every pass and spins the tick to its iteration bound having launched nothing,
+  # which is how a 13-minute no-op tick still exited 0 (observed 2026-08-28).
+  if (( rc != 0 )); then
+    log "the launcher refused to run the agent for #$issue (exit $rc)"
+    return "$RC_LAUNCH_UNAVAILABLE"
   fi
   return 0
 }
@@ -147,15 +194,101 @@ begin_story() {
    || log "could not label #$issue state:in-progress (are the Ralph labels created? run 'ralph --init'); continuing"
 }
 
-# Promote a green story off the backlog. Reads the story's type:* label and
-# dispatches to the completion CLI that owns the label move / PR / merge:
-# type:afk -> --complete-afk (close as Passing), type:hil -> --complete-hil
-# (park at state:awaiting-bench); each branches on Feature membership per
-# ADR-0006 (Feature stories push to the feature branch, no PR). The tools
-# refuse to touch main and re-validate the type, so this stays a thin dispatch.
-# The story is fetched fresh so completion has the full record. A Feature story
+# Record the story's implementation/review model assignment durably before its
+# iteration (#46). Resolves each role the story does not already carry a label
+# for and applies `model:impl:<id>` / `model:review:<id>`, so later retries,
+# resumes and audits read the assignment from the backlog rather than from
+# whatever configuration is current. Idempotent: a story that is already
+# assigned is left untouched, which is also why this runs on `resume` -- a story
+# started before it had an assignment heals forward instead of staying blank.
+# Best-effort: a failure here does not stop the iteration (the launcher still
+# falls back to the committed defaults).
+assign_story_models() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue to record its model assignment; continuing"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --assign-models "$story_file" "$RALPH_CONFIG" >/dev/null || rc=$?
+  if (( rc != 0 )); then
+    log "could not record the model assignment for #$issue (exit $rc); continuing"
+  fi
+  rm -f "$story_file"
+  return 0
+}
+
+# Wait out one bounded review window for a Story In Review (#54, and the
+# Negotiation Rounds of #53 that happen inside it). Waiting belongs to the
+# orchestration process, not to a model: `ralph --await-review` polls durable
+# GitHub state with backing-off intervals and launches the assigned Review
+# Agent only when the pull-request head has no review yet, so idle GitHub time
+# spends no context and no tokens. This tick holds its lock throughout, which
+# is what keeps a Story in negotiation from competing with new work.
+# Returns RC_REVIEW_WINDOW (14) when the window closed: the caller owes a
+# Handoff. RC_REVIEW_ESCALATED (15) when the round budget ran out with the two
+# models still disagreeing: that Story is now state:blocked with a human asked
+# to arbitrate, and the tick moves on to other work. Any other non-zero leaves
+# the Story In Review for the next tick.
+RC_REVIEW_WINDOW=14
+RC_REVIEW_ESCALATED=15
+RC_REVIEW_COMPLETED=16
+await_review() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue for its review round; leaving it for the next tick"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --await-review "$story_file" "$RALPH_CONFIG" || rc=$?
+  rm -f "$story_file"
+  return "$rc"
+}
+
+# Checkpoint a Story In Review when its review window closes. The Handoff is
+# **comment-only**: the Story's work is already pushed, and a commit -- even the
+# empty one a normal checkpoint writes -- would move the head the reviewer's
+# findings are bound to, discarding the review this tick just waited for.
+# The Story stays state:in-review, so the next tick resumes it (and its pull
+# request) ahead of any state:ready work.
+checkpoint_review() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    log "cannot fetch #$issue to write its review Handoff; continuing"
+    rm -f "$story_file"
+    return 0
+  fi
+  "$RALPH_BIN" --checkpoint "$story_file" \
+    "Review window closed with the negotiation still open. The Story stays In Review; the next tick resumes it and its pull request first." \
+    "$RALPH_CONFIG" --comment-only || rc=$?
+  rm -f "$story_file"
+  if (( rc != 0 )); then
+    log "could not write the review Handoff for #$issue (exit $rc); continuing"
+  fi
+  return 0
+}
+
+# Ask the circuit breaker whether the loop as a whole should stop. A deadlocked
+# Story blocks itself and nothing else -- but "blocked" is exactly what the
+# breaker counts, so a *pattern* of deadlocks still halts the loop and tags the
+# configured human. The escalation never decides that; this does, from the
+# backlog, using the same limits.circuit_breaker the failure path uses.
+# Best-effort: a gh blip here must not turn one blocked Story into a failed tick.
+check_breaker() {
+  "$RALPH_BIN" --check-breaker \
+    || log "could not evaluate the circuit breaker; continuing"
+}
+
+# Promote locally green implementation work into review. Both Story types use
+# the same marked-PR boundary and move to state:in-review; final AFK/HIL
+# completion is a later, review-gated stage. The tool refuses main and validates
+# the Story type/state, so this stays thin orchestration.
+# The story is fetched fresh so promotion has the full record. A Feature story
 # (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
-# the PRD is fetched and handed to the completion CLI as a temp file; an Orphan
+# the PRD is fetched and handed to the promotion CLI as a temp file; an Orphan
 # Story (Parent: None) passes no PRD and keeps the classic path. Returns
 # non-zero on a git/gh/dispatch failure; the caller logs and moves on.
 complete_story() {
@@ -171,17 +304,9 @@ complete_story() {
       return 2
     fi
   fi
-  if grep -q '"type:afk"' <<<"$story_json"; then
-    log "green #$issue is type:afk; completing (--complete-afk)"
-    "$RALPH_BIN" --complete-afk - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
-      <<<"$story_json" || rc=$?
-    # The close leaves the stale state label on the closed issue; strip it.
-    if (( rc == 0 )); then
-      gh issue edit "$issue" --remove-label state:in-progress >/dev/null 2>&1 || true
-    fi
-  elif grep -q '"type:hil"' <<<"$story_json"; then
-    log "green #$issue is type:hil; completing (--complete-hil)"
-    "$RALPH_BIN" --complete-hil - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
+  if grep -qE '"type:(afk|hil)"' <<<"$story_json"; then
+    log "implementation green #$issue; entering review (--implementation-green)"
+    "$RALPH_BIN" --implementation-green - "$RALPH_CONFIG" ${prd_file:+"$prd_file"} \
       <<<"$story_json" || rc=$?
   else
     log "cannot promote #$issue: no type:afk/type:hil label"
@@ -189,6 +314,36 @@ complete_story() {
   fi
   if [[ -n "$prd_file" ]]; then rm -f "$prd_file"; fi
   return "$rc"
+}
+
+# Act on any human arbitration that arrived since the last tick (#58).
+#
+# A Story that deadlocked is state:blocked, and a blocked Story is by definition
+# never selected -- so the work loop above can never notice that a human has
+# since clicked Approve or Request changes on its pull request. This pass is
+# where that is noticed: it scans the blocked Stories and hands each one to
+# `ralph --arbitrate-review`, which does nothing at all unless there is a native
+# review it has not already acted on.
+#
+# It runs at the end of the tick, next to the Feature completion pass, because
+# it is reconciliation with what happened *between* ticks rather than part of
+# working the backlog. A human's Request changes still gets its implementation
+# round here and now; only the review of that new head waits for the next tick.
+# A human deciding while the Story is still In Review needs none of this -- the
+# bounded wait sees the decision on its next poll and acts on it immediately.
+arbitration_pass() {
+  local issue story_file
+  while IFS= read -r issue; do
+    [[ -z "$issue" ]] && continue
+    story_file="$(mktemp)"
+    if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+      "$RALPH_BIN" --arbitrate-review "$story_file" "$RALPH_CONFIG" \
+        || log "could not act on a human decision for #$issue; the next tick retries"
+    else
+      log "cannot fetch blocked #$issue to check for a human decision; continuing"
+    fi
+    rm -f "$story_file"
+  done < <("$RALPH_BIN" --blocked-stories 2>/dev/null)
 }
 
 # Run the Feature completion pass for a single eligible PRD (ADR-0006, US-029).
@@ -222,6 +377,24 @@ tick() {
     return 2
   fi
 
+  # --- the tick's own tooling must be complete (ADR-0001: fail loud) ---
+  # `$RALPH_BIN` is re-read from disk on every call, and a tick checks out
+  # branches -- so it can end up pointing at a `ralph` older than this script.
+  # That happened on 2026-08-28: promoting a story moved the checkout to a branch
+  # without `--launch-agent`, and every later iteration launched nothing. Checked
+  # here, before any story is labelled state:in-progress, so a mismatch cannot
+  # leave the backlog half-edited the way that tick did.
+  local sub usage missing=()
+  usage="$("$RALPH_BIN" --help 2>&1 || true)"
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
+    grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
+  done
+  if (( ${#missing[@]} )); then
+    log "$RALPH_BIN does not support: ${missing[*]}"
+    log "the checkout providing bin/ralph is out of step with this bin/ralph.sh; refusing to tick"
+    return 2
+  fi
+
   # --- read the base branch once (for freshness merges) ---
   local base_branch
   base_branch="$(read_base_branch)"
@@ -252,18 +425,76 @@ tick() {
           return 0
         fi
         log "$kind #$issue"
+        # In Review has resume priority so the negotiation path owns the tick,
+        # but it is never more implementation work: wait out the review window
+        # here, holding the lock, and start no other Story while waiting. An
+        # unrelated or unmarked pull request spends zero invocations -- the
+        # tools refuse it before launching anything.
+        if [[ "$kind" == "resume" ]] && \
+           gh issue view "$issue" --json labels \
+             | grep -q '"state:in-review"'; then
+          local review_rc=0
+          await_review "$issue" || review_rc=$?
+          case "$review_rc" in
+            0)
+              log "review negotiation for #$issue needs no further waiting this tick"
+              ;;
+            "$RC_REVIEW_WINDOW")
+              log "review window closed for #$issue; writing a Handoff and ending the tick"
+              checkpoint_review "$issue"
+              ;;
+            "$RC_REVIEW_COMPLETED")
+              # The Story is finished -- merged and closed, or parked at
+              # awaiting-bench -- so it is off the backlog and the tick can
+              # spend the rest of its budget on the next one.
+              log "#$issue passed the review gate and was completed"
+              n=$(( n + 1 ))
+              continue
+              ;;
+            "$RC_REVIEW_ESCALATED")
+              # Deadlock stops this Story, not the loop: it is already
+              # state:blocked with a human asked to arbitrate, so it will not be
+              # re-selected and the tick goes straight on to other work. The
+              # breaker still gets its say on whether *this many* blocked
+              # Stories mean the whole loop should stop.
+              log "review for #$issue deadlocked; it is blocked and a human was asked to arbitrate"
+              check_breaker
+              n=$(( n + 1 ))
+              continue
+              ;;
+            *)
+              log "review step for #$issue did not complete (exit $review_rc); the next tick retries"
+              ;;
+          esac
+          log "#$issue stays in review; the next tick resumes it first"
+          return 0
+        fi
         # `start` moves a state:ready story into state:in-progress up front, so a
         # checkpoint/partial pass/completion all see the expected state. `resume`
-        # is already in-progress (a prior tick moved it), so it is left alone.
+        # is already active (in-progress or in-review), so it is left alone.
         if [[ "$kind" == "start" ]]; then
           begin_story "$issue"
         fi
+        assign_story_models "$issue"
         sync_branch
         freshness_merge "$issue" "$base_branch"
         local rc=0
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
           0)  # partial progress: resume the same story on the next pass
+            ;;
+          "$RC_INFRA_FAILURE")  # the provider ran and died; no progress to promote
+            log "agent launch failed for #$issue (infrastructure); resuming it on a later pass"
+            ;;
+          "$RC_LAUNCH_UNAVAILABLE")
+            # Ending the tick is not pessimism, it is the only useful move: no
+            # agent ran, the story stays state:in-progress, and resume-first
+            # selects it again on the very next pass -- so continuing re-runs the
+            # identical refusal until the iteration bound. A non-zero exit also
+            # lets the scheduler surface it: a tick that launched nothing must
+            # not look like a clean one. The next tick retries from scratch.
+            log "no agent could be launched for #$issue; ending tick (next tick retries)"
+            return 1
             ;;
           "$RC_STORY_COMPLETE")  # green: promote it off the backlog
             complete_story "$issue" \
@@ -300,6 +531,9 @@ tick() {
     complete_feature "$prd_number" \
       || log "completion pass for PRD #$prd_number failed (see above); continuing"
   done < <("$RALPH_BIN" --ready-features 2>/dev/null)
+
+  # --- arbitration pass: act on human decisions made between ticks (#58) ---
+  arbitration_pass
 
   return 0
 }

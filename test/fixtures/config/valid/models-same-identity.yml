@@ -1,0 +1,19 @@
+# Schema-valid, but both default roles resolve to one model identity: role
+# resolution refuses it without the operator's same-model acknowledgement.
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: primary
+      provider: claude
+      model: claude-opus-5
+    - key: secondary
+      provider: claude
+      model: claude-opus-5
+  defaults:
+    implementation: primary
+    review: secondary
+notify:
+  github: octocat

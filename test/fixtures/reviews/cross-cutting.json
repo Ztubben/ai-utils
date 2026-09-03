@@ -1,0 +1,19 @@
+{
+  "contract": "ralph-review/v1",
+  "verdict": "request_changes",
+  "head": "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d",
+  "model": "gpt-5-codex",
+  "round": 2,
+  "summary": "The change is coherent line by line, but the validator as a whole never reaches the size guard the story asks for. The finding is cross-cutting and carries no source location.",
+  "findings": [
+    {
+      "id": "F-3",
+      "blocking": true,
+      "category": "missing_tests",
+      "claim": "No test exercises an oversized payload, so the size guard is unverified across the module.",
+      "evidence": "test/unit/test_review_result.py never loads a payload larger than the documented byte limit; the guard has no failing case.",
+      "requirement": "Acceptance criterion: 'Fixture payloads cover valid inline findings, cross-cutting findings, non-blocking suggestions, malformed locations, and oversized output'.",
+      "verification": "Add a fixture over the byte limit and assert validation rejects it naming the limit."
+    }
+  ]
+}
