@@ -42,14 +42,27 @@ class ValidationResult:
         lines.append("base branch: %s" % branching.get("base"))
         lines.append("branch pattern: %s" % branching.get("branch_pattern"))
         lines.append("feature pattern: %s" % branching.get("feature_pattern"))
-        lines.append("rescue pattern: %s" % branching.get("rescue_pattern"))
         lines.append("afk merge: %s" % branching.get("afk_merge"))
         limits = c.get("limits", {})
         lines.append("max attempts: %s" % limits.get("max_attempts"))
         lines.append("circuit breaker: %s" % limits.get("circuit_breaker"))
+        protected = (c.get("control_plane") or {}).get("protected") or []
+        lines.append("protected control plane: %s"
+                     % (", ".join(protected) if protected else "(none)"))
         lines.append("notify: @%s" % c.get("notify", {}).get("github"))
         steps = ", ".join(s.get("name", "?") for s in c.get("gating", []))
         lines.append("gating steps: %s" % steps)
+        models = c.get("models") or {}
+        entries = models.get("profiles") or []
+        if entries:
+            lines.append("model profiles: %s" % ", ".join(
+                "%s=%s:%s" % (e.get("key"), e.get("provider"), e.get("model"))
+                for e in entries))
+            defaults = models.get("defaults") or {}
+            lines.append("default implementation: %s" % defaults.get("implementation"))
+            lines.append("default review: %s" % defaults.get("review"))
+        else:
+            lines.append("model profiles: (none configured)")
         return "\n".join(lines)
 
 
@@ -75,8 +88,13 @@ def _apply_defaults(schema, instance):
     return instance
 
 
-def _format_error(err):
-    """Render a jsonschema error as '<field path>: <message>'."""
+def format_error(err):
+    """Render a jsonschema error as '<field path>: <message>'.
+
+    Shared with the review-result validator so both name the offending field the
+    same way; an actionable field path is the convention every Ralph validator
+    reports failures in.
+    """
     path = "/".join(str(p) for p in err.absolute_path)
     # For an unexpected/extra property (additionalProperties), surface its name.
     if not path and err.validator == "additionalProperties" and err.instance:
@@ -84,6 +102,71 @@ def _format_error(err):
         if extra:
             path = ", ".join(extra)
     return "%s: %s" % (path or "(root)", err.message)
+
+
+def provider_enum(schema_path=DEFAULT_SCHEMA):
+    """The provider adapters a Model Profile may name, per the shipped schema.
+
+    The adapter registry is keyed off the same list, so a config that validates
+    can always be launched.
+    """
+    schema = _load_schema(schema_path)
+    return list(schema["properties"]["models"]["properties"]["profiles"]
+                ["items"]["properties"]["provider"]["enum"])
+
+
+def _model_catalog_errors(data):
+    """Catalog rules the JSON-schema cannot express: profile keys are unique and
+    every committed role default names a profile in the catalog."""
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return []
+    entries = models.get("profiles")
+    if not isinstance(entries, list):
+        return []
+
+    errors, seen = [], set()
+    for index, entry in enumerate(entries):
+        key = entry.get("key") if isinstance(entry, dict) else None
+        if not isinstance(key, str):
+            continue
+        if key in seen:
+            errors.append("models/profiles/%d/key: duplicate profile key %r"
+                          % (index, key))
+        seen.add(key)
+
+    defaults = models.get("defaults")
+    if isinstance(defaults, dict):
+        for role in ("implementation", "review"):
+            key = defaults.get(role)
+            if isinstance(key, str) and key not in seen:
+                errors.append(
+                    "models/defaults/%s: unknown profile key %r (catalog: %s)"
+                    % (role, key, ", ".join(sorted(seen)) or "empty"))
+    return errors
+
+
+def _control_plane_errors(data):
+    """Protected patterns must stay inside the repository they protect.
+
+    An absolute or parent-escaping pattern could never match a repository-
+    relative changed path, so it would silently protect nothing -- which is the
+    worst possible failure mode for a rule whose entire job is to stop the
+    mechanism approving changes to itself.
+    """
+    patterns = ((data.get("control_plane") or {}).get("protected")
+                if isinstance(data.get("control_plane"), dict) else None)
+    if not isinstance(patterns, list):
+        return []
+    errors = []
+    for index, pattern in enumerate(patterns):
+        if not isinstance(pattern, str):
+            continue
+        if os.path.isabs(pattern) or ".." in pattern.split("/"):
+            errors.append(
+                "control_plane/protected/%d: %r must be a repository-relative "
+                "path pattern" % (index, pattern))
+    return errors
 
 
 def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
@@ -105,7 +188,11 @@ def load_and_validate(config_path, schema_path=DEFAULT_SCHEMA):
     validator = jsonschema.Draft7Validator(schema)
     errors = sorted(validator.iter_errors(data), key=lambda e: list(e.absolute_path))
     if errors:
-        return ValidationResult(False, [_format_error(e) for e in errors])
+        return ValidationResult(False, [format_error(e) for e in errors])
+
+    cross_field = _model_catalog_errors(data) + _control_plane_errors(data)
+    if cross_field:
+        return ValidationResult(False, cross_field)
 
     resolved = _apply_defaults(schema, copy.deepcopy(data))
     return ValidationResult(True, [], resolved)

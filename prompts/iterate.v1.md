@@ -10,40 +10,47 @@ to a green local gate. Honor the terminology in `CONTEXT.md` — this is a **HIL
 - Work **only** in the superproject, on the working branch. **Never** touch `main`, and
   **never** merge into the base branch — an iteration only commits WIP to the working
   branch. Promotion and bench verification are owned elsewhere.
-- Do not close the issue, open a PR, or apply completion labels — later stages
-  (AFK auto-merge / HIL awaiting-bench) do that.
+- Do not close the issue, open a PR, or apply review/completion labels — the
+  orchestrator moves locally green work into review.
 - Keep changes focused and minimal; follow the patterns already in the repo.
 - **Never rewrite history.** Iterations must not rebase, amend, or force-push. The
   human may rebase the branch at any time; Ralph always works forward-only.
 
 ## 1. Branch
 
-There are two story kinds and each resolves to a different working branch:
+Every story — Orphan or Feature — works on **its own story branch**, named from its own
+issue number/title via `branch_pattern`. There is no shared working branch: the two story
+kinds differ only in what that branch is cut from, which is the same thing its pull request
+will later target.
 
-- **Orphan Story** (no `Parent:` or `Parent: None`) — works on its own story branch,
-  named from its own issue number/title via `branch_pattern`.
-- **Feature story** (`Parent: #N`) — works directly on the Feature's integration
-  branch, named from the PRD issue via `feature_pattern`.
+- **Orphan Story** (no `Parent:` or `Parent: None`) — cut from the configured **base**
+  branch, exactly as before.
+- **Feature story** (`Parent: #N`) — cut from its **Feature integration branch**, named
+  from the PRD issue via `feature_pattern`. Cut it from the *current* Feature tip so you
+  start from the work earlier stories in the same Feature already landed, and never
+  re-implement against stale code. If that Feature branch does not exist yet, cut from the
+  configured base branch instead — the Feature branch is created when the story's pull
+  request is opened, which is not your job.
 
-Get the **canonical** working branch name from the shipped CLI and use it
-**verbatim** — do not hand-slugify the title yourself:
+Get the **canonical** names from the shipped CLI and use them **verbatim** — do not
+hand-slugify either title yourself:
 
 ```sh
-gh issue view <issue> --json number,title,labels,body,state \
-  | ralph --branch-name - .ralph.yml [prd.json]
+gh issue view <issue> --json number,title,labels,body,state >story.json
+ralph --branch-name story.json .ralph.yml [prd.json]           # the working branch
+ralph --branch-name story.json .ralph.yml [prd.json] --base    # what it is cut from
 ```
 
 For a Feature story, pass the PRD context (fetched via `gh issue view <parent>`)
-as a JSON file so the CLI can resolve the feature branch. The name is deterministic
+as a JSON file so the CLI can resolve the Feature branch. Both names are deterministic
 (the config's `branch_pattern` / `feature_pattern` with `{issue}`/`{slug}`
 substituted, slug lowercased and **truncated to 50 chars** — defaults
 `ralph/{issue}-{slug}` and `feature/{issue}-{slug}`). Every later stage (Handoff,
-resume, and completion) recomputes this *same* name, so a branch named any other way
-will not be found.
+resume, review, and completion) recomputes these *same* names, so a branch named any other
+way will not be found.
 
-Create that exact branch off the configured **base** branch if it does not exist.
-If it already exists (a resume, or a shared feature branch), check it out and
-continue from the prior state instead of recreating it.
+Create the working branch off the resolved base if it does not exist. If it already exists
+(a resume), check it out and continue from the prior state instead of recreating it.
 
 ### Hard-sync from origin
 
@@ -101,8 +108,8 @@ iteration resumes with clean context.
 ## 5. Signal done (green) — required
 
 The orchestrator (`bin/ralph.sh`) cannot see inside your session, so it needs an
-explicit machine-readable signal to know a story is finished and may be promoted
-(AFK auto-merge / HIL awaiting-bench). When — and **only** when — **both** hold:
+explicit machine-readable signal to know implementation is locally green and may
+enter review. When — and **only** when — **both** hold:
 
 - `ralph --run-gating` passed (every gating step green, changes committed), and
 - **every** box in the story's `## Acceptance Criteria` is checked,

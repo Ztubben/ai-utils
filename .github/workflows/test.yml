@@ -1,0 +1,48 @@
+# ai-utils' own CI (#64, PRD #42).
+#
+# This is an *instance* of the public contracts, not a default a repository that
+# mounts ai-utils as a submodule inherits: that repository supplies its own CI,
+# its own credentials, and its own protected paths (ADR-0001).
+#
+# The job is named `test` so its check matches the `test` step in .ralph.yml's
+# gating, which is the context `develop` requires in branch protection. Ralph's
+# model review runs concurrently with it and reports separately, on
+# `ralph/model-review`. Every review fix commit is a new head, and this is what
+# re-verifies it.
+#
+# .github/workflows/** is a protected control-plane path: a Story that touches
+# the CI the gate reads needs a human Approve, whatever its type (#60).
+name: test
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # The two libraries README's Requirements names. lib/*.py is otherwise
+      # stdlib-only, so there is no requirements file to install from.
+      - name: Install the Python dependencies
+        run: python -m pip install --upgrade PyYAML jsonschema
+
+      # The orchestration tests drive bin/ralph against mocked `claude` and `gh`
+      # on PATH; test/run.sh skips them when bats is absent, so install it and
+      # keep CI covering the seam the suite prefers.
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats
+
+      - name: Run the gating suite
+        run: test/run.sh

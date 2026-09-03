@@ -1,0 +1,17 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: mystery
+      provider: acme
+      model: acme-1
+    - key: codex-review
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: mystery
+    review: codex-review
+notify:
+  github: octocat

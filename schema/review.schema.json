@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ai-utils/ralph/schema/review.schema.json",
+  "title": "Ralph structured review result (ralph-review/v1)",
+  "description": "The machine-readable result of one Negotiation Round, emitted by a Review Agent and validated by the trusted Ralph-side wrapper before anything is rendered as a GitHub review. A payload that does not validate is refused, never repaired: the wrapper is the gate that keeps malformed or hallucinated output off a pull request. Blocking is declared per finding and is never inferred; see docs/review-contract.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "verdict", "head", "model", "round", "summary", "findings"],
+  "properties": {
+    "contract": {
+      "description": "Contract version. A reader that does not know this exact string refuses the payload rather than guessing at its shape.",
+      "const": "ralph-review/v1"
+    },
+    "verdict": {
+      "description": "The review outcome, rendered as the corresponding GitHub review. request_changes carries at least one blocking finding; approve and comment carry none.",
+      "enum": ["approve", "request_changes", "comment"]
+    },
+    "head": {
+      "description": "The exact 40-character commit the review judged. A result whose head is no longer current is discarded rather than posted.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "model": {
+      "description": "The exact model identity that reviewed, as recorded on the Story's model:review: label. Not a profile key: keys are configuration-local, identities are what make an audit trail reproducible.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "round": {
+      "description": "Which Negotiation Round produced this result, counting from 1.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "summary": {
+      "description": "Prose for the pull-request review body: what was reviewed and why the verdict follows.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "findings": {
+      "description": "Every objection the review raises, blocking or not. An empty list is a review with nothing to say.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "blocking", "category", "claim", "evidence",
+                     "requirement", "verification"],
+        "properties": {
+          "id": {
+            "description": "Stable identifier, unique within the result. Fixes and disputes cite it across commits and rounds.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+          },
+          "blocking": {
+            "description": "Whether this finding blocks the pull request. Required and explicit: neither value is a default, so a reviewer that omits it has not classified the finding.",
+            "type": "boolean"
+          },
+          "category": {
+            "description": "Why the finding is blocking, or why it is not. The first six categories are the only blocking reasons; the last three are always non-blocking.",
+            "enum": ["acceptance_criteria", "defect", "safety_regression",
+                     "explicit_rule", "missing_tests", "scope_creep",
+                     "style_preference", "speculative_improvement",
+                     "preexisting_issue"]
+          },
+          "claim": {
+            "description": "What is wrong, stated once.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "evidence": {
+            "description": "What in the diff, the checkout, or the checks supports the claim. Assertion without evidence is what this field exists to prevent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "requirement": {
+            "description": "The acceptance criterion, documented rule, or decision the claim is measured against — or an explicit statement that there is none, which is only acceptable for a non-blocking finding.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "verification": {
+            "description": "How the Implementation Agent can check the claim for itself: the test to run, the input to try, the caller to inspect.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "location": {
+            "description": "Where the finding applies, when it applies to changed lines. Omitted for a cross-cutting finding, which is rendered in the review body instead of an inline thread.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "line"],
+            "properties": {
+              "path": {
+                "description": "Repository-relative path of a file the reviewed diff touched.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "line": {
+                "description": "First line of the range, numbered on the new side of the diff.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "end_line": {
+                "description": "Last line of the range, at or after line. Omitted for a single-line finding.",
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

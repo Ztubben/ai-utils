@@ -121,6 +121,29 @@ class MalformedStoriesAreRejected(unittest.TestCase):
 
 
 class LabelShapeIsFlexible(unittest.TestCase):
+    def test_in_review_is_a_valid_story_state(self):
+        story = {
+            "number": 48,
+            "title": "Review the implementation",
+            "labels": ["state:in-review", "type:afk"],
+            "body": "## Acceptance Criteria\n- [ ] review it\n\nParent: #42\nDepends on: None\n",
+        }
+        result = ralph_story.validate_story(story)
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.fields["state"], "in-review")
+
+    def test_in_review_remains_mutually_exclusive_with_other_states(self):
+        story = {
+            "number": 48,
+            "title": "Review the implementation",
+            "labels": ["state:in-progress", "state:in-review", "type:afk"],
+            "body": "## Acceptance Criteria\n- [ ] review it\n\nParent: #42\nDepends on: None\n",
+        }
+        result = ralph_story.validate_story(story)
+        self.assertFalse(result.ok)
+        self.assertTrue(any("exactly one state:*" in error
+                            for error in result.errors), result.errors)
+
     def test_plain_string_labels_are_accepted(self):
         story = {
             "number": 1,

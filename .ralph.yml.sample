@@ -23,7 +23,6 @@ branching:
   base: develop                     # default: develop
   branch_pattern: "ralph/{issue}-{slug}"  # {issue} and {slug} are substituted
   feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue (default shown)
-  rescue_pattern: "rescue/{issue}-{slug}"    # {issue}/{slug} from the story issue (default shown)
   afk_merge: squash                 # one of: merge | squash | rebase (default: squash)
 
 # Failure-handling limits.
@@ -31,6 +30,58 @@ limits:
   max_attempts: 3      # failed Attempts before a story moves to state:blocked (default: 3)
   circuit_breaker: 2   # blocked stories that halt the loop and tag a human (default: 2)
 
-# Who to tag when the circuit breaker trips (needs-human).
+# Allowlisted Model Profiles and the committed defaults for the two roles.
+# Optional: declare it to let Ralph resolve an Implementation Agent and an
+# independent Review Agent without command-line arguments. Roles are selected by
+# profile key; `model` is the exact model identity persisted on a story. Keys
+# must be unique, and each default must name a profile below. Resolution refuses
+# a pair whose two roles resolve to one model identity unless the operator passes
+# `--allow-same-model` (see `ralph --resolve-models`). Ralph alternates the pair
+# across newly started stories (the first uses the order below, the next swaps
+# it); `alternate: false` keeps the roles fixed.
+models:
+  profiles:
+    - key: claude-opus
+      provider: claude          # provider adapter: claude | codex
+      model: claude-opus-5      # exact configured model identifier
+    - key: codex-high
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-opus
+    review: codex-high
+  # alternate: true          # swap the pair on each newly started story (default: true)
+
+# Model review and negotiation. While a Story is In Review the tick holds its
+# lock and waits here rather than inside a model: polling durable GitHub state
+# costs no context and makes no invocation. When the window closes the tick
+# writes a Handoff and ends cleanly, and the next tick resumes the same Story
+# and pull request ahead of any state:ready work.
+review:
+  wait_minutes: 60     # bounded negotiation window per tick (default: 60)
+  poll_seconds: 30     # first poll; later polls back off, capped, within the window
+  # Negotiation Rounds one Story gets before the disagreement goes to a human.
+  # Counted in reviews published, so a disputed round -- judged again at the same
+  # commit because a dispute changes no code -- still spends one. Exhausting them
+  # moves that Story alone to state:blocked and requests a native GitHub review
+  # from notify.github, with both sides' arguments summarized on the pull request.
+  # Unrelated Stories keep running; whether the loop as a whole halts stays
+  # limits.circuit_breaker's decision, which the newly blocked Story counts toward.
+  max_rounds: 2        # default: 2
+
+# The protected control plane: the parts of *this* repository that govern
+# Ralph's own review gate. A Story whose diff touches one of these is never
+# completed on a model review alone -- an AFK Story is not merged and a HIL
+# Story is not parked for the bench until a person clicks Approve on the pull
+# request, which says why. The mechanism must not be able to approve changes to
+# itself. Patterns are repository-relative; a bare directory protects
+# everything under it, and * / ** glob. Omit the section to protect nothing.
+control_plane:
+  protected:
+    - .github/workflows/**    # the CI the gate reads
+    - .ralph.yml              # the policy itself, including this list
+
+# Who to tag when the circuit breaker trips (needs-human), and who is asked to
+# approve a protected control-plane change or arbitrate a deadlock.
 notify:
   github: your-github-handle   # without a leading @

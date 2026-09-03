@@ -50,13 +50,6 @@
           "pattern": "\\{issue\\}",
           "default": "feature/{issue}-{slug}"
         },
-        "rescue_pattern": {
-          "description": "Rescue branch naming pattern; {issue} and {slug} substitute from the story issue.",
-          "type": "string",
-          "minLength": 1,
-          "pattern": "\\{issue\\}",
-          "default": "rescue/{issue}-{slug}"
-        },
         "afk_merge": {
           "description": "Merge method used to auto-merge a green AFK story into base.",
           "type": "string",
@@ -81,6 +74,102 @@
           "type": "integer",
           "minimum": 1,
           "default": 2
+        }
+      }
+    },
+    "models": {
+      "description": "Allowlisted model-profile catalog and the committed default profile keys for the implementation and review roles. Optional: a target repository opts in by declaring it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profiles", "defaults"],
+      "properties": {
+        "profiles": {
+          "description": "The allowlisted model profiles. Each is a stable profile key, the provider adapter that runs it, and the exact configured model identifier. Keys must be unique.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "provider", "model"],
+            "properties": {
+              "key": {
+                "description": "Stable profile key; roles are selected by this key.",
+                "type": "string",
+                "minLength": 1
+              },
+              "provider": {
+                "description": "Provider adapter that runs the profile.",
+                "type": "string",
+                "enum": ["claude", "codex"]
+              },
+              "model": {
+                "description": "Exact configured model identifier; this is the model identity persisted on a story.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "defaults": {
+          "description": "Committed default profile keys, so a scheduled tick resolves both roles without command-line arguments. Each must name a profile in the catalog.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["implementation", "review"],
+          "properties": {
+            "implementation": {
+              "description": "Profile key of the default Implementation Agent.",
+              "type": "string",
+              "minLength": 1
+            },
+            "review": {
+              "description": "Profile key of the default Review Agent.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "alternate": {
+          "description": "Alternate the two selected profiles across newly started stories, so authorship and review influence stay balanced. The resolved role order is the first newly assigned story's order and each later one swaps the pair. Set false for fixed roles.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "review": {
+      "description": "Model review and negotiation: how long one tick waits on a Story in review, and how often it looks.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wait_minutes": {
+          "description": "Bounded window a tick waits for a Story's review to move on. On expiry the tick writes a Handoff and ends cleanly; the next tick resumes the same Story. Waiting spends no model context.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 60
+        },
+        "poll_seconds": {
+          "description": "Interval before the first poll of durable GitHub state. Later polls back off, capped, and never run past the window.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30
+        },
+        "max_rounds": {
+          "description": "Negotiation Rounds one Story gets before the disagreement goes to a human. Exhausting them moves that Story alone to state:blocked and requests a native review from notify.github; unrelated Stories keep running. Counted in reviews published, so a disputed round — judged at the same commit — still spends one.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 2
+        }
+      }
+    },
+    "control_plane": {
+      "description": "The parts of this repository that govern Ralph's own review gate — review workflows, prompts, schemas, configuration, override policy. A change touching any of them always requires a native human approval before it merges or is parked for the bench, whatever the Story's type, so the mechanism can never approve changes to itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protected": {
+          "description": "Repository-relative path patterns. A bare directory protects everything under it; * and ** glob. A change touching a match is never completed on a model review alone.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
         }
       }
     },

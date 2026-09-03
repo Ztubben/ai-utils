@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Ztubben/ai-utils/schema/response.schema.json",
+  "title": "Ralph implementation response to one Negotiation Round",
+  "description": "The Implementation Agent's machine-readable answer to a review that requested changes. Validated whole before any reply is posted; a response that does not validate is refused, never repaired.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "head", "round", "model", "summary", "dispositions"],
+  "properties": {
+    "contract": {
+      "description": "Exactly ralph-response/v1. A reader that does not recognise the version refuses the payload rather than guessing at its shape.",
+      "const": "ralph-response/v1"
+    },
+    "head": {
+      "description": "The exact commit that was reviewed — the one these findings judged, not the new head the fixes created.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "round": {
+      "description": "The Negotiation Round being answered, counting from 1.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "model": {
+      "description": "The exact implementation model identity, as recorded on the Story's model:impl: label.",
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "description": "Prose for the response comment: what changed, and why it answers the round.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "dispositions": {
+      "description": "One entry per open finding — every finding the round raised, answered exactly once.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "disposition", "note"],
+        "properties": {
+          "id": {
+            "description": "The finding's stable identifier, as the reviewer issued it.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "disposition": {
+            "description": "accepted: a fix commit was appended for it. disputed: the finding is answered with evidence instead of a change, and the code is left alone. unresolved: it was not addressed this round, and the note says why.",
+            "enum": ["accepted", "disputed", "unresolved"]
+          },
+          "note": {
+            "description": "What was changed for this finding, or why it could not be.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "evidence": {
+            "description": "Required for a dispute, and only meaningful there: the test, the source documentation, or the code the reviewer can read to see the finding is wrong. A dispute without it is an assertion, which is exactly what the finding contract forbids of the reviewer too.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "disposition": { "const": "disputed" } },
+                    "required": ["disposition"] },
+            "then": { "required": ["evidence"] }
+          }
+        ]
+      }
+    }
+  }
+}

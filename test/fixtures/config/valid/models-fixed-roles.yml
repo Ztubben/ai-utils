@@ -1,0 +1,21 @@
+# The fixed-role option (#47): the same two profiles as models.yml, with
+# alternation switched off so every newly started Story keeps the resolved
+# role order.
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: claude-impl
+      provider: claude
+      model: claude-opus-5
+    - key: codex-review
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-impl
+    review: codex-review
+  alternate: false
+notify:
+  github: octocat

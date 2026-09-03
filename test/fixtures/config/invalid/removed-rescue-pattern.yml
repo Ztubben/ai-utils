@@ -3,6 +3,6 @@ gating:
   - name: test
     run: make test
 branching:
-  rescue_pattern: "rescue/{slug}-only"
+  rescue_pattern: "rescue/{issue}-{slug}"   # removed by PRD #69
 notify:
   github: octocat

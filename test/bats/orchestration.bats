@@ -1,10 +1,12 @@
 #!/usr/bin/env bats
 # Orchestration tests for the Ralph tick loop (US-011, ADR-0002/0004).
 #
-# These drive bin/ralph.sh against mocked `claude`, `gh` and `git` on PATH. bats
-# is auto-detected by test/run.sh; the same contract is also exercised by the
-# stdlib-unittest gate test/unit/test_orchestrate.py (the executed gate where
-# bats is not installed).
+# These drive bin/ralph.sh against a fake binary for every provider plus mocked
+# `gh` and `git` on PATH. bats is auto-detected by test/run.sh; the same contract
+# is also exercised by the stdlib-unittest gate test/unit/test_orchestrate.py
+# (the executed gate where bats is not installed), which additionally covers
+# selecting each provider adapter from the model catalog (#45) and role
+# alternation across newly started stories (#47).
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -29,6 +31,10 @@ setup() {
   unset RALPH_ITERATION_ACTION RALPH_ITERATION_ISSUE RALPH_SESSION_LIMIT_MARKER \
         RALPH_CONFIG RALPH_MAX_ITERATIONS RALPH_CLI
   export PATH="$MB:$PATH"
+  # A tick that is itself running Ralph exports the provider binary overrides;
+  # inherited, they would win over the fakes on PATH and this suite would launch
+  # a *real* agent. The mocks are the only providers a test may run.
+  unset RALPH_CLAUDE RALPH_CODEX
 
   cat >"$MB/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -42,25 +48,33 @@ elif [[ "$1 $2" == "issue view" ]]; then
   cat "$RALPH_GH_QUEUE_DIR/story.json"
 fi
 EOF
-  cat >"$MB/claude" <<'EOF'
+  for provider in claude codex; do
+    cat >"$MB/$provider" <<EOF
 #!/usr/bin/env bash
 cat > /dev/null
-echo "claude action=${RALPH_ITERATION_ACTION:-} issue=${RALPH_ITERATION_ISSUE:-}" >> "$RALPH_LOG"
-[[ -n "${RALPH_CLAUDE_EMIT:-}" ]] && printf '%s\n' "$RALPH_CLAUDE_EMIT"
-exit "${RALPH_CLAUDE_EXIT:-0}"
+echo "$provider \$* action=\${RALPH_ITERATION_ACTION:-} issue=\${RALPH_ITERATION_ISSUE:-}" >> "\$RALPH_LOG"
+[[ -n "\${RALPH_AGENT_EMIT:-}" ]] && printf '%s\n' "\$RALPH_AGENT_EMIT"
+exit "\${RALPH_AGENT_EXIT:-0}"
 EOF
+    chmod +x "$MB/$provider"
+  done
   cat >"$MB/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*" >> "$RALPH_LOG"
 exit 0
 EOF
-  chmod +x "$MB/gh" "$MB/claude" "$MB/git"
+  chmod +x "$MB/gh" "$MB/git"
 }
 
 teardown() {
   if [[ -n "${RALPH_OWN_TMPDIR:-}" ]]; then
     rm -rf "$RALPH_OWN_TMPDIR"
   fi
+}
+
+# How many agent iterations the tick launched, whichever provider ran.
+agent_calls() {
+  grep -cE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null || true
 }
 
 # A story issue in `gh --json` shape. $1=number $2=state $3=type(default afk).
@@ -78,7 +92,7 @@ story() {
   flock -u 8
   [ "$status" -eq 0 ]
   [[ "$output" == *"already running"* ]]
-  ! grep -q claude "$RALPH_LOG" 2>/dev/null
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
 }
 
 @test "resume-first: an in-progress story is resumed before ready work" {
@@ -86,7 +100,7 @@ story() {
   echo "[]" > "$SP/ghq/1.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  [ "$(agent_calls)" -eq 1 ]
   grep -q 'action=resume issue=5' "$RALPH_LOG"
 }
 
@@ -99,15 +113,15 @@ story() {
   echo "[]" > "$SP/ghq/4.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 2 ]
+  [ "$(agent_calls)" -eq 2 ]
 }
 
 @test "session-limit exhaustion checkpoints via Handoff and ends cleanly" {
   echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
   story 5 in-progress > "$SP/ghq/story.json"
-  RALPH_CLAUDE_EXIT=91 run bash -c "cd '$SP' && RALPH_CLAUDE_EXIT=91 '$RALPH_SH'"
+  RALPH_AGENT_EXIT=91 run bash -c "cd '$SP' && RALPH_AGENT_EXIT=91 '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
+  [ "$(agent_calls)" -eq 1 ]
   grep -q 'issue comment 5' "$RALPH_LOG"
   [[ "$output" == *"session limit"* ]]
 }
@@ -117,7 +131,7 @@ story() {
   # exit code rather than the legacy 91. One launch, then a Handoff.
   echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
   story 5 in-progress > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EXIT=1 RALPH_CLAUDE_EMIT=\"You've hit your session limit · resets 9pm (Europe/Stockholm)\" '$RALPH_SH'"
+  run bash -c "cd '$SP' && RALPH_AGENT_EXIT=1 RALPH_AGENT_EMIT=\"You've hit your session limit · resets 9pm (Europe/Stockholm)\" '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
   grep -q 'issue comment 5' "$RALPH_LOG"
@@ -127,10 +141,64 @@ story() {
 @test "legacy usage-limit marker still ends the tick" {
   echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
   story 5 in-progress > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT='Claude usage limit reached.' '$RALPH_SH'"
+  run bash -c "cd '$SP' && RALPH_AGENT_EMIT='Claude usage limit reached.' '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
   grep -q 'issue comment 5' "$RALPH_LOG"
+}
+
+# Point $RALPH_CLI at a `ralph` that has lost one subcommand; everything else
+# delegates to the real bin/ralph. $2=hide it from --help too (what the tick's
+# preflight reads). lib/schema/prompts are linked beside it because bin/ralph
+# and read_base_branch resolve them relative to their own location.
+break_subcommand() {
+  local sub="$1" hide="${2:-false}" home="$SP/fakehome"
+  mkdir -p "$home/bin"
+  local shared
+  for shared in lib schema prompts; do
+    [[ -e "$home/$shared" ]] || ln -s "$REPO_ROOT/$shared" "$home/$shared"
+  done
+  cat >"$home/bin/ralph" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "$sub" ]]; then
+  echo "ralph: unknown command: $sub" >&2
+  exit 2
+fi
+out="\$("$REPO_ROOT/bin/ralph" "\$@")"; rc=\$?
+if $hide && [[ "\$1" == "--help" || "\$1" == "-h" || -z "\${1:-}" ]]; then
+  printf '%s\n' "\$out" | grep -vF -- "$sub"
+else
+  printf '%s\n' "\$out"
+fi
+exit "\$rc"
+EOF
+  chmod +x "$home/bin/ralph"
+  export RALPH_CLI="$home/bin/ralph"
+}
+
+@test "a ralph missing --launch-agent refuses to tick before labelling a story" {
+  break_subcommand --launch-agent true
+  echo "[$(story 7 ready)]" > "$SP/ghq/0.json"
+  echo "[]" > "$SP/ghq/1.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--launch-agent"* ]]
+  [[ "$output" == *"refusing to tick"* ]]
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
+  ! grep -q 'gh issue edit' "$RALPH_LOG" 2>/dev/null
+}
+
+@test "a launcher that cannot run an agent ends the tick instead of spinning" {
+  break_subcommand --launch-agent
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/1.json"
+  echo "[]" > "$SP/ghq/2.json"
+  story 5 in-progress > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ending tick"* ]]
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
+  [ "$(grep -c 'ralph: resume #5' <<<"$output")" -eq 1 ]
 }
 
 @test "halt on needs-human without launching an iteration" {
@@ -138,7 +206,7 @@ story() {
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"halt"* ]]
-  ! grep -q claude "$RALPH_LOG" 2>/dev/null
+  ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
 }
 
 @test "start moves a ready story to state:in-progress before iterating" {
@@ -157,25 +225,29 @@ story() {
   ! grep -q 'gh issue edit' "$RALPH_LOG"
 }
 
-@test "a green AFK story is auto-merged and closed (not re-selected)" {
+@test "a green AFK story opens a marked PR and enters In Review" {
   echo "[$(story 7 ready afk)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
-  story 7 ready afk > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  story 7 in-progress afk > "$SP/ghq/story.json"
+  run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$RALPH_LOG")" -eq 1 ]
-  grep -q 'gh pr merge' "$RALPH_LOG"
-  grep -q 'gh issue close 7' "$RALPH_LOG"
+  [ "$(agent_calls)" -eq 1 ]
+  grep -q 'gh pr create.*ralph-managed-pr:v1' "$RALPH_LOG"
+  grep -q 'state:in-review' "$RALPH_LOG"
+  ! grep -q 'gh pr merge' "$RALPH_LOG"
+  ! grep -q 'gh issue close 7' "$RALPH_LOG"
 }
 
-@test "a green HIL story opens a PR and moves to awaiting-bench" {
+@test "a green HIL story opens a marked PR and enters In Review" {
   echo "[$(story 5 in-progress hil)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
   story 5 in-progress hil > "$SP/ghq/story.json"
-  run bash -c "cd '$SP' && RALPH_CLAUDE_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
+  run bash -c "cd '$SP' && RALPH_AGENT_EMIT=RALPH-STORY-COMPLETE '$RALPH_SH'"
   [ "$status" -eq 0 ]
   grep -q 'gh pr create' "$RALPH_LOG"
-  grep -q 'state:awaiting-bench' "$RALPH_LOG"
+  grep -q 'ralph-managed-pr:v1' "$RALPH_LOG"
+  grep -q 'state:in-review' "$RALPH_LOG"
+  ! grep -q 'state:awaiting-bench' "$RALPH_LOG"
   ! grep -q 'gh pr merge' "$RALPH_LOG"
   ! grep -q 'gh issue close' "$RALPH_LOG"
 }
@@ -195,6 +267,9 @@ prd() {
   # Queue 1: backlog with eligible PRD #10 (ready-features scan)
   echo "[$(prd 10),$(story 11 ready afk | sed 's/"state":"OPEN"/"state":"CLOSED"/;s/Parent: None/Parent: #10/')]" \
     > "$SP/ghq/1.json"
+  # Queue 2: the same backlog again -- --complete-feature reads it to check
+  # the Feature's HIL Stories before integrating (PRD #69).
+  cp "$SP/ghq/1.json" "$SP/ghq/2.json"
   # issue view returns the PRD for --complete-feature
   prd 10 > "$SP/ghq/story.json"
   # Mock make for gating steps
@@ -244,7 +319,7 @@ MKEOF
   story 7 ready afk > "$SP/ghq/story.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  grep -q '^claude ' "$RALPH_LOG"
+  [ "$(agent_calls)" -eq 1 ]
   ! grep -q 'gh pr merge' "$RALPH_LOG"
   ! grep -q 'gh pr create' "$RALPH_LOG"
 }

@@ -1,0 +1,14 @@
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: claude-impl
+      provider: claude
+      model: claude-opus-5
+  defaults:
+    implementation: claude-impl
+    review: codex-review
+notify:
+  github: octocat

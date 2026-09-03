@@ -58,13 +58,19 @@ def _refuse_protected(base, branch, errors):
 
 
 def handoff_plan(story, summary, base=DEFAULT_BASE,
-                 branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN):
+                 branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
+                 include_wip=True):
     """Build the ordered command plan to write a Handoff and terminate.
 
     Pure: computes commands, runs nothing. Stages + commits WIP, pushes the story
     branch, and posts an issue comment carrying `HANDOFF_MARKER` + the summary.
     The story stays `state:in-progress` so selection resumes it next iteration.
     Refuses (ok=False, no commands) when base is `main` (never touches main).
+
+    `include_wip=False` writes the comment alone. That is what a Story In Review
+    needs (#54): its work is already pushed and a reviewer's findings are bound
+    to an exact head, so an extra commit -- even the empty one -- would move that
+    head and throw away the review the tick was waiting on.
     """
     number = story["number"]
     branch = ralph_iterate.branch_name(story, branch_pattern)
@@ -74,12 +80,14 @@ def handoff_plan(story, summary, base=DEFAULT_BASE,
         return Plan(False, errors, [], base=base, branch=branch)
 
     body = HANDOFF_MARKER + "\n\n" + (summary or "").strip()
-    commands = [
-        ["git", "add", "-A"],
-        ["git", "commit", "--allow-empty", "-m", CHECKPOINT_COMMIT_MSG % number],
-        ["git", "push", "-u", "origin", branch],
-        ["gh", "issue", "comment", str(number), "--body", body],
-    ]
+    commands = []
+    if include_wip:
+        commands += [
+            ["git", "add", "-A"],
+            ["git", "commit", "--allow-empty", "-m", CHECKPOINT_COMMIT_MSG % number],
+            ["git", "push", "-u", "origin", branch],
+        ]
+    commands.append(["gh", "issue", "comment", str(number), "--body", body])
     return Plan(True, [], commands, base=base, branch=branch)
 
 
@@ -187,6 +195,8 @@ def _load_config(config_path):
 
 
 def _cmd_checkpoint(rest):
+    include_wip = "--comment-only" not in rest
+    rest = [arg for arg in rest if arg != "--comment-only"]
     if len(rest) < 2 or not rest[0] or rest[1] is None:
         sys.stderr.write(
             "ralph: --checkpoint requires STORY (path or -) and a SUMMARY\n")
@@ -204,7 +214,8 @@ def _cmd_checkpoint(rest):
         return 2
 
     plan = handoff_plan(story, summary, base=branching["base"],
-                        branch_pattern=branching["branch_pattern"])
+                        branch_pattern=branching["branch_pattern"],
+                        include_wip=include_wip)
     if not plan.ok:
         sys.stderr.write("REFUSED: handoff checkpoint\n")
         for err in plan.errors:
@@ -213,8 +224,10 @@ def _cmd_checkpoint(rest):
 
     run = run_plan(plan.commands, cwd=os.getcwd())
     if run.ok:
-        print("OK: checkpointed #%s onto %s (Handoff written; terminating)"
-              % (story["number"], plan.branch))
+        print("OK: checkpointed #%s %s (Handoff written; terminating)"
+              % (story["number"],
+                 "onto %s" % plan.branch if include_wip
+                 else "(comment only; the branch head is untouched)"))
         return 0
     sys.stderr.write("FAILED: handoff checkpoint (exit %d): %s\n"
                      % (run.failed.returncode, " ".join(run.failed.args)))

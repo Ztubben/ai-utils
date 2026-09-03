@@ -1,0 +1,18 @@
+diff --git a/lib/ralph_review_result.py b/lib/ralph_review_result.py
+index 1111111..2222222 100644
+--- a/lib/ralph_review_result.py
++++ b/lib/ralph_review_result.py
+@@ -8,8 +8,11 @@ import sys
+
+ CONTRACT_VERSION = "ralph-review/v1"
+
+-def validate_review(payload):
+-    return payload
++def validate_review(payload, changed=None):
++    errors = []
++    if not isinstance(payload, dict):
++        errors.append("(root): review payload must be an object")
++    return errors
+
+
+ def main(argv):

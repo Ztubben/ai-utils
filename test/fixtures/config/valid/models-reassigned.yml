@@ -1,0 +1,26 @@
+# A catalog whose *defaults* differ from models.yml while still listing the
+# identities models.yml assigns. Used to prove a Story already carrying model
+# assignment labels keeps them when the target repository's defaults change.
+version: 1
+gating:
+  - name: test
+    run: make test
+models:
+  profiles:
+    - key: claude-impl
+      provider: claude
+      model: claude-opus-5
+    - key: codex-review
+      provider: codex
+      model: gpt-5-codex
+    - key: claude-review
+      provider: claude
+      model: claude-sonnet-5
+    - key: codex-impl
+      provider: codex
+      model: gpt-5-codex-mini
+  defaults:
+    implementation: codex-impl
+    review: claude-review
+notify:
+  github: octocat

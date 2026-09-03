@@ -1,5 +1,6 @@
 # Ralph Loop superproject config (schema/ralph.schema.json, ADR-0001).
-# Here the superproject is ai-utils itself: the loop dogfoods its own tooling.
+# Here ai-utils is the checkout root and so is its own target repository
+# (ADR-0001 amendment): the loop dogfoods its own tooling.
 version: 1
 
 branching:
@@ -10,6 +11,35 @@ branching:
 gating:
   - name: test
     run: test/run.sh
+
+# ai-utils is its own target repository here (ADR-0001 amendment), so it commits
+# its own catalog. These are an instance of the shipped contract, never defaults
+# inherited by a repository that mounts ai-utils as a submodule.
+models:
+  profiles:
+    - key: claude-opus
+      provider: claude
+      model: claude-opus-5
+    - key: codex-high
+      provider: codex
+      model: gpt-5-codex
+  defaults:
+    implementation: claude-opus
+    review: codex-high
+
+# ai-utils is its own target repository here, so its control plane is its own
+# review machinery: a Story touching any of this needs a human Approve before it
+# merges, whatever its type. The mechanism must not approve changes to itself.
+control_plane:
+  protected:
+    - .github/workflows/**
+    - prompts/**
+    - schema/**
+    - lib/ralph_review*.py
+    - docs/review-contract.md
+    - bin/ralph
+    - bin/ralph.sh
+    - .ralph.yml
 
 notify:
   github: Ztubben
