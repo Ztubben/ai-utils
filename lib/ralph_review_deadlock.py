@@ -91,6 +91,8 @@ def escalation_comment(story, items, rounds, handle):
     not happen.
     """
     lines = [
+        ralph_review.NOTICE_MARKER,
+        "",
         "## Model review deadlocked — @%s, over to you" % handle,
         "",
         "Story #%s and its %d Negotiation Round%s ended without agreement, so "
@@ -102,6 +104,13 @@ def escalation_comment(story, items, rounds, handle):
         "model-review gate even with these findings open, and **Request "
         "changes** sends the Story back to the implementation model with your "
         "feedback.",
+        "",
+        "GitHub offers neither control to the author of a pull request, and "
+        "Ralph opened this one as @%s. If that is you, comment with `%s` or "
+        "`%s` alone on a line instead; Ralph reads either as the review you "
+        "cannot click, and records who gave it."
+        % (handle, ralph_review.APPROVE_MARKER,
+           ralph_review.REQUEST_CHANGES_MARKER),
         "",
         "## Unsettled findings", "",
     ]

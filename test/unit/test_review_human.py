@@ -18,7 +18,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_review  # noqa: E402
+import ralph_review_complete  # noqa: E402
 import ralph_review_human  # noqa: E402
+import ralph_review_wait  # noqa: E402
 
 HEAD = "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d"
 
@@ -39,13 +41,18 @@ def human(state, ident="R-1", author="carl", body="Looks right to me.",
             "author": {"login": author}, "submittedAt": submitted}
 
 
-def pull_request(reviews=None, head=HEAD):
+def comment(body, ident="IC-1", author="carl", created="2026-08-28T11:00:00Z"):
+    return {"id": ident, "body": body, "author": {"login": author},
+            "createdAt": created}
+
+
+def pull_request(reviews=None, head=HEAD, comments=None):
     return {"number": 70, "headRefOid": head, "baseRefOid": "b" * 40,
             "state": "OPEN", "body": ralph_review.MANAGED_PR_MARKER,
             "reviews": reviews if reviews is not None else [
                 {"state": "COMMENTED", "body": ralph_review_body(),
                  "author": {"login": "ralph"}, "id": "R-0"}],
-            "comments": []}
+            "comments": comments or []}
 
 
 def open_findings():
@@ -107,6 +114,120 @@ class ReadingTheHumansDecision(unittest.TestCase):
 
         self.assertTrue(ralph_review.arbitrated([{"body": record}], "R-1"))
         self.assertFalse(ralph_review.arbitrated([{"body": record}], "R-2"))
+
+
+APPROVE = ralph_review_human.APPROVE_MARKER
+REQUEST_CHANGES = ralph_review_human.REQUEST_CHANGES_MARKER
+APPROVERS = ("carl",)
+
+
+class TheApprovalMarker(unittest.TestCase):
+    """The stand-in for a control GitHub will not give the author.
+
+    GitHub offers the author of a pull request neither Approve nor Request
+    changes, and Ralph opens every pull request as the operator's own account.
+    Where Ralph has no identity of its own the control-plane hold would
+    otherwise wait forever on a click that person is not allowed to make.
+    """
+
+    def decide(self, pr, approvers=APPROVERS):
+        return ralph_review_human.human_decision(pr, approvers)
+
+    def test_a_marker_comment_from_the_configured_approver_approves(self):
+        decision = self.decide(pull_request(comments=[comment(APPROVE)]))
+
+        self.assertEqual(decision.state, ralph_review_human.APPROVED)
+        self.assertEqual(decision.author, "carl")
+        self.assertEqual(decision.id, "IC-1")
+
+    def test_the_request_changes_marker_sends_it_back(self):
+        decision = self.decide(pull_request(comments=[
+            comment("Use the caller's units.\n\n" + REQUEST_CHANGES)]))
+
+        self.assertEqual(decision.state, ralph_review_human.CHANGES_REQUESTED)
+        self.assertIn("caller", decision.body)
+
+    def test_a_comment_review_carries_the_marker_too(self):
+        # "Review changes -> Comment" is the other half of what GitHub leaves
+        # open to the author, so it has to work the same way.
+        decision = self.decide(pull_request(
+            reviews=[human("COMMENTED", body=APPROVE)]))
+
+        self.assertEqual(decision.state, ralph_review_human.APPROVED)
+
+    def test_a_marker_from_anyone_else_carries_no_authority(self):
+        # Anyone who can see a pull request can comment on it, and what this
+        # releases is the gate guarding Ralph's own review machinery.
+        self.assertIsNone(self.decide(pull_request(comments=[
+            comment(APPROVE, author="a-passer-by")])))
+
+    def test_without_a_configured_approver_only_github_decides(self):
+        # A deployment where Ralph has its own identity needs no marker, and
+        # must not have one: there the operator can simply click Approve.
+        self.assertIsNone(self.decide(pull_request(comments=[comment(APPROVE)]),
+                                      approvers=()))
+
+    def test_the_marker_must_stand_alone_on_its_line(self):
+        self.assertIsNone(self.decide(pull_request(comments=[
+            comment("I would say `%s` but I want a second opinion." % APPROVE)])))
+
+    def test_ralphs_own_notice_is_not_the_approval_it_teaches(self):
+        # The hold notice has to quote the marker in order to explain it. If
+        # that quotation read as a decision, Ralph would approve its own
+        # control-plane changes the moment it asked a human not to.
+        notice = ralph_review_complete.hold_notice(
+            story(), [".ralph.yml"], handle="carl")
+
+        self.assertIn(APPROVE, notice)
+        self.assertIsNone(self.decide(pull_request(comments=[comment(notice)])))
+
+    def test_the_marker_is_not_left_in_the_words_the_model_is_given(self):
+        # The marker is addressed to Ralph, not to the model launched with this
+        # feedback.
+        decision = self.decide(pull_request(comments=[
+            comment("%s\n\nRename it before you land it." % REQUEST_CHANGES)]))
+
+        self.assertNotIn(APPROVE, decision.body)
+        self.assertNotIn(REQUEST_CHANGES, decision.body)
+        self.assertEqual(decision.body, "Rename it before you land it.")
+
+    def test_a_native_review_still_needs_no_marker_and_no_approver(self):
+        decision = ralph_review_human.human_decision(
+            pull_request(reviews=[human("APPROVED")]))
+
+        self.assertEqual(decision.state, ralph_review_human.APPROVED)
+
+    def test_the_latest_decision_wins_across_both_kinds(self):
+        decision = self.decide(pull_request(
+            reviews=[human("CHANGES_REQUESTED", ident="R-1",
+                           submitted="2026-08-28T10:00:00Z")],
+            comments=[comment(APPROVE, created="2026-08-28T12:00:00Z")]))
+
+        self.assertEqual(decision.id, "IC-1")
+        self.assertEqual(decision.state, ralph_review_human.APPROVED)
+
+    def test_approvers_are_read_from_the_notify_handle(self):
+        # No new configuration: that handle is already the person Ralph asks
+        # for a review when it holds a change.
+        self.assertEqual(
+            ralph_review_human.approvers_from({"notify": {"github": "carl"}}),
+            ("carl",))
+        self.assertEqual(ralph_review_human.approvers_from({}), ())
+
+    def test_the_hold_becomes_an_arbitration_the_poll_can_act_on(self):
+        # The whole point: a held Story moves again on the marker.
+        step = ralph_review_wait.next_step(
+            pull_request(comments=[comment(APPROVE)]), [],
+            max_rounds=2, protected=(".ralph.yml",), approvers=APPROVERS)
+
+        self.assertEqual(step, ralph_review_wait.ARBITRATE)
+
+    def test_without_the_marker_that_same_poll_still_holds(self):
+        step = ralph_review_wait.next_step(
+            pull_request(comments=[comment("Looks fine to me.")]), [],
+            max_rounds=2, protected=(".ralph.yml",), approvers=APPROVERS)
+
+        self.assertNotEqual(step, ralph_review_wait.ARBITRATE)
 
 
 class Approval(unittest.TestCase):
