@@ -9,9 +9,16 @@ decision -- and the override is recorded on the Story so the audit trail says
 what was overridden and by whom.  Request changes is authoritative feedback:
 the Story goes back into review and the assigned implementation model is
 launched with the human's own words.  An ordinary comment is just a comment.
+
+With one exception, and it is not a preference: GitHub does not offer Approve or
+Request changes to the *author* of a pull request, and Ralph opens every pull
+request as the operator's own account.  Where Ralph has no identity of its own,
+the native controls are therefore closed to the only person entitled to use
+them, and a marker in a comment stands in for them (`APPROVE_MARKER` below).
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +39,33 @@ ARBITRATION_PROMPT = os.path.join(REPO_ROOT, "prompts", "arbitration.v1.md")
 APPROVED = "APPROVED"
 CHANGES_REQUESTED = "CHANGES_REQUESTED"
 DECISIVE = (APPROVED, CHANGES_REQUESTED)
+
+# The state a review carries when it decides nothing on its own.
+COMMENTED = "COMMENTED"
+
+# GitHub does not let the author of a pull request approve it: the review UI
+# offers them Comment alone, and the API refuses APPROVED with 422.  Ralph opens
+# every pull request as the operator's own account -- the same account the
+# control-plane hold then waits on for a native Approve -- so wherever Ralph has
+# no identity of its own, that hold can never be satisfied by the one person
+# entitled to satisfy it, and the Story waits out its window every tick forever.
+#
+# A marker alone on a line therefore carries the authority the native control
+# would have.  It is honoured only from a configured approver: GitHub lets
+# anyone who can see a pull request comment on it, and what this releases is the
+# gate guarding Ralph's own review machinery.  A deployment that gives Ralph an
+# identity of its own never needs it -- there the operator is a second party and
+# GitHub's own controls work, which is why an empty approver set disables this
+# path rather than defaulting it on.
+APPROVE_MARKER = ralph_review.APPROVE_MARKER
+REQUEST_CHANGES_MARKER = ralph_review.REQUEST_CHANGES_MARKER
+
+# Anchored to a whole line, so quoting a marker inside a sentence -- as the hold
+# notice that teaches it must -- is not itself a decision.
+_MARKER_PATTERNS = tuple(
+    (re.compile(r"^[ \t]*%s[ \t]*$" % re.escape(marker), re.MULTILINE), state)
+    for marker, state in ((APPROVE_MARKER, APPROVED),
+                          (REQUEST_CHANGES_MARKER, CHANGES_REQUESTED)))
 
 # The same one context the model review writes, because it is the same gate.
 CHECK_CONTEXT = ralph_review_render.CHECK_CONTEXT
@@ -54,24 +88,105 @@ class Decision:
         return self.state == APPROVED
 
 
-def human_decision(pull_request):
-    """The latest authoritative human review on this pull request, or None.
+def approvers_from(config):
+    """Who may speak through a marker, from the target repository's config.
 
-    Ralph's own reviews are excluded by the durable marker it stamps them with,
-    not by author or by event type: the account Ralph posts as is the
-    operator's, so "who wrote it" cannot tell them apart.
+    The configured notify handle, and only it.  That is already the person Ralph
+    requests a review from when it holds a change or escalates a deadlock, so
+    the marker hands out no authority that was not already theirs: it gives that
+    same person the one control GitHub withholds from the author of a pull
+    request.
     """
+    handle = ((config or {}).get("notify") or {}).get("github")
+    return (handle,) if handle else ()
+
+
+def _login(entry):
+    author = (entry or {}).get("author") or (entry or {}).get("user") or {}
+    return author.get("login") if isinstance(author, dict) else author
+
+
+def _marker_state(body):
+    """The decision a marker in *body* stands for, or None if it carries none."""
+    for pattern, state in _MARKER_PATTERNS:
+        if pattern.search(body or ""):
+            return state
+    return None
+
+
+def _without_markers(body):
+    """The person's own words, with the marker line taken out.
+
+    The marker is addressed to Ralph, not to the model that may be launched with
+    this text: leaving it in would put one of Ralph's own controls in the middle
+    of the feedback it introduced.
+    """
+    for pattern, _ in _MARKER_PATTERNS:
+        body = pattern.sub("", body or "")
+    return body.strip()
+
+
+def decision_state(entry, approvers=(), is_review=True):
+    """The authority this review or comment carries, or None if it carries none.
+
+    A native Approve or Request changes speaks for itself, whoever left it --
+    GitHub already gates who may submit one.  Failing that, a marker from a
+    configured approver is that person's decision, in the only form GitHub
+    leaves open to the author of a pull request.
+    """
+    state = (entry or {}).get("state")
+    if is_review:
+        if state in DECISIVE:
+            return state
+        if state != COMMENTED:
+            return None
+    if _login(entry) not in approvers:
+        return None
+    return _marker_state((entry or {}).get("body") or "")
+
+
+def _candidates(pull_request):
+    """Every review and pull-request comment on this pull request, oldest first.
+
+    Both, because both are places a person speaks: GitHub's review controls,
+    and -- for the marker, which exists precisely because those controls are
+    closed to the author -- the ordinary comment box.  Merged on their
+    timestamps so "the latest decision" means the latest of either kind.
+    """
+    entries = [(review.get("submittedAt") or "", index, review, True)
+               for index, review in
+               enumerate((pull_request or {}).get("reviews") or [])]
+    entries += [(comment.get("createdAt") or "", index, comment, False)
+                for index, comment in
+                enumerate((pull_request or {}).get("comments") or [])]
+    return [(entry, is_review)
+            for _, _, entry, is_review in sorted(entries, key=lambda e: e[0])]
+
+
+def human_decision(pull_request, approvers=()):
+    """The latest authoritative human decision on this pull request, or None.
+
+    Ralph's own writing is excluded by the durable markers it stamps, not by
+    author or by event type: the account Ralph posts as is the operator's, so
+    "who wrote it" cannot tell them apart.
+
+    `approvers` are the handles whose marker counts.  Empty leaves only GitHub's
+    native controls, which is the correct policy wherever Ralph posts as an
+    identity of its own.
+    """
+    approvers = frozenset(handle.lstrip("@") for handle in approvers if handle)
     latest = None
-    for review in (pull_request or {}).get("reviews") or []:
-        body = (review or {}).get("body") or ""
-        if ralph_review.REVIEW_MARKER_TEMPLATE.split("%s")[0] in body:
+    for entry, is_review in _candidates(pull_request):
+        body = (entry or {}).get("body") or ""
+        if ralph_review.is_ralph_authored(body):
             continue
-        if (review or {}).get("state") not in DECISIVE:
+        native = is_review and entry.get("state") in DECISIVE
+        state = decision_state(entry, approvers, is_review=is_review)
+        if state is None:
             continue
-        author = (review.get("author") or review.get("user") or {})
-        latest = Decision(review.get("id"), review["state"],
-                          author.get("login") if isinstance(author, dict) else author,
-                          body, review.get("submittedAt"))
+        latest = Decision(entry.get("id"), state, _login(entry),
+                          body if native else _without_markers(body),
+                          entry.get("submittedAt") or entry.get("createdAt"))
     return latest
 
 
@@ -165,7 +280,7 @@ def arbitration_prompt(decision, context, prompt_path=ARBITRATION_PROMPT):
 
 def arbitrate(story, pull_request, config, root, comments=None):
     """Act on the human's decision, if there is a new one; return an exit code."""
-    decision = human_decision(pull_request)
+    decision = human_decision(pull_request, approvers_from(config))
     if decision is None:
         print("OK: no human decision on PR #%s; nothing to arbitrate"
               % pull_request.get("number", "?"))

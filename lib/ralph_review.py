@@ -46,6 +46,37 @@ _ARBITRATION_PATTERN = re.compile(
 # does, not in loop-local state that a re-clone would lose.
 REVIEW_MARKER_TEMPLATE = "<!-- ralph-review:v1 head=%s -->"
 
+# Every durable thing Ralph writes carries a marker opening with this prefix.
+# That is what tells Ralph's own writing from a person's, and it has to, because
+# author identity cannot: Ralph posts as the operator's own account.
+RALPH_MARKER_PREFIX = "<!-- ralph-"
+
+# The notices Ralph leaves on a pull request for a person to read -- the
+# control-plane hold, the deadlock escalation.  They carry no machine-readable
+# payload; the marker is there solely so a later read can tell they are Ralph's.
+NOTICE_MARKER = "<!-- ralph-notice:v1 -->"
+
+# What a person writes, alone on a line, to give a decision GitHub will not let
+# them give: its review controls are closed to the author of a pull request, and
+# Ralph opens every pull request as the operator's own account. They live here
+# rather than with the logic that reads them because the notices that teach them
+# are written in two other modules; `ralph_review_human` owns the rationale and
+# the rules for when they count.
+APPROVE_MARKER = "/approve"
+REQUEST_CHANGES_MARKER = "/request-changes"
+
+
+def is_ralph_authored(body):
+    """Was this pull-request comment or review written by the loop itself?
+
+    By marker, never by author: Ralph posts as the operator's account, so who
+    wrote a body says nothing about which of the two it was.  The test is
+    deliberately the whole marker family rather than one member -- a human
+    decision is being read here, and mistaking one of Ralph's own notices for a
+    person's Approve would release the very gate that notice exists to hold.
+    """
+    return RALPH_MARKER_PREFIX in (body or "")
+
 
 def is_managed_pr(pr):
     """Return whether *pr* carries Ralph's durable review opt-in marker."""

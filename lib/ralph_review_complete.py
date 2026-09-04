@@ -187,9 +187,16 @@ class Plan:
         self.gate = gate
 
 
-def hold_notice(story, protected):
-    """Why this pull request is waiting on a person, in the pull request."""
+def hold_notice(story, protected, handle=None):
+    """Why this pull request is waiting on a person, in the pull request.
+
+    Carries Ralph's notice marker, so a later read of the pull request can tell
+    this from a person's own comment -- including the read that looks for the
+    approval marker this notice has to quote in order to teach it.
+    """
     return "\n".join([
+        ralph_review.NOTICE_MARKER,
+        "",
         "## This change needs a human approval",
         "",
         "Story #%s touches the repository's **protected control plane** — the "
@@ -205,7 +212,16 @@ def hold_notice(story, protected):
         "",
         "**Approve** this pull request to release it. Nothing else is needed; "
         "there is no command to run.",
-    ])
+    ] + ([
+        "",
+        "GitHub does not offer Approve to the author of a pull request, and "
+        "Ralph opened this one as @%s. If that is you, the native control is "
+        "closed to you and there is nothing to click: comment on this pull "
+        "request with `%s` alone on a line, and Ralph reads it as your Approve "
+        "and records who gave it. `%s` alone on a line sends it back for "
+        "changes the same way." % (handle, ralph_review.APPROVE_MARKER,
+                                   ralph_review.REQUEST_CHANGES_MARKER),
+    ] if handle else []))
 
 
 def hold_plan(story, pull_request, protected, handle):
@@ -229,7 +245,7 @@ def hold_plan(story, pull_request, protected, handle):
     head = pull_request.get("headRefOid")
     return ralph_review_render.Plan(True, [], [
         ["gh", "pr", "comment", str(number), "--body",
-         hold_notice(story, protected)],
+         hold_notice(story, protected, handle)],
         ["gh", "pr", "edit", str(number), "--add-reviewer", handle],
         ["gh", "issue", "comment", str(story["number"]), "--body",
          ralph_review.control_plane_hold_record(head, protected)],

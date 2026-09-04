@@ -85,13 +85,16 @@ class WaitResult:
         self.retries = retries
 
 
-def next_step(pull_request, comments=None, max_rounds=None, protected=()):
+def next_step(pull_request, comments=None, max_rounds=None, protected=(),
+              approvers=()):
     """The one decision a poll makes, from durable state only.
 
     `comments` are the Story's, where Ralph records each round's review result
     and each response to one.  `max_rounds` bounds the negotiation: once the
     budget is spent and the two models still owe each other a move, the
-    disagreement is a human's to settle, not a third model's.  Anything Ralph
+    disagreement is a human's to settle, not a third model's.  `approvers` are
+    the handles whose approval marker counts, for the deployments where GitHub's
+    native controls are closed to the only human in the loop.  Anything Ralph
     cannot act on is ``WAIT``, which costs nothing at all -- no context, no
     invocation.
     """
@@ -102,8 +105,10 @@ def next_step(pull_request, comments=None, max_rounds=None, protected=()):
     head = pull_request.get("headRefOid")
     # A human's decision outranks everything the two models owe each other, so
     # it is read first -- and it is read from GitHub's own review controls,
-    # which is the whole point: there are no commands to learn.
-    decision = ralph_review_human.human_decision(pull_request)
+    # which is the whole point: there are no commands to learn. Where those
+    # controls are closed to the only human in the loop, a marker from a
+    # configured approver stands in for them, and for nothing else.
+    decision = ralph_review_human.human_decision(pull_request, approvers)
     if decision is not None and not ralph_review.arbitrated(comments, decision.id):
         return ARBITRATE
     gate = ralph_review_complete.gate_for(pull_request, comments,
@@ -176,7 +181,7 @@ class WaitPolicy:
 
 
 def await_review(policy, fetch, act, sleep, now, read_comments=None,
-                 read_protected=None):
+                 read_protected=None, approvers=()):
     """Poll durable state until the negotiation moves on or the window closes.
 
     ``fetch`` reads the pull request and ``read_comments`` the Story's recorded
@@ -196,7 +201,8 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
         polls += 1
         step = next_step(pull_request, read_comments(),
                          max_rounds=policy.max_rounds,
-                         protected=read_protected(pull_request))
+                         protected=read_protected(pull_request),
+                         approvers=approvers)
         elapsed = now() - started
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
@@ -334,7 +340,9 @@ def _cmd_await(rest):
     policy = WaitPolicy.from_config(validated.config)
     result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
                           now=time.monotonic, read_comments=read_comments,
-                          read_protected=read_protected)
+                          read_protected=read_protected,
+                          approvers=ralph_review_human.approvers_from(
+                              validated.config))
     number = story.get("number", "?")
     if result.kind == EXPIRED:
         print("OK: review window closed after %.0fs on #%s (%d poll%s, %d "
