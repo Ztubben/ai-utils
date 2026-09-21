@@ -110,7 +110,13 @@ def implementation_green_plan(
         commands.append(["git", "fetch", "origin", base])
         commands.append(["git", "push", "origin",
                          "origin/%s:refs/heads/%s" % (base, topology.feature)])
-    commands.append(["git", "push", "-u", "origin", "HEAD:" + branch])
+    # The agent may have implemented the Story in another worktree while the
+    # orchestration checkout stayed on an unrelated, parked branch. HEAD is
+    # therefore not evidence of which commit belongs to this Story. Fully
+    # qualify both refs; a missing local Story branch must fail, never fall
+    # back to the orchestration checkout or change its upstream.
+    commands.append(["git", "push", "origin",
+                     "refs/heads/%s:refs/heads/%s" % (branch, branch)])
     if existing_pr is None:
         commands.append([
             "gh", "pr", "create", "--base", target, "--head", branch,

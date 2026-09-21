@@ -14,6 +14,7 @@ RALPH = os.path.join(REPO_ROOT, "bin", "ralph")
 sys.path.insert(0, LIB_DIR)
 
 import ralph_implementation  # noqa: E402
+import ralph_failure  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
 
@@ -40,6 +41,57 @@ def flattened(plan):
 
 
 class ImplementationGreenPlan(unittest.TestCase):
+    def test_missing_story_branch_refuses_before_creating_a_pull_request(self):
+        with tempfile.TemporaryDirectory() as root:
+            subprocess.run(["git", "init", root], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            plan = ralph_implementation.implementation_green_plan(story())
+            result = ralph_implementation.run_plan(plan.commands, cwd=root)
+            self.assertFalse(result.ok)
+            self.assertEqual(len(result.steps), 1)
+            self.assertEqual(result.failed.args[:2], ["git", "push"])
+
+    def test_publication_uses_story_worktree_not_parked_checkout(self):
+        with tempfile.TemporaryDirectory() as root:
+            remote = os.path.join(root, "remote.git")
+            repo = os.path.join(root, "repo")
+            worktree = os.path.join(root, "story")
+            def git(*args, cwd=None):
+                return subprocess.check_output(
+                    ["git", *args], cwd=cwd, stderr=subprocess.STDOUT,
+                    text=True).strip()
+            git("init", "--bare", remote)
+            git("init", "-b", "develop", repo)
+            git("config", "user.email", "test@example.com", cwd=repo)
+            git("config", "user.name", "Test", cwd=repo)
+            git("commit", "--allow-empty", "-m", "base", cwd=repo)
+            git("remote", "add", "origin", remote, cwd=repo)
+            git("push", "origin", "develop", cwd=repo)
+            plan = ralph_implementation.implementation_green_plan(story())
+            git("worktree", "add", "-b", plan.branch, worktree, "develop", cwd=repo)
+            git("commit", "--allow-empty", "-m", "story implementation", cwd=worktree)
+            expected = git("rev-parse", "HEAD", cwd=worktree)
+            git("switch", "-c", "parked-imu", cwd=repo)
+            git("commit", "--allow-empty", "-m", "unrelated IMU", cwd=repo)
+            parked = git("rev-parse", "HEAD", cwd=repo)
+            git("push", "-u", "origin", "parked-imu", cwd=repo)
+            # Execute the actual publication plan's git operations. GitHub
+            # operations are irrelevant to which objects reach the remote.
+            result = ralph_implementation.run_plan(
+                [c for c in plan.commands if c[0] == "git"], cwd=repo)
+            self.assertTrue(result.ok, result.failed.output if result.failed else "")
+            self.assertEqual(git("rev-parse", "refs/heads/" + plan.branch, cwd=remote),
+                             expected)
+            self.assertEqual(git("rev-parse", "HEAD", cwd=repo), parked)
+            self.assertEqual(git("rev-parse", "--abbrev-ref", "@{upstream}", cwd=repo),
+                             "origin/parked-imu")
+            blocked = ralph_failure.reset_on_block_plan(story(parent=42), "failed gate")
+            result = ralph_implementation.run_plan(
+                [c for c in blocked.commands if c[0] == "git"], cwd=repo)
+            self.assertTrue(result.ok, result.failed.output if result.failed else "")
+            self.assertEqual(git("rev-parse", "refs/heads/" + plan.branch, cwd=remote),
+                             expected)
+
     def test_afk_opens_marked_pr_and_enters_review_without_completing(self):
         plan = ralph_implementation.implementation_green_plan(story("afk"))
         self.assertTrue(plan.ok, plan.errors)
@@ -94,7 +146,8 @@ class ImplementationGreenPlan(unittest.TestCase):
         plan = ralph_implementation.implementation_green_plan(
             story(parent=42), prd=prd())
         self.assertTrue(plan.ok, plan.errors)
-        self.assertIn("HEAD:ralph/49-review-the-implementation", flattened(plan))
+        self.assertIn("refs/heads/ralph/49-review-the-implementation:"
+                      "refs/heads/ralph/49-review-the-implementation", flattened(plan))
         self.assertTrue(any(c[:3] == ["gh", "pr", "create"] for c in plan.commands))
 
     def test_feature_story_pull_request_targets_the_feature_branch(self):
@@ -130,7 +183,7 @@ class ImplementationGreenPlan(unittest.TestCase):
         plan = ralph_implementation.implementation_green_plan(
             story(parent=42), base="develop", prd=prd(), feature_exists=True)
         self.assertFalse(plan.created_feature)
-        self.assertEqual(plan.commands[0][:3], ["git", "push", "-u"])
+        self.assertEqual(plan.commands[0][:3], ["git", "push", "origin"])
 
     def test_an_orphan_story_never_creates_a_feature_branch(self):
         plan = ralph_implementation.implementation_green_plan(
