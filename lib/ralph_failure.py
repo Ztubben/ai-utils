@@ -148,7 +148,7 @@ def reset_on_block_plan(story, reason, prd=None,
     commands = [
         # Never --force: the story branch is append-only like every other
         # branch Ralph pushes, and a human may be looking at it already.
-        ["git", "push", "-u", "origin", "HEAD:" + branch],
+        ["git", "push", "origin", "refs/heads/%s:refs/heads/%s" % (branch, branch)],
         ["gh", "issue", "comment", str(number), "--body", body],
         edit,
     ]
