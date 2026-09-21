@@ -17,6 +17,10 @@ not HITL) and `docs/adr/0001–0005`.
 - `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (auto-skipped if bats absent).
 
 ## Conventions / gotchas
+- Publication must name both refs explicitly: `refs/heads/<story>:refs/heads/<story>`.
+  The orchestration checkout may remain on a parked branch while the agent works
+  in another worktree. Never infer a Story's published commit from that checkout's
+  `HEAD` or change its upstream with `push -u`. A missing Story ref must fail.
 - No `pytest`/`bats` installed here; unit tests use stdlib `unittest`, run via `test/run.sh`.
 - Python logic returns a result object (`ok`, `errors`, resolved data) rather than
   exiting; only the CLI wrapper prints and sets exit codes. Keeps logic unit-testable.

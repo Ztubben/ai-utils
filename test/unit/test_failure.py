@@ -375,7 +375,7 @@ class ResetOnBlockPlan(unittest.TestCase):
         plan = self._plan()
         self.assertTrue(plan.ok, plan.errors)
         push = next(c for c in plan.commands if c[0] == "git" and "push" in c)
-        self.assertIn("HEAD:ralph/27-add-spi-driver", push)
+        self.assertIn("refs/heads/ralph/27-add-spi-driver:refs/heads/ralph/27-add-spi-driver", push)
 
     def test_the_feature_branch_is_neither_rewound_nor_force_pushed(self):
         flat = " ".join(_flat(self._plan().commands))
@@ -472,7 +472,7 @@ class CliResetOnBlock(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             with open(log) as fh:
                 calls = fh.read()
-            self.assertIn("HEAD:ralph/27-add-spi-driver", calls)
+            self.assertIn("refs/heads/ralph/27-add-spi-driver:refs/heads/ralph/27-add-spi-driver", calls)
             self.assertNotIn("--force", calls)
             self.assertIn("state:blocked", calls)
 

@@ -944,7 +944,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         log = h.log_lines()
         self.assertTrue(any("git push origin origin/develop:refs/heads/%s"
                             % FEATURE_BRANCH in ln for ln in log), log)
-        self.assertTrue(any("git push -u origin HEAD:ralph/20-story-20" in ln
+        self.assertTrue(any("git push origin refs/heads/ralph/20-story-20:refs/heads/ralph/20-story-20" in ln
                             for ln in log), log)
         create = next(ln for ln in log if "pr create" in ln)
         self.assertIn("--base %s" % FEATURE_BRANCH, create)
