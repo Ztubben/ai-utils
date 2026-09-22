@@ -5,8 +5,10 @@ completion pass integrates the feature branch into base: (1) autosquash-collapse
 fixup! commits into their story commits — on rebase conflict, abort and keep the
 linear history (cosmetic fallback only); (2) rebase the cleaned feature branch
 onto the current base branch; (3) run the full gating steps; (4) create the
-Feature's single PR and merge it with a **merge commit** (never squash), then
-close the PRD with a comment.
+Feature's single PR and **rebase**-merge it (never a merge commit, never squash),
+then close the PRD with a comment. The base branch requires linear history, so
+GitHub refuses a merge commit; a squash would collapse every Story's commit into
+one.
 
 Integration is refused outright while any HIL Story of the Feature is still
 open (PRD #69). A HIL Feature Story now merges into the Feature branch before it
@@ -154,7 +156,7 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
             "gating_steps": gating or [],
             "on_fail": _blocker_commands("gating failure"),
         },
-        # Step 4: create PR and merge with merge commit
+        # Step 4: create PR and rebase-merge it (linear history, per-Story commits)
         {
             "name": "pr-create",
             "commands": [
@@ -162,7 +164,7 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
                  "--title", prd.get("title", "Feature #%d" % prd_number),
                  "--body", "Merges Feature #%d into %s.\n\nCloses #%d"
                  % (prd_number, base, prd_number)],
-                ["gh", "pr", "merge", branch, "--merge", "--delete-branch"],
+                ["gh", "pr", "merge", branch, "--rebase", "--delete-branch"],
             ],
         },
         # Step 5: close the PRD
@@ -170,7 +172,7 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
             "name": "prd-close",
             "commands": [
                 ["gh", "issue", "close", str(prd_number),
-                 "--comment", "Feature integrated into %s via merge commit; "
+                 "--comment", "Feature integrated into %s via rebase; "
                  "PRD closed." % base],
             ],
         },
@@ -293,7 +295,7 @@ def _cmd_complete(rest):
 
     run = run_feature_plan(plan, cwd=os.getcwd())
     if run.ok:
-        print("OK: Feature #%s integrated into %s (merge commit); PRD closed"
+        print("OK: Feature #%s integrated into %s (rebased); PRD closed"
               % (prd["number"], plan.base))
         return 0
     sys.stderr.write("BLOCKED: feature completion at step '%s'\n" % run.failed_step)

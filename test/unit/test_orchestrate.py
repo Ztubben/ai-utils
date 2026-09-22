@@ -1106,7 +1106,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         self.assertIn("--base develop", create)
         self.assertIn("--head %s" % FEATURE_BRANCH, create)
         merge = next(ln for ln in log if "pr merge" in ln)
-        self.assertIn("--merge", merge)
+        self.assertIn("--rebase", merge)
         self.assertTrue(any("issue close 42" in ln for ln in log), log)
 
     # -- the regression boundary ---------------------------------------------

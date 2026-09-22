@@ -579,7 +579,7 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 | Quality gate | `.ralph.yml` `gating` | one step, `test`, running `test/run.sh` |
 | CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `develop`; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
-| Base branch | `.ralph.yml` `branching.base` | `develop`; promoting `develop` → `master` is human-owned |
+| Base branch | `.ralph.yml` `branching.base` | `develop`; promoting `develop` → `master` is human-owned, and is a fast-forward (`git push origin develop:master`), never a merge |
 
 **Branch protection on `develop`.** Two checks are required — `test` (CI) and
 `ralph/model-review` (the verdict Ralph publishes) — and **no** approving reviews
@@ -591,7 +591,10 @@ Administrators stay outside the restriction, so a human can still merge a
 feature-integration pull request (ADR-0006), which carries no model review of its
 own. A **feature branch needs no protection of its own** — every Story that
 merges into one was reviewed and CI-checked on its own pull request first, and
-the base branch is where the gate has to hold. To reproduce the setting:
+the base branch is where the gate has to hold. **Linear history is required**
+(and merge commits are disabled for the repository): Stories squash-merge and a
+Feature integrates by rebase, so `develop` never carries a merge commit and
+`master` can simply be fast-forwarded to it. To reproduce the setting:
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
@@ -603,9 +606,11 @@ gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
   },
   "required_pull_request_reviews": null,
   "enforce_admins": false,
-  "restrictions": null
+  "restrictions": null,
+  "required_linear_history": true
 }
 JSON
+gh api -X PATCH repos/OWNER/REPO -F allow_merge_commit=false
 ```
 
 **Upgrading a repository that ran the shared-pull-request topology.** Drop
