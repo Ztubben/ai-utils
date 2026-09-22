@@ -257,6 +257,53 @@ class AdaptersLaunchTheirModelInAFreshProcess(unittest.TestCase):
         self.assertEqual(rec.env.get("GH_CONFIG_DIR"), "/home/operator/.config/gh")
 
 
+class NoAgentKeepsMemoryOutsideRalphsTwoTiers(unittest.TestCase):
+    """AC: a launched agent carries nothing from an earlier run but what
+    ADR-0005 gives it -- the Story issue and `AGENTS.md`.
+
+    A provider CLI with a memory of its own writes a third tier: not in git,
+    not reviewed by the pull request an `AGENTS.md` change goes through, and
+    (for the Claude CLI, whose memory directory is keyed by the working
+    directory) shared with the operator's own sessions in that checkout. On
+    2026-09-18 an iteration wrote a checkout workaround into that directory and
+    every later iteration followed it, so this is enforced at launch rather
+    than asked for in a prompt.
+    """
+
+    def env_for(self, provider, role, **env):
+        rec = Recorder()
+        old = dict(os.environ)
+        os.environ.update(env)
+        try:
+            ralph_agent.PROVIDERS[provider]("a-model", role=role).launch(
+                "prompt", run=rec)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        return rec.env
+
+    def test_the_claude_cli_writes_no_auto_memory_in_either_role(self):
+        for role in ralph_agent.ROLES:
+            self.assertEqual(
+                self.env_for("claude", role).get(
+                    "CLAUDE_CODE_DISABLE_AUTO_MEMORY"), "1",
+                "the %s role must launch with auto-memory closed" % role)
+
+    def test_an_operator_setting_cannot_reopen_it(self):
+        # The variable is forced, not defaulted: an ambient environment is
+        # exactly what a provider's own memory feature would be turned on in,
+        # and one iteration's note would then reach every later one.
+        env = self.env_for("claude", "implementation",
+                           CLAUDE_CODE_DISABLE_AUTO_MEMORY="0")
+        self.assertEqual(env.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY"), "1")
+
+    def test_every_adapter_declares_what_it_closes(self):
+        # Codex declares an empty mapping today; the point is that adding a
+        # provider is a decision about its memory, not a silent omission.
+        for adapter in ralph_agent.PROVIDERS.values():
+            self.assertIsInstance(adapter.memory_env, dict)
+
+
 class AdaptersClassifyTheOutcome(unittest.TestCase):
     """AC: each adapter classifies normal completion, session exhaustion, and
     infrastructure failure distinctly."""

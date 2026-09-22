@@ -598,7 +598,18 @@ not HITL) and `docs/adr/0001–0005`.
   keep lean/module-local; story-specific notes go on the issue, not AGENTS.md) lives in
   `prompts/memory.v1.md` (drift-guarded). NOTE: the reference snarktank loop's `progress.txt`
   is the build harness in `ralph/`, which is deliberately separate from the tool being built —
-  the tool ships no progress.txt.
+  the tool ships no progress.txt. The two tiers are also enforced **at launch**, in
+  `ralph_agent.AgentAdapter.memory_env`: a provider CLI's own cross-run memory is a third
+  tier — not in git, and not reviewed by the pull request an `AGENTS.md` change goes through
+  — so `environment()` forces each adapter's `memory_env` over the ambient environment
+  (`ClaudeAdapter`: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, both roles; `CodexAdapter`: empty,
+  that CLI has no known equivalent). GOTCHA: the Claude CLI keys its memory directory on the
+  **working directory**, so an unattended iteration and the operator's own interactive
+  sessions in the target checkout share one store — on 2026-09-18 an iteration wrote a
+  "use a $TMPDIR worktree" workaround there and every later iteration followed it, which is
+  the tick's checkout assumption broken by a file no review ever saw. Forcing (not
+  defaulting) the variable is the point: an operator setting is exactly where such a feature
+  is turned on. Adding a provider adapter is therefore a decision about its memory.
 - `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
   the TDD/gating happen inside the `claude` iteration it launches (driven by
   `prompts/iterate.v1.md`), but the tick owns the state transitions around it. Order: (1)

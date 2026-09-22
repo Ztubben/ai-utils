@@ -125,6 +125,7 @@ class AgentAdapter:
     binary_env = None      # env var overriding the provider CLI's path
     default_binary = None
     session_env = ()       # inherited session state stripped from the child
+    memory_env = {}        # env forced on the child to close cross-run memory
 
     def __init__(self, model=None, role="implementation"):
         self.model = model
@@ -146,6 +147,12 @@ class AgentAdapter:
         env = dict(os.environ)
         for name in self.session_env:
             env.pop(name, None)
+        # A provider CLI that keeps its own memory across runs would carry one
+        # agent's notes into every later one, outside the two tiers ADR-0005
+        # gives Ralph -- and outside the pull request that reviews an
+        # `AGENTS.md` change. Forced, never merely defaulted: an operator
+        # setting is exactly what a provider's memory would be written into.
+        env.update(self.memory_env)
         if self.role == "review":
             # Review is evidence-only.  Even if a provider somehow escapes its
             # local read-only tool policy, it receives no GitHub credential:
@@ -220,6 +227,12 @@ class ClaudeAdapter(AgentAdapter):
     default_binary = "claude"
     session_env = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
                    "CLAUDE_CODE_SSE_PORT", "CLAUDE_SESSION_ID")
+    # This CLI keeps an automatic memory directory keyed by the working
+    # directory, which an unattended agent writes to and every later session
+    # reads -- the operator's own interactive sessions in that checkout
+    # included. A 2026-09-18 iteration recorded a checkout workaround there and
+    # every iteration after it followed the advice.
+    memory_env = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 
     def argv(self):
         if self.role == "review":
@@ -248,6 +261,10 @@ class CodexAdapter(AgentAdapter):
     binary_env = "RALPH_CODEX"
     default_binary = "codex"
     session_env = ("CODEX_SESSION_ID", "CODEX_THREAD_ID")
+    # No known cross-run memory of its own: this CLI reads `AGENTS.md`, which
+    # is Ralph's reviewed tier, and its user config, which the review role
+    # already ignores. The seam is here for the day that changes.
+    memory_env = {}
 
     def argv(self):
         if self.role == "review":
