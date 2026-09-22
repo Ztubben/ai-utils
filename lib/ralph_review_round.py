@@ -199,8 +199,8 @@ def _load(path):
 # The fields a round needs about a pull request: the exact commits it is bound
 # to, the CI snapshot it reports without waiting for, and the durable
 # discussion that is the only prior-round evidence it may read.
-PR_FIELDS = ("number,body,baseRefOid,headRefOid,statusCheckRollup,"
-             "comments,reviews")
+PR_FIELDS = ("number,body,state,baseRefOid,headRefOid,headRefName,"
+             "statusCheckRollup,comments,reviews")
 
 
 def _gh(args, cwd):
@@ -266,6 +266,26 @@ def discover_pull_request(story, cwd=None):
     # round's replies and any later audit all want the same read.
     pull_request["reviewThreads"] = review_threads(number, cwd)
     return pull_request, []
+
+
+def discover_merged_pull_request(story, cwd=None):
+    """Read the story's newest *merged* Ralph-managed pull request, if any.
+
+    Only the recovery path wants this: a completion that merged the pull
+    request but died before closing the Story (a failed branch deletion, a gh
+    blip) leaves the Story In Review with nothing open, and open-only discovery
+    would then report it as gone on every tick, forever. Found by the same
+    marker and ``Refs #N`` line as an open one; the newest wins, because a
+    Story's earlier pull requests (one closed and replaced, say) are history.
+    """
+    prs = json.loads(_gh(["pr", "list", "--state", "merged", "--limit", "100",
+                          "--json", "number,body"], cwd) or "[]")
+    managed = [pr for pr in ralph_review.review_candidates(prs)
+               if references_story(pr, story["number"])]
+    if not managed:
+        return None
+    number = max(pr["number"] for pr in managed)
+    return json.loads(_gh(["pr", "view", str(number), "--json", PR_FIELDS], cwd))
 
 
 def _cmd_round(rest):

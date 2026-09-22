@@ -270,10 +270,28 @@ def conduct(story, pull_request, result, context, launch, publish, checkout):
 
 
 class Checkout:
-    """The two git facts a response round needs, read from a real checkout."""
+    """The two git facts a response round needs, read from a real checkout.
 
-    def __init__(self, root):
+    With ``branch`` (the pull request's own head branch) the head is read from
+    that branch's ref, not from whatever the checkout has checked out: the
+    Implementation Agent may have committed in a separate worktree while the
+    orchestration checkout sits on an unrelated branch, whose ``HEAD`` is then
+    no evidence at all of what the Story's branch now holds.
+    """
+
+    def __init__(self, root, branch=None):
         self.root = root
+        self.branch = branch
+
+    def ref(self):
+        return "refs/heads/%s" % self.branch if self.branch else "HEAD"
+
+    def push_command(self, new_head):
+        """Publish *new_head* to the Story's branch -- by name when known."""
+        if self.branch:
+            return ["git", "push", "origin",
+                    "%s:refs/heads/%s" % (new_head, self.branch)]
+        return ["git", "push", "origin", "HEAD"]
 
     def _git(self, args):
         return subprocess.run(["git"] + args, cwd=self.root,
@@ -281,7 +299,7 @@ class Checkout:
                               text=True)
 
     def head(self):
-        proc = self._git(["rev-parse", "HEAD"])
+        proc = self._git(["rev-parse", "--verify", self.ref()])
         if proc.returncode:
             raise RuntimeError(proc.stdout.strip() or "git rev-parse failed")
         return proc.stdout.strip()
@@ -410,6 +428,8 @@ def respond_to_review(story, pull_request, config, root, comments=None):
             sys.stderr.write("  - %s\n" % error)
         return 2
 
+    checkout = Checkout(root, pull_request.get("headRefName"))
+
     def launch(prompt):
         return ralph_agent.launch_role(config, "implementation", prompt,
                                        story=story)
@@ -420,7 +440,7 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         # describe commits nobody else can see. Never --force -- the invariant
         # this round is built on is that the branch only grows.
         number = pull_request["number"]
-        pushed = ralph_review_render.run_plan([["git", "push", "origin", "HEAD"]],
+        pushed = ralph_review_render.run_plan([checkout.push_command(new_head)],
                                               cwd=root)
         if not pushed.ok:
             return False, ["git push failed: %s"
@@ -443,7 +463,7 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         return True, []
 
     outcome = conduct(story, pull_request, result, context.text, launch,
-                      publish, Checkout(root))
+                      publish, checkout)
     ralph_usage.emit(outcome.usage_event)
     ralph_ledger.record(story.get("number"), outcome.usage_event, cwd=root,
                         comments=comments)

@@ -177,7 +177,7 @@ def gate_for(pull_request, comments, protected=()):
 
 class Plan:
     def __init__(self, ok, errors, commands, base=None, merged=False,
-                 parked=False, gate=None):
+                 parked=False, gate=None, cleanup=()):
         self.ok = ok
         self.errors = errors
         self.commands = commands
@@ -185,6 +185,9 @@ class Plan:
         self.merged = merged
         self.parked = parked
         self.gate = gate
+        # Best-effort housekeeping, run only after `commands` all succeeded and
+        # never able to fail the completion: the Story is already finished.
+        self.cleanup = list(cleanup)
 
 
 def hold_notice(story, protected):
@@ -239,7 +242,8 @@ def hold_plan(story, pull_request, protected, handle):
 def completion_plan(story, pull_request, comments, base="develop",
                     afk_merge="squash", prd=None, protected=(),
                     branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
-                    feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN):
+                    feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
+                    already_merged=False):
     """The ordered plan that completes one review-approved Story.
 
     Pure: computes commands, runs nothing.  The branch on Story type is the
@@ -247,6 +251,11 @@ def completion_plan(story, pull_request, comments, base="develop",
     (ADR-0006): a Feature's code integrates when the Feature merges, never
     story by story, so a Feature Story closes as Passing without a merge and
     leaves its shared pull request open for its siblings.
+
+    ``already_merged`` finishes a completion whose merge already happened --
+    Ralph's own, cut short before the Story was closed, or a human's. The
+    merge is the decision, so the gate is not re-judged and nothing is merged
+    again; only the Story's bookkeeping is done.
     """
     errors = []
     if (base or "").strip().lower() == PROTECTED_BRANCH:
@@ -272,7 +281,7 @@ def completion_plan(story, pull_request, comments, base="develop",
         errors.append("branch: %s" % exc)
 
     gate = gate_for(pull_request, comments, protected=protected)
-    if not gate.ok:
+    if not gate.ok and not already_merged:
         errors.extend(gate.errors)
     if errors:
         return Plan(False, errors, [], base=base, gate=gate)
@@ -285,8 +294,21 @@ def completion_plan(story, pull_request, comments, base="develop",
     # strategy the repository configured -- the default squash is what leaves
     # the base one clean commit while the pull request keeps the whole
     # negotiation: every round, every fix, every dispute.
-    merge = ["gh", "pr", "merge", str(pull_request["number"]),
-             ralph_afk.MERGE_FLAG[afk_merge], "--delete-branch"]
+    #
+    # Not `--delete-branch`: gh follows the merge by deleting the *local*
+    # branch, which fails whenever the Story is checked out in an iteration
+    # worktree -- after the merge landed, so the plan stopped with the Story
+    # merged but never closed. The remote branch is deleted by name instead,
+    # as best-effort cleanup once the Story's bookkeeping is done.
+    merge = [] if already_merged else [
+        ["gh", "pr", "merge", str(pull_request["number"]),
+         ralph_afk.MERGE_FLAG[afk_merge]]]
+    branch = pull_request.get("headRefName") or topology.branch
+    cleanup = [["git", "push", "origin", "--delete", branch]]
+    merge_note = (" (pull request #%s was already merged)"
+                  % pull_request.get("number", "?")) if already_merged else ""
+    review_source = (gate.review_source if gate.ok else
+                     "not re-judged: the pull request was already merged")
 
     if kind == "hil":
         # Model review never replaces the bench. The Story parks at the exact
@@ -300,7 +322,7 @@ def completion_plan(story, pull_request, comments, base="develop",
             "not a branch tip:\n\n```sh\ngit fetch origin refs/pull/%s/head\n"
             "git checkout %s\n```\n\nIt is not Passing until you confirm it on "
             "the bench. See the story's ## Bench Test Procedure."
-            % (head, gate.review_source, number,
+            % (head, review_source, number,
                pull_request.get("number", "?"), head))
         label = ["gh", "issue", "edit", str(number),
                  "--add-label", AWAITING_BENCH_LABEL,
@@ -316,21 +338,23 @@ def completion_plan(story, pull_request, comments, base="develop",
         # an AFK one, so the Stories that follow it can build on its code. The
         # gate that used to stand here now stands at the Feature boundary.
         return Plan(True, [],
-                    [merge,
-                     ["gh", "issue", "comment", str(number), "--body", anchor],
-                     label],
-                    base=target, merged=True, parked=True, gate=gate)
+                    merge + [
+                        ["gh", "issue", "comment", str(number), "--body",
+                         anchor + merge_note],
+                        label],
+                    base=target, merged=True, parked=True, gate=gate,
+                    cleanup=cleanup)
 
     integrates = ("Feature #%d" % parent) if parent is not None else target
-    return Plan(True, [], [
-        merge,
+    return Plan(True, [], merge + [
         ["gh", "issue", "close", str(number), "--comment",
          "Model review satisfied (%s) and CI green at %s; merged into %s and "
-         "marked Passing (AFK).%s"
-         % (gate.review_source, head, target,
+         "marked Passing (AFK).%s%s"
+         % (review_source, head, target,
             "" if parent is None else
-            " It reaches %s when %s merges." % (base, integrates))],
-    ], base=target, merged=True, gate=gate)
+            " It reaches %s when %s merges." % (base, integrates),
+            merge_note)],
+    ], base=target, merged=True, gate=gate, cleanup=cleanup)
 
 
 def fetch_prd(story, root):
@@ -372,7 +396,7 @@ def hold(story, pull_request, config, root, protected):
 
 
 def complete(story, pull_request, config, root, comments=None, prd=None,
-             protected=None):
+             protected=None, already_merged=False):
     """Run the completion against a live checkout; return an exit code."""
     if protected is None:
         try:
@@ -400,7 +424,8 @@ def complete(story, pull_request, config, root, comments=None, prd=None,
         branch_pattern=branching.get("branch_pattern",
                                      ralph_iterate.DEFAULT_BRANCH_PATTERN),
         feature_pattern=branching.get("feature_pattern",
-                                      ralph_iterate.DEFAULT_FEATURE_PATTERN))
+                                      ralph_iterate.DEFAULT_FEATURE_PATTERN),
+        already_merged=already_merged)
     if not plan.ok:
         sys.stderr.write("REFUSED: complete-story\n")
         for error in plan.errors:
@@ -413,6 +438,13 @@ def complete(story, pull_request, config, root, comments=None, prd=None,
         if run.failed.output.strip():
             sys.stderr.write(run.failed.output.rstrip() + "\n")
         return 1
+    swept = ralph_review_render.run_plan(plan.cleanup, cwd=root)
+    if not swept.ok:
+        # The Story is finished; a branch that was already gone, or a push
+        # that failed, leaves only a stale ref for a human to delete.
+        sys.stderr.write("note: could not delete the story branch (%s); the "
+                         "Story is complete regardless\n"
+                         % (swept.failed.output.strip() or "unknown error"))
     if plan.parked:
         print("OK: #%s is Awaiting Bench Verification at %s%s"
               % (story["number"], pull_request.get("headRefOid"),

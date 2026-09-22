@@ -997,8 +997,10 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         log = h.log_lines()
         merge = next(ln for ln in log if "pr merge 70" in ln)
         self.assertIn("--squash", merge)
-        self.assertIn("--delete-branch", merge)
-        self.assertTrue(any("issue close 20" in ln for ln in log), log)
+        self.assertNotIn("--delete-branch", merge)
+        close = next(i for i, ln in enumerate(log) if "issue close 20" in ln)
+        delete = next(i for i, ln in enumerate(log) if "push origin --delete" in ln)
+        self.assertLess(close, delete, log)
 
     # -- the Feature's second Story -----------------------------------------
 

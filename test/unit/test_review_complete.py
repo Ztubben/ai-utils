@@ -191,10 +191,35 @@ class CompletingAnAfkStory(unittest.TestCase):
                 merge = next(c for c in flat if "pr merge" in c)
                 self.assertIn(flag, merge)
 
-    def test_a_finished_story_branch_is_deleted_on_merge(self):
+    def test_a_finished_story_branch_is_deleted_by_name_after_the_story_closes(self):
+        # `gh pr merge --delete-branch` also deletes the *local* branch, which
+        # fails after the merge when the Story is checked out in an iteration
+        # worktree -- and stopped the plan before the Story was closed (#61).
+        pr = dict(pull_request(), headRefName="ralph/59-the-story")
         for kwargs in ({}, {"story": story(parent=42), "prd": prd()}):
-            merge = next(c for c in self.flat(**kwargs) if "pr merge" in c)
-            self.assertIn("--delete-branch", merge)
+            plan = self.plan(pull_request=pr, **kwargs)
+            merge = next(" ".join(c) for c in plan.commands if "merge" in c)
+            self.assertNotIn("--delete-branch", merge)
+            self.assertNotIn("push", " ".join(sum(plan.commands, [])))
+            self.assertEqual(plan.cleanup, [
+                ["git", "push", "origin", "--delete", "ralph/59-the-story"]])
+
+    def test_an_already_merged_pull_request_closes_the_story_without_merging(self):
+        merged = dict(pull_request(checks=[]), state="MERGED")
+        plan = self.plan(pull_request=merged, already_merged=True)
+
+        self.assertTrue(plan.ok, plan.errors)
+        flat = [" ".join(c) for c in plan.commands]
+        self.assertFalse(any("pr merge" in c for c in flat), flat)
+        close = next(c for c in plan.commands if c[:3] == ["gh", "issue", "close"])
+        self.assertIn("already merged", close[-1])
+        self.assertEqual(len(plan.cleanup), 1)
+
+    def test_a_merged_pull_request_is_not_finished_unless_asked(self):
+        # Without already_merged the gate still decides, and red CI refuses.
+        plan = self.plan(pull_request=dict(pull_request(checks=[]),
+                                           state="MERGED"))
+        self.assertFalse(plan.ok)
 
     def test_a_feature_story_without_its_prd_is_refused(self):
         plan = self.plan(story=story(parent=42))
