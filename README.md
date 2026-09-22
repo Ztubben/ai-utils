@@ -594,7 +594,9 @@ merges into one was reviewed and CI-checked on its own pull request first, and
 the base branch is where the gate has to hold. **Linear history is required**
 (and merge commits are disabled for the repository): Stories squash-merge and a
 Feature integrates by rebase, so `develop` never carries a merge commit and
-`master` can simply be fast-forwarded to it. To reproduce the setting:
+`master` can simply be fast-forwarded to it. A merged pull request's head
+branch is deleted automatically, so squash-merged branches do not pile up on
+the remote. To reproduce the settings:
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
@@ -610,7 +612,8 @@ gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
   "required_linear_history": true
 }
 JSON
-gh api -X PATCH repos/OWNER/REPO -F allow_merge_commit=false
+gh api -X PATCH repos/OWNER/REPO -F allow_merge_commit=false \
+  -F delete_branch_on_merge=true
 ```
 
 **Upgrading a repository that ran the shared-pull-request topology.** Drop
