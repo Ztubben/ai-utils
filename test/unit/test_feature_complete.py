@@ -3,7 +3,7 @@
 When a Feature is complete (all stories closed, PRD open + state:ready), the
 completion pass integrates the feature branch into base: autosquash-collapse
 fixup! commits, rebase onto current base, run full gating, open a single PR,
-merge with a merge commit (never squash), and close the PRD.
+rebase-merge it (never a merge commit, never squash), and close the PRD.
 
 Failure modes:
   - Autosquash conflict: fall back to uncollapsed linear history, continue
@@ -120,7 +120,7 @@ class TheFeatureBoundaryHilGate(unittest.TestCase):
         self.assertEqual(create[create.index("--base") + 1], "develop")
         self.assertEqual(create[create.index("--head") + 1],
                          "feature/18-per-feature-integration-branches")
-        self.assertIn("--merge", merge)
+        self.assertIn("--rebase", merge)
         self.assertNotIn("--squash", merge)
 
     def test_the_feature_pull_request_is_not_offered_for_model_review(self):
@@ -143,7 +143,7 @@ class TheFeatureBoundaryHilGate(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # AC: The happy-path plan runs autosquash, rebase onto base, gating, PR
-# create, merge with a merge commit, and PRD close, in that order
+# create, rebase-merge, and PRD close, in that order
 # ---------------------------------------------------------------------------
 class FeatureCompletePlanHappyPath(unittest.TestCase):
 
@@ -183,7 +183,7 @@ class FeatureCompletePlanHappyPath(unittest.TestCase):
         tokens = _flat(step["commands"])
         self.assertIn("pr", tokens)
         self.assertIn("create", tokens)
-        self.assertIn("--merge", tokens)
+        self.assertIn("--rebase", tokens)
 
     def test_prd_close_comes_fifth(self):
         plan = self._plan()
@@ -194,13 +194,15 @@ class FeatureCompletePlanHappyPath(unittest.TestCase):
         self.assertIn("close", tokens)
         self.assertIn("18", tokens)
 
-    def test_merge_uses_merge_commit_never_squash(self):
+    def test_merge_rebases_never_a_merge_commit_never_squash(self):
+        # develop requires linear history, so GitHub refuses a merge commit;
+        # a squash would collapse the Feature's per-Story commits into one.
         plan = self._plan()
         pr_step = plan.steps[3]
-        tokens = _flat(pr_step["commands"])
-        self.assertIn("--merge", tokens)
-        self.assertNotIn("--squash", tokens)
-        self.assertNotIn("--rebase", tokens)
+        merge = pr_step["commands"][1]
+        self.assertIn("--rebase", merge)
+        self.assertNotIn("--merge", merge)
+        self.assertNotIn("--squash", merge)
 
     def test_branch_resolves_from_prd(self):
         plan = self._plan()
