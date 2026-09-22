@@ -247,7 +247,8 @@ def _apply_requested_changes(story, pull_request, decision, config, root,
                          % outcome.kind)
         return ralph_review_respond.EXIT_CODES.get(outcome.kind, 2)
 
-    checkout = ralph_review_respond.Checkout(root)
+    checkout = ralph_review_respond.Checkout(root,
+                                             pull_request.get("headRefName"))
     try:
         new_head = checkout.head()
     except RuntimeError as exc:
@@ -264,7 +265,7 @@ def _apply_requested_changes(story, pull_request, decision, config, root,
 
     commands = []
     if new_head != head:
-        commands.append(["git", "push", "origin", "HEAD"])
+        commands.append(checkout.push_command(new_head))
     commands.append(arbitration_record_command(story, pull_request, decision))
     run = ralph_review_render.run_plan(commands, cwd=root)
     if not run.ok:

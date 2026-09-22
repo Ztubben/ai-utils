@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
 import ralph_review  # noqa: E402
+import ralph_review_complete  # noqa: E402
+import ralph_review_render  # noqa: E402
 import ralph_review_respond  # noqa: E402
 
 FIXTURES = os.path.join(REPO_ROOT, "test", "fixtures", "reviews")
@@ -581,3 +583,80 @@ notify:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StoryInAWorktreeWhileTheCheckoutIsParked(unittest.TestCase):
+    """Real git: the Implementation Agent committed the Story in a separate
+    worktree while the orchestration checkout stayed on an unrelated branch
+    (autopilot_controller, 2026-09: PRs #86/#87 got the parked branch, #61 was
+    never closed). Nothing Ralph does may read or move that parked checkout."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = self.tmp.name
+        self.remote = os.path.join(root, "remote.git")
+        self.repo = os.path.join(root, "repo")
+        self.worktree = os.path.join(root, "story")
+        self.branch = "ralph/54-the-story"
+        self.git("init", "--bare", self.remote)
+        self.git("init", "-b", "develop", self.repo)
+        self.git("config", "user.email", "t@example.com", cwd=self.repo)
+        self.git("config", "user.name", "T", cwd=self.repo)
+        self.git("commit", "--allow-empty", "-m", "base", cwd=self.repo)
+        self.git("remote", "add", "origin", self.remote, cwd=self.repo)
+        self.git("push", "origin", "develop", cwd=self.repo)
+        self.git("worktree", "add", "-b", self.branch, self.worktree, "develop",
+                 cwd=self.repo)
+        self.git("commit", "--allow-empty", "-m", "story", cwd=self.worktree)
+        self.reviewed = self.git("rev-parse", "HEAD", cwd=self.worktree)
+        self.git("push", "origin", self.branch, cwd=self.worktree)
+        self.git("switch", "-c", "parked", cwd=self.repo)
+        self.git("commit", "--allow-empty", "-m", "unrelated", cwd=self.repo)
+        self.git("push", "-u", "origin", "parked", cwd=self.repo)
+        self.parked = self.git("rev-parse", "HEAD", cwd=self.repo)
+
+    def git(self, *args, cwd=None):
+        return subprocess.check_output(["git", *args], cwd=cwd,
+                                       stderr=subprocess.STDOUT, text=True).strip()
+
+    def remote_head(self):
+        return self.git("rev-parse", "refs/heads/" + self.branch, cwd=self.remote)
+
+    def test_a_fix_round_reads_and_publishes_the_story_branch_not_head(self):
+        self.git("commit", "--allow-empty", "-m", "fix F-1", cwd=self.worktree)
+        fixed = self.git("rev-parse", "HEAD", cwd=self.worktree)
+        checkout = ralph_review_respond.Checkout(self.repo, self.branch)
+
+        new_head = checkout.head()
+        self.assertEqual(new_head, fixed)
+        self.assertTrue(checkout.is_ancestor(self.reviewed, new_head))
+        run = ralph_review_render.run_plan([checkout.push_command(new_head)],
+                                           cwd=self.repo)
+
+        self.assertTrue(run.ok, run.failed and run.failed.output)
+        self.assertEqual(self.remote_head(), fixed)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.repo), self.parked)
+        self.assertEqual(self.git("rev-parse", "refs/heads/parked", cwd=self.remote),
+                         self.parked)
+
+    def test_without_a_branch_the_parked_head_is_what_would_be_read(self):
+        # The old behaviour, kept only for a pull request read without its
+        # headRefName: it names exactly the hazard the branch-aware read removes.
+        self.assertEqual(ralph_review_respond.Checkout(self.repo).head(),
+                         self.parked)
+
+    def test_completion_cleanup_deletes_the_remote_branch_despite_the_worktree(self):
+        pr = {"number": 70, "headRefName": self.branch}
+        plan = ralph_review_complete.Plan(True, [], [], cleanup=[
+            ["git", "push", "origin", "--delete", pr["headRefName"]]])
+
+        run = ralph_review_render.run_plan(plan.cleanup, cwd=self.repo)
+
+        self.assertTrue(run.ok, run.failed and run.failed.output)
+        refs = self.git("for-each-ref", "--format=%(refname)", cwd=self.remote)
+        self.assertNotIn("refs/heads/" + self.branch, refs)
+        # The local branch, still checked out in the worktree, is untouched --
+        # it was deleting *that* which failed after the merge and stranded #61.
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.worktree),
+                         self.reviewed)

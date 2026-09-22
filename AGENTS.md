@@ -21,6 +21,13 @@ not HITL) and `docs/adr/0001–0005`.
   The orchestration checkout may remain on a parked branch while the agent works
   in another worktree. Never infer a Story's published commit from that checkout's
   `HEAD` or change its upstream with `push -u`. A missing Story ref must fail.
+  The same holds for review rounds: read and push the pull request's own
+  `headRefName` ref, never the checkout's `HEAD`.
+- Completion never deletes the *local* story branch (`gh pr merge --delete-branch`
+  fails after the merge when that branch is checked out in a worktree, stranding
+  the Story merged but open). The remote branch is deleted by name as best-effort
+  cleanup after the Story is closed. A Story In Review whose pull request is
+  already merged is finished (`FINISH`: close, merge nothing), never reported gone.
 - No `pytest`/`bats` installed here; unit tests use stdlib `unittest`, run via `test/run.sh`.
 - Python logic returns a result object (`ok`, `errors`, resolved data) rather than
   exiting; only the CLI wrapper prints and sets exit codes. Keeps logic unit-testable.

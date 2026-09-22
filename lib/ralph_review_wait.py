@@ -25,6 +25,7 @@ RESPOND = "respond"    # the review requested changes: answer it with a fix roun
 ESCALATE = "escalate"  # the rounds are spent and it is still unsettled: ask a human
 ARBITRATE = "arbitrate"  # a human decided; act on it before anything else
 COMPLETE = "complete"  # both halves of the gate are satisfied: finish the Story
+FINISH = "finish"      # already merged, Story still open: close it, merge nothing
 HOLD = "hold"          # ready but for a protected control-plane path: ask a human
 WAIT = "wait"          # nothing Ralph can act on; keep polling, spend nothing
 GONE = "gone"          # no marked pull request, or it is no longer open
@@ -97,7 +98,12 @@ def next_step(pull_request, comments=None, max_rounds=None, protected=()):
     """
     if not ralph_review.is_managed_pr(pull_request):
         return GONE
-    if (pull_request.get("state") or "OPEN").upper() != "OPEN":
+    state = (pull_request.get("state") or "OPEN").upper()
+    if state == "MERGED":
+        # A completion cut short after its merge, or a human's merge: either
+        # way the code has landed, and all that is left is the Story itself.
+        return FINISH
+    if state != "OPEN":
         return GONE
     head = pull_request.get("headRefOid")
     # A human's decision outranks everything the two models owe each other, so
@@ -201,11 +207,12 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
         if step == GONE:
             return WaitResult(GONE, polls=polls, invocations=invocations,
                               elapsed=elapsed, retries=retries)
-        if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE, COMPLETE, HOLD):
+        if step in (REVIEW, RESPOND, ESCALATE, ARBITRATE, COMPLETE, FINISH,
+                    HOLD):
             # Escalation is Ralph's own bookkeeping -- a comment, a review
             # request, a label -- so it costs no model invocation. Arbitration
             # may or may not launch one, depending on what the human decided.
-            if step not in (ESCALATE, ARBITRATE, COMPLETE, HOLD):
+            if step not in (ESCALATE, ARBITRATE, COMPLETE, FINISH, HOLD):
                 invocations += 1
             ok, errors, retryable = act(step, pull_request)
             if not ok and not retryable:
@@ -220,7 +227,7 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
                 # The backoff between polls is what keeps it from being a storm.
                 retries += 1
                 last_errors = errors
-            elif step in (ESCALATE, COMPLETE):
+            elif step in (ESCALATE, COMPLETE, FINISH):
                 # Nothing is left to wait for. Either the Story is blocked with
                 # a human asked, or it is finished. Sitting out the rest of the
                 # window would hold the tick's lock over work that has stopped.
@@ -271,6 +278,13 @@ def _cmd_await(rest):
         try:
             pull_request, _ = ralph_review_round.discover_pull_request(
                 story, cwd=root)
+            if pull_request is None:
+                # Nothing open. If the Story's pull request was merged, the
+                # completion that merged it never closed the Story; finding it
+                # here is what lets the Story finish instead of being resumed
+                # and reported gone on every tick.
+                pull_request = ralph_review_round.discover_merged_pull_request(
+                    story, cwd=root)
         except (OSError, ValueError, RuntimeError) as exc:
             sys.stderr.write("ralph: could not read review state: %s\n" % exc)
             return seen["pull_request"]
@@ -300,6 +314,11 @@ def _cmd_await(rest):
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root)
             return step_outcome(rc, "completion")
+        if step == FINISH:
+            rc = ralph_review_complete.complete(story, pull_request,
+                                                validated.config, root,
+                                                already_merged=True)
+            return step_outcome(rc, "completion of a merged pull request")
         if step == ARBITRATE:
             rc = ralph_review_human.arbitrate(story, pull_request,
                                               validated.config, root)
@@ -362,6 +381,10 @@ def _cmd_await(rest):
         return 0
     if result.kind == COMPLETE:
         print("OK: #%s passed both halves of the gate and was completed" % number)
+        return EXIT_COMPLETED
+    if result.kind == FINISH:
+        print("OK: #%s's pull request was already merged; the Story was "
+              "completed" % number)
         return EXIT_COMPLETED
     if result.kind == GONE:
         print("OK: nothing to negotiate for #%s; the pull request is not open "

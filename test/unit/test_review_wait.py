@@ -244,8 +244,14 @@ class NextStep(unittest.TestCase):
             ralph_review_wait.RESPOND)
 
     def test_a_closed_pull_request_ends_the_negotiation(self):
-        self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),
+        self.assertEqual(ralph_review_wait.next_step(pull_request(state="CLOSED")),
                          ralph_review_wait.GONE)
+
+    def test_a_merged_pull_request_finishes_the_story_without_merging_again(self):
+        # A completion cut short after its merge (the #61 stall) left the Story
+        # In Review with nothing open; reporting it gone would resume it forever.
+        self.assertEqual(ralph_review_wait.next_step(pull_request(state="MERGED")),
+                         ralph_review_wait.FINISH)
 
 
 class Backoff(unittest.TestCase):
@@ -429,13 +435,24 @@ class AwaitReview(unittest.TestCase):
         self.assertEqual(result.invocations, 1)
         self.assertEqual(self.clock.sleeps, [])
 
-    def test_a_merged_pull_request_ends_the_wait_immediately(self):
+    def test_a_merged_pull_request_is_finished_at_once_and_ends_the_wait(self):
         self.state["pr"] = pull_request(state="MERGED")
 
         result = self.await_()
 
-        self.assertEqual(result.kind, ralph_review_wait.GONE)
+        self.assertEqual(result.kind, ralph_review_wait.FINISH)
+        self.assertEqual(self.acts, [ralph_review_wait.FINISH])
+        self.assertEqual(result.invocations, 0)
         self.assertEqual(result.polls, 1)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_a_closed_unmerged_pull_request_ends_the_wait_immediately(self):
+        self.state["pr"] = pull_request(state="CLOSED")
+
+        result = self.await_()
+
+        self.assertEqual(result.kind, ralph_review_wait.GONE)
+        self.assertEqual(self.acts, [])
         self.assertEqual(self.clock.sleeps, [])
 
 
@@ -515,6 +532,42 @@ class CliAwaitReview(unittest.TestCase):
         self.assertNotIn("LAUNCHED", calls)
         self.assertGreater(calls.count("gh pr view"), 1)  # it polled
         self.assertIn("window", proc.stdout + proc.stderr)
+
+    def test_a_story_whose_pull_request_already_merged_is_closed_not_resumed(self):
+        # The #61 stall: completion merged the pull request, then gh failed to
+        # delete the local branch (checked out in an iteration worktree) and the
+        # Story was never closed. Open-only discovery then saw nothing, every
+        # tick. Now the merged pull request is found and the Story is closed --
+        # without merging again, and without launching any model.
+        head = "a" * 40
+        marked = ralph_review.MANAGED_PR_MARKER + "\n\nRefs #54\n"
+        self._write("merged.json", json.dumps([{"number": 70, "body": marked}]))
+        self._gh([], {"number": 70, "body": marked, "state": "MERGED",
+                      "headRefOid": head, "baseRefOid": "b" * 40,
+                      "headRefName": "ralph/54-wait-for-review",
+                      "reviews": [], "comments": [], "statusCheckRollup": []})
+        path = os.path.join(self.root, "gh")
+        with open(path) as fh:
+            script = fh.read()
+        with open(path, "w") as fh:
+            fh.write(script.replace(
+                'if [[ "$1 $2" == "pr list" ]]; then cat',
+                'if [[ "$1 $2" == "pr list" && "$*" == *"--state merged"* ]]; '
+                'then cat "%s/merged.json"; exit 0; fi\n'
+                'if [[ "$1 $2" == "pr list" ]]; then cat' % self.root))
+        self._provider_that_must_not_run()
+
+        proc, calls = self.run_await()
+
+        self.assertEqual(proc.returncode, ralph_review_wait.EXIT_COMPLETED,
+                         proc.stdout + proc.stderr)
+        self.assertIn("gh issue close 54", calls)
+        self.assertIn("already merged", calls)
+        self.assertNotIn("gh pr merge", calls)
+        self.assertNotIn("LAUNCHED", calls)
+        # Branch deletion is best-effort: this temp dir is no git repository,
+        # so it fails -- and the Story is complete regardless.
+        self.assertIn("could not delete the story branch", proc.stderr)
 
     def test_nothing_to_negotiate_ends_the_wait_at_once(self):
         self._gh([{"number": 12, "body": "a human pull request"}], {})
