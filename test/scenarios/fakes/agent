@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""A scripted provider CLI for the scenario harness (#87, PRD #85).
+
+Installed on PATH as both `claude` and `codex`.  It works out which provider it
+is from its own name and which role it plays from the flags the Loop launched it
+with (the review role is the read-only one), then behaves as the scenario's
+profile for that role says (`$SCENARIO_AGENTS`, `{role: profile}`).
+
+It records what it was told -- argv and the full prompt -- in the call log
+(`$SCENARIO_LOG`), and answers in the provider's own transcript shape, usage
+included, so the adapters' unwrapping and the ledger normaliser run for real.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+RALPH = os.environ.get("SCENARIO_RALPH", "ralph")
+DONE_MARKER = os.environ.get("RALPH_STORY_COMPLETE_MARKER", "RALPH-STORY-COMPLETE")
+
+
+def role_of(provider, argv):
+    if provider == "claude":
+        return "review" if "plan" in argv else "implementation"
+    return "review" if "read-only" in argv else "implementation"
+
+
+def model_of(argv):
+    return argv[argv.index("--model") + 1] if "--model" in argv else None
+
+
+def run(args, **kw):
+    return subprocess.run(args, check=True, stdout=subprocess.PIPE, text=True, **kw).stdout
+
+
+# --- profiles ----------------------------------------------------------------
+
+def implement_cooperatively(context):
+    """Do the Story's work on its own branch, commit, push, signal done."""
+    issue = os.environ["RALPH_ITERATION_ISSUE"]
+    story = json.loads(run(["gh", "issue", "view", issue, "--json",
+                            "number,title,labels,body,state"]))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(story, fh)
+    config = os.environ.get("RALPH_CONFIG", ".ralph.yml")
+    branch = run([RALPH, "--branch-name", fh.name, config]).strip()
+    base = run([RALPH, "--branch-name", fh.name, config, "--base"]).strip()
+    os.unlink(fh.name)
+    run(["git", "fetch", "-q", "origin"])
+    have = subprocess.run(["git", "rev-parse", "-q", "--verify",
+                           "refs/remotes/origin/%s" % branch],
+                          stdout=subprocess.DEVNULL).returncode == 0
+    run(["git", "checkout", "-q", "-B", branch,
+         "origin/%s" % (branch if have else base)])
+    path = "story-%s.txt" % issue
+    with open(path, "a") as fh:
+        fh.write("work for #%s\n" % issue)
+    run(["git", "add", path])
+    run(["git", "commit", "-q", "-m", "feat: #%s" % issue])
+    run(["git", "push", "-q", "origin", "refs/heads/%s:refs/heads/%s" % (branch, branch)])
+    return "Implemented #%s on %s; the gate is green.\n%s" % (issue, branch, DONE_MARKER)
+
+
+def review_approving(context):
+    """An approving review of exactly the head and round it was handed."""
+    prompt = context["prompt"]
+    head = re.search(r"Exact head commit: ([0-9a-f]{40})", prompt).group(1)
+    round_no = int(re.search(r"Review round: (\d+)", prompt).group(1))
+    result = {"contract": "ralph-review/v1", "verdict": "approve", "head": head,
+              "model": context["model"] or "unknown", "round": round_no,
+              "summary": "Every acceptance criterion is met at this head.",
+              "findings": []}
+    return "Review complete.\n```json\n%s\n```" % json.dumps(result, indent=1)
+
+
+PROFILES = {
+    "cooperative": {"implementation": implement_cooperatively,
+                    "review": review_approving},
+}
+
+
+# --- transcript shapes -------------------------------------------------------
+
+USAGE = {"claude": {"input_tokens": 1200, "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 300, "output_tokens": 400},
+         "codex": {"input_tokens": 1500, "cached_input_tokens": 300,
+                   "output_tokens": 400, "reasoning_output_tokens": 50}}
+
+
+def transcript(provider, text):
+    if provider == "claude":
+        return json.dumps({"type": "result", "subtype": "success",
+                           "is_error": False, "result": text,
+                           "usage": USAGE["claude"]})
+    return "\n".join([
+        json.dumps({"type": "thread.started", "thread_id": "scenario"}),
+        json.dumps({"type": "item.completed",
+                    "item": {"type": "agent_message", "text": text}}),
+        json.dumps({"type": "turn.completed", "usage": USAGE["codex"]}),
+    ])
+
+
+def main(argv):
+    provider = os.path.basename(sys.argv[0])
+    prompt = sys.stdin.read()
+    role = role_of(provider, argv)
+    profiles = json.loads(os.environ.get("SCENARIO_AGENTS") or "{}")
+    profile = profiles.get(role, "cooperative")
+    entry = {"tool": provider, "role": role, "profile": profile, "argv": argv,
+             "model": model_of(argv), "prompt": prompt,
+             "issue": os.environ.get("RALPH_ITERATION_ISSUE")}
+    rc = 0
+    try:
+        behaviour = PROFILES[profile][role]
+        text = behaviour({"prompt": prompt, "model": model_of(argv), "argv": argv})
+        print(transcript(provider, text))
+    except Exception as exc:                    # noqa: BLE001 - reported, not hidden
+        entry["error"] = "%s: %s" % (type(exc).__name__, exc)
+        sys.stderr.write("scripted agent failed: %s\n" % entry["error"])
+        rc = 70
+    entry["rc"] = rc
+    with open(os.environ["SCENARIO_LOG"], "a") as fh:
+        fh.write(json.dumps(entry) + "\n")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
