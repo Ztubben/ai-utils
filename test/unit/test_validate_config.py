@@ -47,6 +47,16 @@ class ValidConfigTests(unittest.TestCase):
         self.assertEqual(result.config["limits"]["max_attempts"], 3)
         self.assertEqual(result.config["limits"]["circuit_breaker"], 2)
 
+    def test_pointer_drift_is_refused_by_default(self):
+        # #96: the committed ai-utils pointer is the version that must run.
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        self.assertIs(result.config["tooling"]["allow_pointer_drift"], False)
+
+    def test_pointer_drift_can_be_allowed_deliberately(self):
+        result = ralph_config.load_and_validate(valid("pointer-drift-allowed.yml"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertIs(result.config["tooling"]["allow_pointer_drift"], True)
+
     def test_feature_pattern_default_when_omitted(self):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
         self.assertTrue(result.ok, result.errors)
@@ -83,6 +93,9 @@ class InvalidConfigTests(unittest.TestCase):
 
     def test_missing_gating_is_rejected(self):
         self._assert_invalid_mentioning("missing-gating.yml", "gating")
+
+    def test_a_non_boolean_pointer_drift_is_rejected(self):
+        self._assert_invalid_mentioning("bad-pointer-drift.yml", "tooling/allow_pointer_drift")
 
     def test_bad_afk_merge_is_rejected(self):
         self._assert_invalid_mentioning("bad-afk-merge.yml", "afk_merge")
