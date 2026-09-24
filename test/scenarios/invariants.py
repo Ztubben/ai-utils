@@ -41,6 +41,9 @@ import ralph_review  # noqa: E402
 import ralph_review_wait  # noqa: E402
 
 PARKED_LABELS = ("state:blocked", "needs-human", "state:awaiting-bench")
+# Expected states a scenario may declare for a Story that is, by design, not
+# finished; the terminal invariant exempts exactly those Stories.
+NON_TERMINAL = ("in-progress", "in-review")
 
 
 class Violation:
@@ -64,6 +67,7 @@ class Observation:
         self.remote = world.remote
         self.final = final
         self.previous_heads = previous_heads
+        self.expect = world.spec.get("expect", {})
         # Records the world *started* with -- a capture's production history --
         # were made by runs this scenario never saw, so they back nothing here.
         self.baseline = baseline or Counter()
@@ -247,12 +251,14 @@ def prompt_contract(obs):
 def terminal_within_budget(obs):
     if not obs.final:
         return []
+    declared = {str(n) for n, want in obs.expect.items() if want in NON_TERMINAL}
     return [Violation("terminal-within-budget",
                       "#%s is still %s %s at the end of the Tick budget"
                       % (story["number"], story["state"], story["labels"]),
                       [{"number": story["number"], "labels": story["labels"]}])
             for story in obs.stories()
-            if story["state"] != "CLOSED"
+            if str(story["number"]) not in declared
+            and story["state"] != "CLOSED"
             and not any(label in story["labels"] for label in PARKED_LABELS)]
 
 

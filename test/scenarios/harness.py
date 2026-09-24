@@ -49,6 +49,11 @@ TERMINAL = {
     "blocked": lambda issue: "state:blocked" in issue["labels"],
     "needs-human": lambda issue: "needs-human" in issue["labels"],
     "awaiting-bench": lambda issue: "state:awaiting-bench" in issue["labels"],
+    # Declared expectations that a Story is *not* finished -- a provider out of
+    # session budget makes no progress by design. Exempt from the terminal
+    # invariant only because the scenario says so, explicitly.
+    "in-progress": lambda issue: "state:in-progress" in issue["labels"],
+    "in-review": lambda issue: "state:in-review" in issue["labels"],
 }
 
 
@@ -67,6 +72,30 @@ def load(name_or_path):
 
 def all_worlds():
     return sorted(f[:-5] for f in os.listdir(WORLDS) if f.endswith(".json"))
+
+
+def variants(spec):
+    """The world itself, then one spec per (role or phase, profile) pair its
+    `matrix` declares: `{"review": {"empty-usage": {"expect": ..., "known_defect":
+    ...}}}` runs the world with that profile swapped in, against the terminal
+    state that pair declares."""
+    base = {k: v for k, v in spec.items() if k != "matrix"}
+    out = [base]
+    for slot, profiles in sorted(spec.get("matrix", {}).items()):
+        for profile, case in sorted(profiles.items()):
+            variant = json.loads(json.dumps(base))
+            variant["agents"] = dict(base.get("agents", {}), **{slot: profile})
+            variant["name"] = "%s__%s_%s" % (base["name"], slot, profile.replace("-", "_"))
+            variant["description"] = case.get("why") or "%s with a %s %s" % (
+                base["name"], profile, slot)
+            variant["expect"] = case["expect"]
+            variant.pop("known_defect", None)
+            if case.get("known_defect"):
+                variant["known_defect"] = case["known_defect"]
+            if "ticks" in case:
+                variant["ticks"] = case["ticks"]
+            out.append(variant)
+    return out
 
 
 def _git(args, cwd, env):

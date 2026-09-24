@@ -642,6 +642,16 @@ not HITL) and `docs/adr/0001–0005`.
   invariant against the prompt each scripted agent *received* -- template plus bundle, because
   the PR #94 defect was in the composition. Since #92 `build_context` emits its read-only /
   no-mutation line only for `for_role="review"`, beside the later-round scope directive.
+  **Profiles and the matrix** (#93): `fakes/agent` `PROFILES` adds `literal-noop`, `empty-usage`
+  (no output, zero usage), `invalid-output` (malformed contract JSON; an iteration that claims
+  done without work), `session-limit` (the CLI's own limit line, exit 1, no transcript),
+  `commit-no-push` and `amend-history` (git misbehaviours; a reviewer cannot commit, so under
+  those it reviews cooperatively). `agents` may name a **phase** (`iteration`/`review`/
+  `response`/`arbitration`) as well as a role; the phase wins. A world's `matrix: {slot:
+  {profile: {expect, why, known_defect?}}}` is expanded by `harness.variants` into one test per
+  pair. `known_defect` names the open issue and either the `invariant` it breaks or a `failure`
+  substring. An expected `in-progress`/`in-review` (`invariants.NON_TERMINAL`) is how a pair
+  declares "no progress by design" (session limit); the terminal invariant exempts exactly those.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST

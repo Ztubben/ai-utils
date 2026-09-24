@@ -67,5 +67,65 @@
   "ticks": 3,
   "expect": {
     "1": "passing"
+  },
+  "matrix": {
+    "response": {
+      "literal-noop": {
+        "expect": {
+          "1": "needs-human"
+        },
+        "why": "A response with no commit and every finding unresolved is not an answer: refused and escalated.",
+        "known_defect": {
+          "story": "#94",
+          "why": "The no-op answer is accepted as an answer and the round is spent.",
+          "failure": "#1 expected needs-human"
+        }
+      },
+      "empty-usage": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "A responder that returns nothing must not be relaunched until the window closes.",
+        "known_defect": {
+          "story": "#95",
+          "why": "Invalid output is retryable, so the responder is relaunched every poll.",
+          "invariant": "invocation-limit"
+        }
+      },
+      "invalid-output": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "A responder whose output never validates must not be relaunched until the window closes.",
+        "known_defect": {
+          "story": "#95",
+          "why": "Invalid output is retryable, so the responder is relaunched every poll.",
+          "invariant": "invocation-limit"
+        }
+      },
+      "session-limit": {
+        "expect": {
+          "1": "in-review"
+        },
+        "why": "A responder out of session budget spends no round; the Story waits In Review."
+      },
+      "commit-no-push": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "Ralph pushes the response's fix commit, so an agent that only commits still completes."
+      },
+      "amend-history": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "A response that rewrites the reviewed commit is refused; repeated refusals must end the Story.",
+        "known_defect": {
+          "story": "#100",
+          "why": "The refusal is never recorded, so every Tick answers again, forever.",
+          "invariant": "terminal-within-budget"
+        }
+      }
+    }
   }
 }
