@@ -117,6 +117,8 @@ def select_fields(obj, fields):
 
 
 def apply_jq(value, expr):
+    if expr == ".[]" and isinstance(value, list):
+        return "\n".join(json.dumps(item) for item in value)
     if not re.fullmatch(r"(\.[A-Za-z_][A-Za-z0-9_]*)+", expr or ""):
         raise Unemulated("--jq expression %r" % expr)
     for key in expr.strip(".").split("."):
@@ -329,7 +331,8 @@ def cmd_pr(state, args):
         comment = add_comment(state, pr, "pull", pr["number"], opts["--body"])
         return print(comment["url"])
     if sub == "merge":
-        (ref,), opts = parse(rest, (), bools=("--squash", "--merge", "--rebase"))
+        (ref,), opts = parse(rest, (), bools=("--squash", "--merge", "--rebase",
+                                              "--delete-branch"))
         return merge(state, get_pr(state, ref), opts)
     raise Unemulated("pr %s" % sub)
 
@@ -361,6 +364,10 @@ def merge(state, pr, opts):
     _git_remote("update-ref", "refs/heads/%s" % pr["baseRefName"], new, base)
     pr.update(state="MERGED", mergedAt=_tick(state), mergedHeadOid=head,
               mergedBaseOid=base, mergeCommit=new)
+    if opts.get("--delete-branch"):
+        # The remote half of it; gh's local-branch deletion is the caller's
+        # checkout, which a fake cannot and should not touch.
+        _git_remote("update-ref", "-d", "refs/heads/%s" % pr["headRefName"])
     return None
 
 
@@ -394,7 +401,8 @@ ROUTE_PREFIX = "repos/{owner}/{repo}/"
 
 
 def cmd_api(state, args):
-    positional, opts = parse(args, ("--method", "--input", "--jq"), multi=("-f", "-F"))
+    positional, opts = parse(args, ("--method", "--input", "--jq"), multi=("-f", "-F"),
+                             bools=("--paginate",))
     if len(positional) != 1:
         raise Unemulated("api %s" % " ".join(args))
     route, method = positional[0], (opts.get("--method") or "GET").upper()
@@ -414,6 +422,13 @@ def cmd_api(state, args):
                   "description": fields.get("description", ""), "at": _tick(state)}
         state["statuses"].setdefault(match.group(1), []).append(status)
         return emit(status, opts)
+
+    match = re.fullmatch(r"pulls/(\d+)", path)
+    if match and method == "GET":
+        view = pr_view(state, get_pr(state, match.group(1)))
+        return emit({"number": view["number"], "state": view["state"].lower(),
+                     "head": {"ref": view["headRefName"], "sha": view["headRefOid"]},
+                     "base": {"ref": view["baseRefName"], "sha": view["baseRefOid"]}}, opts)
 
     match = re.fullmatch(r"pulls/(\d+)/reviews", path)
     if match and method == "POST":

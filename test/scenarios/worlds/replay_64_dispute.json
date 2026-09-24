@@ -1,0 +1,75 @@
+{
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "codex-sol",
+          "provider": "codex",
+          "model": "gpt-5.6-sol"
+        },
+        {
+          "key": "opus",
+          "provider": "claude",
+          "model": "claude-opus-5"
+        }
+      ],
+      "defaults": {
+        "implementation": "codex-sol",
+        "review": "opus"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "capture": "captures/autopilot-controller-64.json",
+    "rewind_to": "2026-09-23T08:18:36Z",
+    "labels": {
+      "64": [
+        "prio:5",
+        "type:afk",
+        "state:in-review",
+        "model:impl:gpt-5.6-sol",
+        "model:review:claude-opus-5"
+      ]
+    },
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  },
+  "ticks": 3,
+  "description": "Replay of autopilot_controller Story #64 / PR #94 (redacted capture), rewound to the moment round 1 requested changes. The responder changes nothing and disputes every finding, as codex did in production; the negotiation must end in a bounded number of rounds, escalated.",
+  "agents": {
+    "implementation": "dispute-all",
+    "review": "strict"
+  },
+  "expect": {
+    "64": "blocked"
+  },
+  "known_defect": {
+    "story": "#91",
+    "invariant": "one-response-per-round",
+    "why": "The response record is posted to the pull request, but needs_review() counts answers in the Story's comments (PR #94 answered head d114bac 17 times)."
+  }
+}

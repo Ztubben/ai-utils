@@ -18,6 +18,7 @@ The harness never interprets Ralph's markers itself: the Loop's own parsers do
 that.  It only reads the durable outcome -- issue state and labels, pull
 requests, the remote.
 """
+import datetime
 import json
 import os
 import re
@@ -80,6 +81,28 @@ def load_capture(path):
         return json.load(fh)
 
 
+def rewind(state, moment):
+    """Drop everything a capture recorded after *moment* (ISO-8601, UTC).
+
+    A capture is the Story as it is *now*; an incident is replayed from the
+    moment it started.  Comment edits cannot be undone (GitHub keeps no
+    history in the capture), so a rewound world keeps, say, the ledger as last
+    edited -- telemetry, which gates nothing.  The fake's clock moves past the
+    last kept moment, so the replay's own writes sort after it.
+    """
+    def kept(items, field):
+        return [i for i in items if (i.get(field) or "") <= moment]
+    for issue in list(state["issues"].values()) + list(state["pulls"].values()):
+        issue["comments"] = kept(issue["comments"], "createdAt")
+        if "reviews" in issue:
+            issue["reviews"] = kept(issue["reviews"], "submittedAt")
+            issue["reviewComments"] = kept(issue["reviewComments"], "createdAt")
+    epoch = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    at = datetime.datetime.strptime(moment, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=datetime.timezone.utc)
+    state["clock"] = max(state.get("clock", 0), int((at - epoch).total_seconds()))
+
+
 def initial_state(spec):
     """The fake's state file for the scenario's starting GitHub world.
 
@@ -99,6 +122,12 @@ def initial_state(spec):
         state["labels"] = canonical + [l for l in state["labels"] if l["name"] not in known]
         if "ci" in github:
             state["ci"] = github["ci"]
+        if github.get("rewind_to"):
+            rewind(state, github["rewind_to"])
+        for number, labels in github.get("labels", {}).items():
+            state["issues"][str(number)]["labels"] = list(labels)
+            state["labels"] += [{"name": n} for n in labels
+                                if n not in {l["name"] for l in state["labels"]}]
     else:
         state = {"repo": {"owner": "acme", "name": "target", "defaultBranch": base},
                  "labels": canonical, "issues": {}, "pulls": {}, "statuses": {},
@@ -223,6 +252,10 @@ class World:
         refs = ["HEAD:refs/pull/%s/head" % pr["number"]]
         if pr["state"] == "OPEN":
             refs.append("HEAD:refs/heads/%s" % pr["headRefName"])
+            # The orchestration checkout that ran the incident had the Story
+            # branch locally too (the agent committed on it), and the response
+            # round reads it there.
+            _git(["branch", "-f", pr["headRefName"], "HEAD"], self.checkout, self.env)
         if _git(["ls-remote", "origin", "refs/heads/%s" % pr["baseRefName"]],
                 self.checkout, self.env) == "":
             refs.append("%s:refs/heads/%s" % (base_oid, pr["baseRefName"]))
