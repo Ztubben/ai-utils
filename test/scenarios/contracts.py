@@ -26,7 +26,7 @@ NO_READ_ONLY = [BUNDLE_READ_ONLY, BUNDLE_NO_MUTATION, REVIEW_READ_ONLY]
 CONTRACTS = {
     "iteration": {
         "required": ["# Ralph Iteration Prompt", "Next action:", "RALPH-STORY-COMPLETE",
-                     "**Never rewrite history.**"],
+                     "**Never rewrite history.**", "failed **Attempt**"],
         "forbidden": NO_READ_ONLY,
     },
     "review": {

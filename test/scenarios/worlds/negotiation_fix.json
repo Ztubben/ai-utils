@@ -80,23 +80,13 @@
         "expect": {
           "1": "blocked"
         },
-        "why": "A responder that returns nothing must not be relaunched until the window closes.",
-        "known_defect": {
-          "story": "#95",
-          "why": "Invalid output is retryable, so the responder is relaunched every poll.",
-          "invariant": "invocation-limit"
-        }
+        "why": "A responder that returns nothing must not be relaunched until the window closes."
       },
       "invalid-output": {
         "expect": {
           "1": "blocked"
         },
-        "why": "A responder whose output never validates must not be relaunched until the window closes.",
-        "known_defect": {
-          "story": "#95",
-          "why": "Invalid output is retryable, so the responder is relaunched every poll.",
-          "invariant": "invocation-limit"
-        }
+        "why": "A responder whose output never validates must not be relaunched until the window closes."
       },
       "session-limit": {
         "expect": {

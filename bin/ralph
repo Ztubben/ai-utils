@@ -76,6 +76,7 @@ usage: ralph --init [CONFIG]
        ralph --complete-hil STORY [CONFIG] [PRD]
        ralph --complete-feature PRD [CONFIG]
        ralph --checkpoint STORY SUMMARY [CONFIG] [--comment-only]
+       ralph --count-handoffs [STORY]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
        ralph --reset-on-block STORY REASON [CONFIG] [PRD]
@@ -385,6 +386,11 @@ usage: ralph --init [CONFIG]
                           details on the PRD, and labels it ready-for-human
                           (no needs-human). Never touches main. Exits 0 on
                           success, 1 on a blocker, 2 on bad config or refusal.
+  --count-handoffs        Print how many Handoff checkpoints a story carries
+       [STORY]            (gh --json comments; default - for stdin). The tick
+                          compares it across an iteration: stopping short of
+                          the done-signal with no new Handoff is a failed
+                          Attempt, not partial progress.
   --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
        SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
        [--comment-only]   (carrying the handoff marker) with SUMMARY, then stop.
@@ -566,6 +572,10 @@ main() {
     --checkpoint)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_handoff.py" checkpoint "$@"
+      ;;
+    --count-handoffs)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_handoff.py" count "$@"
       ;;
     --resume)
       shift

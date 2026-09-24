@@ -101,6 +101,27 @@ class InfrastructureFailureInTheWindow(unittest.TestCase):
         self.assertGreater(result.retries, 1)
         self.assertEqual(ralph_review_round.next_round(self.state["pr"]), 1)
 
+    def test_every_retryable_failure_is_offered_as_an_attempt(self):
+        # #95: bounded only by the window, an empty reviewer was relaunched
+        # every poll of every window. The wait now reports each failure, and
+        # ends the moment one of them blocked the Story.
+        offered = []
+
+        def record_attempt(step, errors):
+            offered.append(step)
+            return len(offered) == 3
+
+        result = ralph_review_wait.await_review(
+            ralph_review_wait.WaitPolicy(window_seconds=10000, first_poll=1),
+            fetch=lambda: self.state["pr"],
+            act=self.failing(ralph_review_round.EXIT_INVALID_OUTPUT),
+            read_comments=lambda: self.state["comments"],
+            sleep=self.clock.sleep, now=self.clock.now, record_attempt=record_attempt)
+
+        self.assertEqual(result.kind, ralph_review_wait.BLOCKED)
+        self.assertEqual(offered, [ralph_review_wait.REVIEW] * 3)
+        self.assertEqual(len(self.acts), 3)
+
     def test_an_unpublishable_answer_is_the_same_kind_of_failure(self):
         # The wrapper rejects a malformed answer from the Implementation Agent
         # for the same reason it rejects a malformed review: nothing reached the
