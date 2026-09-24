@@ -61,8 +61,12 @@ def run(args, **kw):
 
 # --- profiles ----------------------------------------------------------------
 
-def implement_cooperatively(context):
-    """Do the Story's work on its own branch, commit, push, signal done."""
+def implement_cooperatively(context, push=True, amend=False):
+    """Do the Story's work on its own branch, commit, push, signal done.
+
+    `push=False` leaves the commit local; `amend=True` rewrites the branch's
+    last commit and force-pushes it -- both things the iteration prompt forbids.
+    """
     issue = str(context["story"])
     story = json.loads(run(["gh", "issue", "view", issue, "--json",
                             "number,title,labels,body,state"]))
@@ -83,7 +87,13 @@ def implement_cooperatively(context):
         fh.write("work for #%s\n" % issue)
     run(["git", "add", path])
     run(["git", "commit", "-q", "-m", "feat: #%s" % issue])
-    run(["git", "push", "-q", "origin", "refs/heads/%s:refs/heads/%s" % (branch, branch)])
+    refspec = "refs/heads/%s:refs/heads/%s" % (branch, branch)
+    if amend:
+        run(["git", "push", "-q", "origin", refspec])
+        run(["git", "commit", "-q", "--amend", "-m", "feat: #%s (rewritten)" % issue])
+        run(["git", "push", "-q", "--force", "origin", refspec])
+    elif push:
+        run(["git", "push", "-q", "origin", refspec])
     return "Implemented #%s on %s; the gate is green.\n%s" % (issue, branch, DONE_MARKER)
 
 
@@ -156,21 +166,29 @@ def response(context, disposition_for):
     return "Round answered.\n```json\n%s\n```" % json.dumps(answer, indent=1)
 
 
-def respond_by_fixing(context):
+def respond_by_fixing(context, amend=False):
     """Append a fix commit to the pull request's own branch; accept everything.
 
     Ralph pushes it; the agent only commits, on the branch the round names.
+    `amend=True` rewrites the reviewed commit instead, which Ralph must refuse.
     """
     # The bundle names the reviewed commit, not the branch: the local Story
     # branch is the one that contains it.
-    branch = run(["git", "for-each-ref", "--format=%(refname:short)", "--contains",
-                  open_findings(context["prompt"])[1], "refs/heads/ralph/"]).split()[0]
+    # (Or, when an earlier amend moved the local branch off it, the Story's
+    # branch by name.)
+    branch = (run(["git", "for-each-ref", "--format=%(refname:short)", "--contains",
+                   open_findings(context["prompt"])[1], "refs/heads/ralph/"]).split()
+              or run(["git", "for-each-ref", "--format=%(refname:short)",
+                      "refs/heads/ralph/%s-" % context["story"]]).split()
+              or run(["git", "for-each-ref", "--format=%(refname:short)",
+                      "refs/heads/ralph/"]).split())[0]
     run(["git", "checkout", "-q", branch])
     path = "test-story-%s.txt" % context["story"]
     with open(path, "a") as fh:
         fh.write("the greeting is verified\n")
     run(["git", "add", path])
-    run(["git", "commit", "-q", "-m", "test: verify the greeting"])
+    run(["git", "commit", "-q"] + (["--amend", "--no-edit"] if amend else
+                                   ["-m", "test: verify the greeting"]))
     return response(context, lambda f: {"id": f["id"], "disposition": "accepted",
                                         "note": "Added the test the finding asks for."})
 
@@ -183,6 +201,65 @@ def respond_by_disputing(context):
         "evidence": "The Story's Acceptance Criteria list only 'the greeting exists'."})
 
 
+class Raw:
+    """Output that is not the provider's normal transcript at all."""
+
+    def __init__(self, text, rc):
+        self.text, self.rc = text, rc
+
+
+ZERO = {"claude": {"input_tokens": 0, "cache_creation_input_tokens": 0,
+                   "cache_read_input_tokens": 0, "output_tokens": 0},
+        "codex": {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0,
+                  "reasoning_output_tokens": 0}}
+SESSION_LIMIT = "You've hit your session limit \u00b7 resets 9pm (Europe/Stockholm)"
+MALFORMED = "Here is my answer.\n```json\n{\"contract\": \"ralph-review/v1\", \"verdict\":\n```"
+
+
+def noop_iteration(context):
+    """Most restrictive reading: touch nothing, claim nothing."""
+    return "I found no instruction that permits a change here, so I changed nothing."
+
+
+def noop_review(context):
+    """A review that judges nothing: a comment verdict with no findings."""
+    result = {"contract": "ralph-review/v1", "verdict": "comment", "head": context["head"],
+              "model": context["model"] or "unknown", "round": context["round"],
+              "summary": "No findings.", "findings": []}
+    return "```json\n%s\n```" % json.dumps(result)
+
+
+def noop_response(context):
+    """PR #94's answer: no commit, every finding left unresolved."""
+    return response(context, lambda f: {
+        "id": f["id"], "disposition": "unresolved",
+        "note": "No changes were made because the context says the checkout is read-only."})
+
+
+def noop_arbitration(context):
+    return "I changed nothing."
+
+
+def empty(context):
+    return "", ZERO[context["provider"]]
+
+
+def malformed(context):
+    return MALFORMED
+
+
+def claims_done_without_work(context):
+    return "All done.\n%s" % DONE_MARKER
+
+
+def session_limited(context):
+    return Raw(SESSION_LIMIT, 1)
+
+
+def every_phase(behaviour):
+    return {phase: behaviour for phase in ("iteration", "review", "response", "arbitration")}
+
+
 # A profile is a behaviour per phase; the scenario picks a profile per role.
 PROFILES = {
     "cooperative": {"iteration": implement_cooperatively,
@@ -192,6 +269,18 @@ PROFILES = {
                     "response": respond_by_disputing},
     "strict-once": {"review": review_strict_once},
     "strict": {"review": requesting_changes},
+    "literal-noop": {"iteration": noop_iteration, "review": noop_review,
+                     "response": noop_response, "arbitration": noop_arbitration},
+    "empty-usage": every_phase(empty),
+    "invalid-output": dict(every_phase(malformed), iteration=claims_done_without_work),
+    "session-limit": every_phase(session_limited),
+    # Git misbehaviours belong to the phases that write commits; a reviewer
+    # cannot commit, so under these profiles it simply reviews cooperatively.
+    "commit-no-push": {"iteration": lambda c: implement_cooperatively(c, push=False),
+                       "review": review_approving, "response": respond_by_fixing},
+    "amend-history": {"iteration": lambda c: implement_cooperatively(c, amend=True),
+                      "review": review_approving,
+                      "response": lambda c: respond_by_fixing(c, amend=True)},
 }
 
 
@@ -207,12 +296,11 @@ def transcript(provider, text, usage):
     if provider == "claude":
         return json.dumps({"type": "result", "subtype": "success",
                            "is_error": False, "result": text, "usage": usage})
-    return "\n".join([
-        json.dumps({"type": "thread.started", "thread_id": "scenario"}),
-        json.dumps({"type": "item.completed",
-                    "item": {"type": "agent_message", "text": text}}),
-        json.dumps({"type": "turn.completed", "usage": usage}),
-    ])
+    return "\n".join([json.dumps({"type": "thread.started", "thread_id": "scenario"})]
+                     + ([json.dumps({"type": "item.completed",
+                                     "item": {"type": "agent_message", "text": text}})]
+                        if text else [])
+                     + [json.dumps({"type": "turn.completed", "usage": usage})])
 
 
 def main(argv):
@@ -220,9 +308,12 @@ def main(argv):
     prompt = sys.stdin.read()
     role = role_of(provider, argv)
     profiles = json.loads(os.environ.get("SCENARIO_AGENTS") or "{}")
-    profile = profiles.get(role, "cooperative")
     phase = phase_of(prompt)
-    context = dict(told(prompt), prompt=prompt, model=model_of(argv), argv=argv)
+    # A phase may be given its own profile (a responder that misbehaves only
+    # when answering a review); otherwise the role's profile covers it.
+    profile = profiles.get(phase) or profiles.get(role, "cooperative")
+    context = dict(told(prompt), prompt=prompt, model=model_of(argv), argv=argv,
+                   provider=provider)
     entry = {"tool": provider, "role": role, "phase": phase, "profile": profile,
              "argv": argv, "model": context["model"], "prompt": prompt,
              "story": context["story"], "head": context["head"],
@@ -231,10 +322,15 @@ def main(argv):
     try:
         behaviour = PROFILES[profile][phase]
         text = behaviour(context)
-        # A behaviour returns its words, or (words, usage) to report other counts.
-        text, usage = text if isinstance(text, tuple) else (text, USAGE[provider])
-        entry.update(text=text, usage=usage)
-        print(transcript(provider, text, usage))
+        if isinstance(text, Raw):
+            entry.update(text=text.text, usage=None)
+            print(text.text)
+            rc = text.rc
+        else:
+            # Words, or (words, usage) to report other counts.
+            text, usage = text if isinstance(text, tuple) else (text, USAGE[provider])
+            entry.update(text=text, usage=usage)
+            print(transcript(provider, text, usage))
     except Exception as exc:                    # noqa: BLE001 - reported, not hidden
         entry["error"] = "%s: %s" % (type(exc).__name__, exc)
         sys.stderr.write("scripted agent failed: %s\n" % entry["error"])

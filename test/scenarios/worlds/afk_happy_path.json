@@ -2,30 +2,178 @@
   "description": "One AFK Orphan Story goes from state:ready through implementation, an approving model review and completion to Passing.",
   "config": {
     "version": 1,
-    "branching": {"base": "develop", "afk_merge": "squash"},
-    "gating": [{"name": "test", "run": "true"}],
-    "notify": {"github": "maintainer"},
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
     "models": {
       "profiles": [
-        {"key": "impl", "provider": "claude", "model": "claude-scenario"},
-        {"key": "rev", "provider": "codex", "model": "codex-scenario"}
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
       ],
-      "defaults": {"implementation": "impl", "review": "rev"}
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
     },
-    "review": {"wait_minutes": 0.1, "poll_seconds": 0.05}
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
   },
   "github": {
-    "ci": [{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"}],
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
     "issues": [
       {
         "number": 1,
         "title": "Add the greeting",
-        "labels": ["type:afk", "prio:1", "state:ready"],
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
         "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
       }
     ]
   },
-  "agents": {"implementation": "cooperative", "review": "cooperative"},
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative"
+  },
   "ticks": 3,
-  "expect": {"1": "passing"}
+  "expect": {
+    "1": "passing"
+  },
+  "matrix": {
+    "iteration": {
+      "literal-noop": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "An implementation that changes nothing and claims nothing must be bounded, then blocked.",
+        "known_defect": {
+          "story": "#95",
+          "why": "Each no-op iteration is partial progress, so one Tick relaunches it up to RALPH_MAX_ITERATIONS (25).",
+          "invariant": "invocation-limit"
+        }
+      },
+      "empty-usage": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "An implementation that exits cleanly with no output and zero tokens must be bounded, then blocked.",
+        "known_defect": {
+          "story": "#95",
+          "why": "An empty run is partial progress: 25 launches in one Tick (autopilot_controller #72: 41).",
+          "invariant": "invocation-limit"
+        }
+      },
+      "invalid-output": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "An iteration that signals done without doing the work must end blocked, not loop.",
+        "known_defect": {
+          "story": "#98",
+          "why": "The failed promotion is never an Attempt; the Story stays in progress forever.",
+          "invariant": "terminal-within-budget"
+        }
+      },
+      "session-limit": {
+        "expect": {
+          "1": "in-progress"
+        },
+        "why": "A provider out of session budget makes no progress; the Tick hands off cleanly and the Story waits.",
+        "known_defect": {
+          "story": "#99",
+          "why": "The Handoff pushes a Story branch that does not exist yet and fails the Tick.",
+          "failure": "exited 1"
+        }
+      },
+      "commit-no-push": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "Promotion pushes the Story's own branch, so an agent that only commits still completes."
+      },
+      "amend-history": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "A rewrite inside one unreviewed iteration strands nothing; the Story completes."
+      }
+    },
+    "review": {
+      "literal-noop": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "A comment verdict with no findings blocks nothing, so the Story completes."
+      },
+      "empty-usage": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "A reviewer that returns nothing must not be relaunched until the window closes.",
+        "known_defect": {
+          "story": "#95",
+          "why": "Invalid output is retryable, so the reviewer is relaunched every poll (autopilot_controller #72: 15 empty reviews).",
+          "invariant": "invocation-limit"
+        }
+      },
+      "invalid-output": {
+        "expect": {
+          "1": "blocked"
+        },
+        "why": "A reviewer whose output never validates must not be relaunched until the window closes.",
+        "known_defect": {
+          "story": "#95",
+          "why": "Invalid output is retryable, so the reviewer is relaunched every poll.",
+          "invariant": "invocation-limit"
+        }
+      },
+      "session-limit": {
+        "expect": {
+          "1": "in-review"
+        },
+        "why": "A reviewer out of session budget spends no round; the Story waits In Review."
+      },
+      "commit-no-push": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "A git misbehaviour profile; a reviewer cannot commit, so it reviews cooperatively."
+      },
+      "amend-history": {
+        "expect": {
+          "1": "passing"
+        },
+        "why": "A git misbehaviour profile; a reviewer cannot commit, so it reviews cooperatively."
+      }
+    }
+  }
 }
