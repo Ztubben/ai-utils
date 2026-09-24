@@ -52,8 +52,8 @@ class HappyPathIsReallyDriven(unittest.TestCase):
 
     def test_both_roles_ran_their_configured_provider_and_prompt_was_recorded(self):
         agents = [c for c in self.calls if c["tool"] != "gh"]
-        self.assertEqual([(c["tool"], c["role"]) for c in agents],
-                         [("claude", "implementation"), ("codex", "review")])
+        self.assertEqual([(c["tool"], c["role"], c["phase"]) for c in agents],
+                         [("claude", "implementation", "iteration"), ("codex", "review", "review")])
         self.assertIn("Next action: start #1", agents[0]["prompt"])
         self.assertIn("Exact head commit:", agents[1]["prompt"])
 

@@ -612,6 +612,13 @@ not HITL) and `docs/adr/0001–0005`.
   prompt in the call log; profiles live in `fakes/agent` `PROFILES`. (5) The World strips every
   inherited `RALPH_*`/`GIT_*`/`GH_*` variable and each adapter's `binary_env` -- the same
   tick-harness gotcha as below.
+  **Loop invariants** (#88) live in `test/scenarios/invariants.py`: a fixed, named list that
+  `run_scenario` evaluates after **every** Tick via `Watch` (which remembers branch heads between
+  Ticks). No scenario declares them. Records are read with `ralph_review`'s own parsers over
+  every commit object the remote ever received (`cat-file --batch-all-objects`, so a squashed,
+  deleted branch's heads still count). The invocation limit is `limits.max_attempts + 2 *
+  review.max_rounds`, read from the world's `.ralph.yml`. `test_invariants.py` holds one
+  hand-built violating world per invariant -- add one with any new invariant.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from
