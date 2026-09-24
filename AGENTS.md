@@ -626,6 +626,18 @@ not HITL) and `docs/adr/0001–0005`.
   committed red ahead of its fix, the test asserts it fails **on that invariant**, and it fails
   loudly once it passes so the fixing Story must remove the declaration.
   `negotiation_dispute` is red on `one-response-per-round` until #91.
+- `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
+  DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
+  its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST
+  reviews, inline threads, rollup split into per-head statuses + CI checks) and a `git` block.
+  Pure `to_state(...)`; `capture(number, cwd)` does only reads (view/list/GET API, `git fetch`).
+  GOTCHAS: (1) **no git content is captured**, only the first-parent commit chain merge-base..head
+  (oids + subjects): a world with `github.capture` rebuilds a synthetic chain of that shape on
+  its own base (which carries the scenario `.ralph.yml`) and `harness.translate_oids` rewrites
+  every captured id, whole or abbreviated to 7+, to its replay commit -- plain text substitution,
+  so the harness still never parses markers. (2) Comment database ids come from the comment
+  `url`, review ids from the REST reviews route (`gh --json` has node ids only). (3) REST lists
+  are read with `?per_page=100`; the fake accepts only that query string.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from
