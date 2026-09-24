@@ -445,6 +445,23 @@ To keep the roles fixed, commit `models.alternate: false`, or pass
 ralph --assign-models story.json --fixed-roles   # this story keeps the resolved order
 ```
 
+### The committed ai-utils pointer
+
+The superproject commits the ai-utils gitlink it runs, so that commit is the
+tooling version on record. At tick start Ralph compares it with the ai-utils
+checkout actually running and **refuses to tick on a mismatch**, naming both
+commits — the version you debug is then always the version that ran. Commit the
+pointer (`git add ai-utils && git commit`) to proceed. For deliberate local
+development of ai-utils, allow the mismatch; the tick logs it on every run:
+
+```yaml
+tooling:
+  allow_pointer_drift: true   # default: false
+```
+
+`ralph --check-pointer` runs the same comparison by hand. When ai-utils is the
+checkout root itself there is no pointer, and nothing to compare.
+
 ## Authoring the backlog
 
 Stories are GitHub issues in a **canonical shape** so the selection engine can

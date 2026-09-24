@@ -54,6 +54,7 @@ TERMINAL = {
     # invariant only because the scenario says so, explicitly.
     "in-progress": lambda issue: "state:in-progress" in issue["labels"],
     "in-review": lambda issue: "state:in-review" in issue["labels"],
+    "ready": lambda issue: "state:ready" in issue["labels"],
 }
 
 
@@ -255,8 +256,17 @@ class World:
             yaml.safe_dump(self.spec["config"], fh, sort_keys=False)
         with open(os.path.join(self.checkout, "README.md"), "w") as fh:
             fh.write("Scenario target repository: %s\n" % self.spec["name"])
+        self.ralph = RALPH
+        mount = self.spec.get("mount_ai_utils")
+        if mount:
+            self._mount_ai_utils()
         _git(["add", "-A"], self.checkout, self.env)
         _git(["commit", "-q", "-m", "chore: scenario world"], self.checkout, self.env)
+        if mount == "drifted":
+            # The Superproject now records the commit above; the checkout under
+            # it moves on without the pointer following (#96).
+            _git(["commit", "-q", "--allow-empty", "-m", "local change"],
+                 os.path.join(self.checkout, "ai-utils"), self.env)
         _git(["push", "-q", "-u", "origin", base], self.checkout, self.env)
         state = initial_state(self.spec)
         self.oid_map = {}
@@ -269,6 +279,23 @@ class World:
         with open(self.state_path, "w") as fh:
             json.dump(state, fh, indent=1)
         open(self.log_path, "w").close()
+
+    def _mount_ai_utils(self):
+        """Mount the ai-utils under test as the Superproject's submodule.
+
+        A copy of the working tree (so the code that runs is the code being
+        tested), made its own repository and recorded by a gitlink, run from
+        where a Superproject would run it.
+        """
+        home = os.path.join(self.checkout, "ai-utils")
+        for part in ("bin", "lib", "schema", "prompts"):
+            shutil.copytree(os.path.join(REPO_ROOT, part), os.path.join(home, part),
+                            ignore=shutil.ignore_patterns("__pycache__"))
+        _git(["init", "-q", home], self.root, self.env)
+        _git(["add", "-A"], home, self.env)
+        _git(["commit", "-q", "-m", "ai-utils"], home, self.env)
+        self.ralph = os.path.join(home, "bin", "ralph")
+        self.env["SCENARIO_RALPH"] = self.ralph
 
     def _replay_chain(self, git, state):
         """Rebuild a captured pull request's commit chain on the scenario base.
@@ -323,7 +350,7 @@ class World:
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def tick(self, timeout=300):
-        return subprocess.run([RALPH, "--run"], cwd=self.checkout, env=self.env,
+        return subprocess.run([self.ralph, "--run"], cwd=self.checkout, env=self.env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, timeout=timeout)
 
@@ -382,7 +409,7 @@ def run_scenario(spec, keep=False):
             proc = world.tick()
             outputs.append(proc.stdout)
             check_calls(world, tick_no, proc.stdout)
-            if proc.returncode != 0:
+            if proc.returncode != spec.get("tick_exit", 0):
                 raise ScenarioFailure("tick %d exited %d\n%s\nlast calls:\n%s" % (
                     tick_no, proc.returncode, proc.stdout[-3000:], trace(world.calls())))
             done = all(reached(world, expect).values())

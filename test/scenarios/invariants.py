@@ -43,7 +43,7 @@ import ralph_review_wait  # noqa: E402
 PARKED_LABELS = ("state:blocked", "needs-human", "state:awaiting-bench")
 # Expected states a scenario may declare for a Story that is, by design, not
 # finished; the terminal invariant exempts exactly those Stories.
-NON_TERMINAL = ("in-progress", "in-review")
+NON_TERMINAL = ("ready", "in-progress", "in-review")
 
 
 class Violation:

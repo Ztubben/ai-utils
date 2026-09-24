@@ -81,6 +81,14 @@ control_plane:
     - .github/workflows/**    # the CI the gate reads
     - .ralph.yml              # the policy itself, including this list
 
+# The Superproject commits the ai-utils gitlink it runs. The tick compares that
+# commit with the ai-utils checkout actually running and refuses to start on a
+# mismatch, naming both, so the version you debug is the version that ran.
+# Allow a mismatch only for deliberate local development of ai-utils; the tick
+# then logs it on every run.
+tooling:
+  allow_pointer_drift: false   # default: false
+
 # Who to tag when the circuit breaker trips (needs-human), and who is asked to
 # approve a protected control-plane change or arbitrate a deadlock.
 notify:

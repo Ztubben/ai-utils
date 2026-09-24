@@ -173,6 +173,18 @@
         }
       }
     },
+    "tooling": {
+      "description": "How the Loop treats its own tooling in a Superproject that mounts ai-utils as a submodule.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_pointer_drift": {
+          "description": "Run even when the ai-utils checkout's HEAD differs from the gitlink the Superproject commits. Off by default: the tick refuses to start, naming both commits, so the version being debugged is the version that ran. Turn on only for deliberate local development of ai-utils; the tick then logs the mismatch.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
     "notify": {
       "description": "Who to tag when the circuit breaker trips (needs-human).",
       "type": "object",
