@@ -1,0 +1,76 @@
+{
+  "description": "Round 1 requests changes; the Implementation Agent disputes every finding and changes nothing; the reviewer upholds; the negotiation ends in a bounded number of rounds with the Story escalated to state:blocked.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "dispute-all",
+    "review": "strict"
+  },
+  "ticks": 3,
+  "expect": {
+    "1": "blocked"
+  },
+  "known_defect": {
+    "story": "#91",
+    "invariant": "one-response-per-round",
+    "why": "The response record is posted to the pull request, but needs_review() counts answers in the Story's comments, so a disputed round never reads as answered and the responder is relaunched (autopilot_controller #64 / PR #94)."
+  }
+}

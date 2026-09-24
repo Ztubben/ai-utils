@@ -97,10 +97,85 @@ def review_approving(context):
     return "Review complete.\n```json\n%s\n```" % json.dumps(result, indent=1)
 
 
+FINDING = {
+    "id": "F-1", "blocking": True, "category": "acceptance_criteria",
+    "claim": "The greeting is written but never checked by a test.",
+    "evidence": "The change adds the story file and no test that reads it.",
+    "requirement": "Acceptance criterion: the greeting exists (and is verified).",
+    "verification": "Add a test that reads the greeting back.",
+}
+
+
+def requesting_changes(context):
+    """A request_changes review holding the one blocking finding, F-1."""
+    finding = dict(FINDING, location={"path": "story-%s.txt" % context["story"],
+                                      "line": 1})
+    result = {"contract": "ralph-review/v1", "verdict": "request_changes",
+              "head": context["head"], "model": context["model"] or "unknown",
+              "round": context["round"],
+              "summary": "One acceptance criterion is not yet verified.",
+              "findings": [finding]}
+    return "Review complete.\n```json\n%s\n```" % json.dumps(result, indent=1)
+
+
+def review_strict_once(context):
+    """Request changes in round one; approve whatever is presented after it."""
+    if context["round"] == 1:
+        return requesting_changes(context)
+    return review_approving(context)
+
+
+def open_findings(prompt):
+    match = re.search(r"## Open findings \(round (\d+), commit ([0-9a-f]+)\)\s*"
+                      r"```json\s*(.*?)```", prompt, re.S)
+    return int(match.group(1)), match.group(2), json.loads(match.group(3))["findings"]
+
+
+def response(context, disposition_for):
+    round_no, head, findings = open_findings(context["prompt"])
+    answer = {"contract": "ralph-response/v1", "head": head, "round": round_no,
+              "model": context["model"] or "unknown",
+              "summary": "Answered every open finding of round %d." % round_no,
+              "dispositions": [disposition_for(f) for f in findings]}
+    return "Round answered.\n```json\n%s\n```" % json.dumps(answer, indent=1)
+
+
+def respond_by_fixing(context):
+    """Append a fix commit to the pull request's own branch; accept everything.
+
+    Ralph pushes it; the agent only commits, on the branch the round names.
+    """
+    # The bundle names the reviewed commit, not the branch: the local Story
+    # branch is the one that contains it.
+    branch = run(["git", "for-each-ref", "--format=%(refname:short)", "--contains",
+                  open_findings(context["prompt"])[1], "refs/heads/ralph/"]).split()[0]
+    run(["git", "checkout", "-q", branch])
+    path = "test-story-%s.txt" % context["story"]
+    with open(path, "a") as fh:
+        fh.write("the greeting is verified\n")
+    run(["git", "add", path])
+    run(["git", "commit", "-q", "-m", "test: verify the greeting"])
+    return response(context, lambda f: {"id": f["id"], "disposition": "accepted",
+                                        "note": "Added the test the finding asks for."})
+
+
+def respond_by_disputing(context):
+    """Change nothing; dispute every finding, with evidence."""
+    return response(context, lambda f: {
+        "id": f["id"], "disposition": "disputed",
+        "note": "The acceptance criterion does not ask for a test.",
+        "evidence": "The Story's Acceptance Criteria list only 'the greeting exists'."})
+
+
 # A profile is a behaviour per phase; the scenario picks a profile per role.
 PROFILES = {
     "cooperative": {"iteration": implement_cooperatively,
-                    "review": review_approving},
+                    "review": review_approving,
+                    "response": respond_by_fixing},
+    "dispute-all": {"iteration": implement_cooperatively,
+                    "response": respond_by_disputing},
+    "strict-once": {"review": review_strict_once},
+    "strict": {"review": requesting_changes},
 }
 
 
