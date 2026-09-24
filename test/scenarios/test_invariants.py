@@ -11,6 +11,7 @@ import subprocess
 import sys
 import unittest
 
+import contracts
 import harness
 import invariants
 
@@ -50,6 +51,10 @@ class HandBuiltWorld(unittest.TestCase):
                 "head": self.head, "round": 1, "text": "ok",
                 "usage": {"input_tokens": 10}, "rc": 0}
         base.update(entry)
+        if "prompt" not in entry:
+            # A prompt that honours its phase's contract, so each world stays
+            # a violation of exactly the invariant it was built for.
+            base["prompt"] = "\n".join(contracts.CONTRACTS[base["phase"]]["required"])
         with open(self.world.log_path, "a") as fh:
             fh.write(json.dumps(base) + "\n")
 
@@ -135,6 +140,23 @@ class HandBuiltWorld(unittest.TestCase):
             fh.write(json.dumps({"tool": "gh", "rc": 0, "argv": [
                 "issue", "edit", "1", "--add-label", "state:in-review"]}) + "\n")
         self.assertEqual(self.red(), ["empty-runs-never-count"])
+
+    def test_a_responder_told_the_checkout_is_read_only(self):
+        # PR #94: the reviewer's bundle line, reaching the responder.
+        prompt = "\n".join(contracts.CONTRACTS["response"]["required"] + [
+            contracts.BUNDLE_READ_ONLY + ". " + contracts.BUNDLE_NO_MUTATION + "."])
+        self.log(phase="response", role="implementation", prompt=prompt)
+        violations = self.watch.check()
+        self.assertEqual({v.invariant for v in violations}, {"prompt-contract"})
+        self.assertIn("forbidden 'The checkout may be explored read-only'",
+                      " ".join(v.detail for v in violations))
+
+    def test_a_reviewer_not_told_it_is_read_only(self):
+        prompt = "\n".join(p for p in contracts.CONTRACTS["review"]["required"]
+                           if p != contracts.REVIEW_READ_ONLY)
+        self.log(phase="review", prompt=prompt)
+        violation, = self.watch.check()
+        self.assertIn("missing '%s'" % contracts.REVIEW_READ_ONLY, violation.detail)
 
     def test_a_story_still_open_when_the_budget_ends(self):
         self.edit_state(lambda s: s["issues"]["1"]["labels"].append("state:in-review"))

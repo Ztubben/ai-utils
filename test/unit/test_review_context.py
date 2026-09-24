@@ -102,6 +102,15 @@ class ReviewContextBundle(unittest.TestCase):
         self.assertNotIn("Depends on: #49", result.text)
         self.assertIn("may be explored read-only", result.text)
 
+    def test_only_the_reviewer_is_told_the_checkout_is_read_only(self):
+        # The Implementation Agent answering a round must append commits;
+        # handed the reviewer's boundary, it obeyed it instead (PR #94).
+        answer = self.build(for_role="implementation")
+        self.assertTrue(answer.ok)
+        self.assertNotIn("read-only", answer.text)
+        self.assertNotIn("create commits", answer.text)
+        self.assertIn("create commits", self.build(for_role="review").text)
+
     def test_exact_head_base_round_and_managed_marker_are_required(self):
         for field in ("headRefOid", "baseRefOid"):
             pr = pull_request()

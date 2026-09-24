@@ -153,9 +153,15 @@ def build_context(story, pull_request, diff, guidance, domain_decisions,
         "Base commit: %s" % base,
         "Exact head commit: %s" % head,
         "",
-        "The checkout may be explored read-only. Do not edit files, create commits, "
-        "push, or mutate GitHub.",
-        "",
+    ]
+    if for_role == "review":
+        # The reviewer's boundary only. The same bundle reaches the
+        # Implementation Agent answering a round, whose job is to append fix
+        # commits: told this, codex obeyed it and answered every finding
+        # "unresolved" without a commit (autopilot_controller PR #94).
+        lines += ["The checkout may be explored read-only. Do not edit files, "
+                  "create commits, push, or mutate GitHub.", ""]
+    lines += [
         "## Acceptance Criteria", "", acceptance,
         "", "## Base/Head Diff", "", "```diff", (diff or "").rstrip(), "```",
         "", "## Repository Guidance", "", evidence(guidance),
