@@ -186,6 +186,13 @@ def review_view(review):
             "commit": {"oid": review["commit_id"]}}
 
 
+def review_rest(review):
+    return {"id": review["id"], "node_id": review["node_id"],
+            "user": {"login": review["author"]}, "body": review["body"],
+            "state": review["state"], "submitted_at": review["submittedAt"],
+            "commit_id": review["commit_id"]}
+
+
 def review_comment_rest(comment):
     return {"id": comment["id"], "body": comment["body"],
             "user": {"login": comment["author"]}, "path": comment.get("path"),
@@ -393,7 +400,9 @@ def cmd_api(state, args):
     route, method = positional[0], (opts.get("--method") or "GET").upper()
     if not route.startswith(ROUTE_PREFIX):
         raise Unemulated("api route %s" % route)
-    path = route[len(ROUTE_PREFIX):]
+    path, _, query = route[len(ROUTE_PREFIX):].partition("?")
+    if query and not re.fullmatch(r"per_page=\d+", query):
+        raise Unemulated("api query %s" % query)
     fields = dict(f.split("=", 1) for f in opts["-f"] + opts["-F"])
     if opts.get("--input"):
         with open(opts["--input"]) as fh:
@@ -412,7 +421,7 @@ def cmd_api(state, args):
         return emit(post_review(state, pr, fields), opts)
     if match and method == "GET":
         pr = get_pr(state, match.group(1))
-        return emit([review_view(r) for r in pr["reviews"]], opts)
+        return emit([review_rest(r) for r in pr["reviews"]], opts)
 
     match = re.fullmatch(r"pulls/(\d+)/comments", path)
     if match and method == "GET":
