@@ -66,10 +66,5 @@
   "ticks": 3,
   "expect": {
     "72": "blocked"
-  },
-  "known_defect": {
-    "story": "#95",
-    "invariant": "invocation-limit",
-    "why": "A clean exit without the done-signal is taken as partial progress whether or not a Handoff was written, so one Tick relaunches it up to RALPH_MAX_ITERATIONS and no Attempt is ever recorded (41 production iterations over two Ticks)."
   }
 }

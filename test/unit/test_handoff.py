@@ -352,5 +352,16 @@ class HandoffPromptV1(unittest.TestCase):
         self.assertNotIn("HITL", self.text)
 
 
+class CountHandoffs(unittest.TestCase):
+    """#95: the tick compares this across an iteration."""
+
+    def test_counts_only_handoff_checkpoints(self):
+        comments = [{"body": ralph_handoff.HANDOFF_MARKER + "\nctx full"},
+                    {"body": "an ordinary note"},
+                    {"body": ralph_handoff.HANDOFF_MARKER + "\nagain"}]
+        self.assertEqual(ralph_handoff.count_handoffs(comments), 2)
+        self.assertEqual(ralph_handoff.count_handoffs(None), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

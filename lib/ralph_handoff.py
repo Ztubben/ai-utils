@@ -135,6 +135,27 @@ def non_handoff_comments(comments):
     return [c for c in comments if not is_handoff_comment(c)]
 
 
+def count_handoffs(comments):
+    """How many Handoff checkpoints a story carries.
+
+    The tick compares this across one iteration: an iteration that stops short
+    of the done-signal *and* wrote no Handoff did not reach a normal boundary --
+    it is a failed Attempt (ADR-0004), not partial progress (#95).
+    """
+    return sum(1 for c in comments or [] if is_handoff_comment(c))
+
+
+def _cmd_count(rest):
+    path = rest[0] if rest else "-"
+    try:
+        data = json.load(sys.stdin) if path == "-" else json.load(open(path))
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story comments: %s\n" % exc)
+        return 2
+    print(count_handoffs((data or {}).get("comments")))
+    return 0
+
+
 def latest_handoff(comments):
     """The body of the most recent Handoff comment (gh lists comments oldest
     first), or None if the story has no Handoff yet."""
@@ -286,6 +307,8 @@ def main(argv):
         return _cmd_checkpoint(rest)
     if mode == "resume":
         return _cmd_resume(rest)
+    if mode == "count":
+        return _cmd_count(rest)
     sys.stderr.write("ralph_handoff.py: unknown mode: %s\n" % mode)
     return 2
 

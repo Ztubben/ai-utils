@@ -107,6 +107,27 @@ def attempt_plan(story, reason, max_attempts=DEFAULT_MAX_ATTEMPTS):
                 max_attempts=max_attempts)
 
 
+def record_attempt(number, reason, max_attempts, cwd=None):
+    """Record one failed Attempt on story *number*, live; ``(ok, blocked)``.
+
+    Reads the story fresh (its Attempt count lives in its comments) and runs
+    `attempt_plan`. Used from inside a review window, where a model that keeps
+    producing nothing usable must spend Attempts, not polls (#95).
+    """
+    proc = subprocess.run(["gh", "issue", "view", str(number), "--json",
+                           "number,title,labels,body,state,comments"],
+                          cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True)
+    if proc.returncode:
+        return False, False
+    try:
+        story = json.loads(proc.stdout)
+    except ValueError:
+        return False, False
+    plan = attempt_plan(story, reason, max_attempts=max_attempts)
+    return run_plan(plan.commands, cwd=cwd).ok, plan.blocked
+
+
 def reset_on_block_plan(story, reason, prd=None,
                         branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN):
     """Build the plan to demote a blocked Feature story, saying where its work is.

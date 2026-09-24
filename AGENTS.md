@@ -659,6 +659,16 @@ not HITL) and `docs/adr/0001–0005`.
   overwrites `answer["model"]` with the **launched** `outcome.model` before validation, so the
   Story record, the PR comment and the ledger name one model (PR #94 recorded the agent's
   self-reported `gpt-5`). The scripted responder self-reports a wrong model on purpose.
+- **Only a Handoff makes stopping short partial progress** (#95, ADR-0004): the tick counts the
+  Story's Handoffs (`ralph --count-handoffs`, `ralph_handoff.count_handoffs`) before and after
+  each iteration; a clean exit with no done-signal **and** no new Handoff is recorded with
+  `--record-attempt`, so `limits.max_attempts` blocks it. Inside a review window,
+  `await_review(..., record_attempt=)` is offered every retryable failure; the CLI charges an
+  Attempt only for invalid output (exit 17 -- a model that answered nothing usable; an
+  infrastructure failure, exit 12, stays a free retry per #61) via
+  `ralph_failure.record_attempt`, and a blocking one ends the wait `BLOCKED` (exit **19**),
+  which the tick handles like an escalation. Before this, autopilot_controller #72 ran 41
+  handoff-less iterations and 15 empty reviews with nothing recorded.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST
