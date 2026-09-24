@@ -619,6 +619,13 @@ not HITL) and `docs/adr/0001–0005`.
   deleted branch's heads still count). The invocation limit is `limits.max_attempts + 2 *
   review.max_rounds`, read from the world's `.ralph.yml`. `test_invariants.py` holds one
   hand-built violating world per invariant -- add one with any new invariant.
+  Negotiation profiles (#89): reviewers `cooperative` (approve), `strict-once` (request changes in
+  round 1, then approve), `strict` (uphold F-1 every round); implementation `cooperative` (fix
+  commit on the local Story branch + `accepted`; Ralph pushes) and `dispute-all` (no change,
+  `disputed` with evidence). A world may carry `known_defect: {story, invariant, why}`: it is
+  committed red ahead of its fix, the test asserts it fails **on that invariant**, and it fails
+  loudly once it passes so the fixing Story must remove the declaration.
+  `negotiation_dispute` is red on `one-response-per-round` until #91.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from

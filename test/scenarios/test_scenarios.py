@@ -13,10 +13,26 @@ import harness
 
 
 def _scenario_test(name):
+    spec = harness.load(name)
+    defect = spec.get("known_defect")
+
     def test(self):
-        result = harness.run_scenario(harness.load(name))
-        self.assertLessEqual(result.ticks, harness.load(name)["ticks"])
-    test.__doc__ = harness.load(name).get("description")
+        if defect is None:
+            result = harness.run_scenario(harness.load(name))
+            self.assertLessEqual(result.ticks, spec["ticks"])
+            return
+        # A world may be committed red ahead of its fix (PRD #85: every Loop
+        # bug is reproduced as a scenario first). It must stay red for the
+        # named reason -- any other failure is a real one -- and once it goes
+        # green the Story that fixed it has to remove the declaration.
+        try:
+            harness.run_scenario(harness.load(name))
+        except harness.ScenarioFailure as exc:
+            self.assertIn("invariant %s violated" % defect["invariant"], str(exc))
+        else:
+            self.fail("%s now passes: %s is fixed, remove known_defect from the world"
+                      % (name, defect["story"]))
+    test.__doc__ = spec.get("description")
     return test
 
 
@@ -71,6 +87,44 @@ class RunnerGoesRed(unittest.TestCase):
         with self.assertRaises(harness.ScenarioFailure) as caught:
             harness.run_scenario(spec)
         self.assertIn("#1 expected blocked", str(caught.exception))
+
+
+class NegotiationIsReallyDriven(unittest.TestCase):
+    """What a request-changes -> fix -> re-review negotiation left on GitHub."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = harness.run_scenario(harness.load("negotiation_fix"), keep=True)
+        cls.world = cls.result.world
+        cls.state = cls.world.state()
+        cls.calls = cls.world.calls()
+        (cls.pr,) = cls.state["pulls"].values()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.world.cleanup()
+
+    def test_two_rounds_were_reviewed_at_two_heads(self):
+        heads = [r["commit_id"] for r in self.pr["reviews"]]
+        self.assertEqual(len(heads), 2)
+        self.assertNotEqual(heads[0], heads[1])
+        self.assertEqual(heads[1], self.pr["mergedHeadOid"])
+
+    def test_the_finding_thread_got_a_reply_and_the_pr_a_response(self):
+        thread = [c for c in self.pr["reviewComments"] if c["in_reply_to_id"] is None]
+        replies = [c for c in self.pr["reviewComments"] if c["in_reply_to_id"]]
+        self.assertEqual(len(thread), 1)
+        self.assertTrue(thread[0]["body"].startswith("**F-1**"))
+        self.assertEqual([r["in_reply_to_id"] for r in replies], [thread[0]["id"]])
+        self.assertTrue(any("accepted" in c["body"] for c in self.pr["comments"]))
+
+    def test_each_role_was_told_the_round_and_head_it_acted_on(self):
+        told = [(c["phase"], c["round"]) for c in self.calls if c["tool"] != "gh"]
+        self.assertEqual(told, [("iteration", None), ("review", 1),
+                                ("response", 1), ("review", 2)])
+        response = next(c for c in self.calls if c.get("phase") == "response")
+        self.assertIn("## Open findings (round 1", response["prompt"])
+        self.assertIn("--model", response["argv"])
 
 
 class FakeGhContract(unittest.TestCase):
