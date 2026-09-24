@@ -66,10 +66,5 @@
   },
   "expect": {
     "64": "blocked"
-  },
-  "known_defect": {
-    "story": "#91",
-    "invariant": "one-response-per-round",
-    "why": "The response record is posted to the pull request, but needs_review() counts answers in the Story's comments (PR #94 answered head d114bac 17 times)."
   }
 }

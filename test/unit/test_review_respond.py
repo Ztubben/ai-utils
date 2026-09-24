@@ -276,12 +276,10 @@ class PublishingTheResponse(unittest.TestCase):
         self.assertIn("disputed", body)
         self.assertIn("test_review_result.py:210", body)
 
-    def test_the_consolidated_record_carries_a_disputes_evidence(self):
-        body = ralph_review_respond.response_comment(self.disputed(), HEAD)
+    def test_the_consolidated_answer_carries_a_disputes_evidence(self):
+        prose = ralph_review_respond.response_comment(self.disputed(), HEAD)
 
-        # The prose half, not only the machine record underneath it: whoever
-        # arbitrates this dispute reads the comment, not the JSON.
-        prose = body.split("<!--")[0]
+        # Whoever arbitrates this dispute reads the comment, not the JSON.
         self.assertIn("disputed", prose)
         self.assertIn("test_review_result.py:210", prose)
 
@@ -293,8 +291,18 @@ class PublishingTheResponse(unittest.TestCase):
         self.assertIn("F-1", body)
         self.assertIn("F-2", body)
         self.assertIn(FIXED, body)
-        # And it reads back exactly, which is how the loop advances state.
-        self.assertEqual(ralph_review.latest_response([{"body": body}], HEAD),
+
+    def test_the_record_goes_on_the_story_and_reads_back_exactly(self):
+        # PR #94: a record on the pull request is one needs_review never sees.
+        answer = response(ids=("F-1", "F-2"))
+
+        pr_body = ralph_review_respond.response_comment(answer, FIXED)
+        command = ralph_review_respond.record_command(55, answer)
+
+        self.assertIsNone(ralph_review.latest_response([{"body": pr_body}], HEAD))
+        self.assertEqual(command[:4], ["gh", "issue", "comment", "55"])
+        story_body = command[command.index("--body") + 1]
+        self.assertEqual(ralph_review.latest_response([{"body": story_body}], HEAD),
                          answer)
 
 
@@ -508,8 +516,10 @@ notify:
         # Each answered finding got a reply in its own thread.
         self.assertIn("pulls/70/comments/101/replies", calls)
         self.assertIn("F-1", calls)
-        # And one consolidated record states every disposition.
-        self.assertIn("ralph-review-response:v1", calls)
+        # And one consolidated record states every disposition -- on the
+        # Story, where the loop reads it, never on the pull request.
+        self.assertIn("gh issue comment 55 --body <!-- ralph-review-response:v1", calls)
+        self.assertEqual(calls.count("ralph-review-response:v1"), 1)
         # The fix reached the remote: that new head is what a fresh review
         # round will judge, and it still contains the reviewed commit.
         remote_head = subprocess.run(
@@ -540,7 +550,7 @@ notify:
         self.assertIn("pulls/70/comments/101/replies", calls)
         self.assertIn(ralph_review_respond.DISPUTED, calls)
         self.assertIn(self.DISPUTE_EVIDENCE, calls)
-        self.assertIn("ralph-review-response:v1", calls)
+        self.assertIn("gh issue comment 55 --body <!-- ralph-review-response:v1", calls)
         # And the commit under review is untouched, locally and on the remote.
         self.assertEqual(self._rev(), self.head)
         self.assertEqual(subprocess.run(

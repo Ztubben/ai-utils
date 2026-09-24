@@ -67,10 +67,5 @@
   "ticks": 3,
   "expect": {
     "1": "blocked"
-  },
-  "known_defect": {
-    "story": "#91",
-    "invariant": "one-response-per-round",
-    "why": "The response record is posted to the pull request, but needs_review() counts answers in the Story's comments, so a disputed round never reads as answered and the responder is relaunched (autopilot_controller #64 / PR #94)."
   }
 }
