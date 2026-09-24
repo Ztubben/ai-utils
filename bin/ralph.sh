@@ -404,12 +404,22 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
+  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
     log "$RALPH_BIN does not support: ${missing[*]}"
     log "the checkout providing bin/ralph is out of step with this bin/ralph.sh; refusing to tick"
+    return 2
+  fi
+
+  # --- the ai-utils that runs is the one the Superproject commits (#96) ---
+  # Before anything is labelled or launched: a Superproject that pins one
+  # ai-utils while another runs debugs the wrong version (autopilot_controller
+  # pinned 8eba071 while 744b8b3 ran). A deliberate mismatch is allowed by
+  # config, and logged by the check itself.
+  if ! "$RALPH_BIN" --check-pointer "$RALPH_CONFIG"; then
+    log "the running ai-utils is not the one the Superproject commits; refusing to tick"
     return 2
   fi
 

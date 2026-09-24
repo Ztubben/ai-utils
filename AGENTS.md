@@ -674,6 +674,15 @@ not HITL) and `docs/adr/0001–0005`.
   (#100, `respond_to_review` -> `ralph_failure.record_attempt`) each spend an Attempt. A
   session limit before the Story branch exists writes a comment-only Handoff (#99); the
   Handoff push names both refs and never uses `-u`.
+- `lib/ralph_pointer.py` is the **Superproject pointer check** (#96): `ralph --check-pointer
+  [CONFIG]` (dispatched with `$RALPH_HOME`) compares the running ai-utils `HEAD` with the gitlink
+  in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index) and
+  exits 2 on a mismatch naming both commits, unless `tooling.allow_pointer_drift` (schema
+  default false) makes it a logged warning. `locate` returns None when ai-utils is the checkout
+  root (self-hosting) or not inside it, and the check passes. The tick runs it right after the
+  subcommand preflight, before anything is labelled. Scenario worlds cover it with
+  `mount_ai_utils: committed|drifted` (a copy of the working tree as a nested repo recorded by a
+  gitlink; `drifted` commits once more under it) and `tick_exit`, the exit a refusing Tick owes.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST

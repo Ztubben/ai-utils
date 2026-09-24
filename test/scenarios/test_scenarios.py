@@ -180,6 +180,40 @@ class ResponseRounds(unittest.TestCase):
                             for c in pr["comments"]))
 
 
+class SuperprojectPointer(unittest.TestCase):
+    """#96: the ai-utils that runs is the one the Superproject commits."""
+
+    def tick(self, name):
+        world = harness.World(harness.load(name))
+        self.addCleanup(world.cleanup)
+        return world, world.tick()
+
+    def git(self, world, *args, cwd=None):
+        return subprocess.run(["git"] + list(args), cwd=cwd or world.checkout, env=world.env,
+                              stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
+
+    def test_a_drifted_checkout_refuses_before_anything_moves(self):
+        world, proc = self.tick("pointer_drift")
+        committed = self.git(world, "ls-tree", "HEAD", "ai-utils").split()[2]
+        running = self.git(world, "rev-parse", "HEAD",
+                           cwd=os.path.join(world.checkout, "ai-utils"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn(committed, proc.stdout)
+        self.assertIn(running, proc.stdout)
+        self.assertEqual([c for c in world.calls() if c["tool"] != "gh"], [])
+        self.assertFalse(any(c["argv"][:2] == ["issue", "edit"] for c in world.calls()))
+
+    def test_an_allowed_drift_is_logged_and_proceeds(self):
+        world, proc = self.tick("pointer_drift_allowed")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("WARNING: running a mismatched ai-utils", proc.stdout)
+
+    def test_a_matching_pointer_is_checked_and_proceeds(self):
+        world, proc = self.tick("pointer_committed")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("matches the committed pointer", proc.stdout)
+
+
 class FakeGhContract(unittest.TestCase):
     """The fake remembers, follows the remote, and fails closed."""
 

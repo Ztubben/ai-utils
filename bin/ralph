@@ -49,6 +49,7 @@ usage() {
   cat <<'EOF'
 usage: ralph --init [CONFIG]
        ralph --check-config [PATH]
+       ralph --check-pointer [CONFIG]
        ralph --lint-story PATH
        ralph --dry-run [PATH]
        ralph --run
@@ -93,6 +94,11 @@ usage: ralph --init [CONFIG]
                           repo's default branch. Reads the base from CONFIG
                           (default .ralph.yml). Safe to re-run. Exits 0 on
                           success, 1 on a git/gh failure, 2 on bad config.
+  --check-pointer         Compare the ai-utils commit that is running with the
+       [CONFIG]           gitlink the Superproject commits for it. Exits 2 on a
+                          mismatch, naming both commits, unless the config sets
+                          tooling.allow_pointer_drift (then warns). Passes when
+                          ai-utils is not a submodule of the checkout.
   --check-config [PATH]   Validate a .ralph.yml config against the shipped
                           JSON-schema (default: ./.ralph.yml), including the
                           declared control_plane.protected path patterns, which
@@ -464,6 +470,10 @@ main() {
       else
         exec python3 "$RALPH_HOME/lib/ralph_select.py"
       fi
+      ;;
+    --check-pointer)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_pointer.py" "$RALPH_HOME" "$@"
       ;;
     --run)
       shift

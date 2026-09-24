@@ -1,0 +1,8 @@
+version: 1
+gating:
+  - name: test
+    run: ./run-tests.sh
+notify:
+  github: octocat
+tooling:
+  allow_pointer_drift: "yes"
