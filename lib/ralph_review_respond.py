@@ -216,7 +216,13 @@ def reply_commands(response, review_comments, pull_number):
 
 
 def response_comment(response, new_head, usage_event=None):
-    """The consolidated answer: prose for people, the record for the loop."""
+    """The consolidated answer on the pull request: prose, for people.
+
+    The machine record is *not* here. It goes on the Story (`record_command`),
+    where `needs_review` and every other stage read negotiation state: posted
+    here, a round never read as answered and the responder was relaunched on
+    every poll (autopilot_controller #64, PR #94: one head answered 17 times).
+    """
     lines = [
         "Ralph implementation response — round %s" % response["round"],
         "",
@@ -232,8 +238,13 @@ def response_comment(response, new_head, usage_event=None):
     footer = ralph_ledger.usage_footer(usage_event)
     if footer:
         lines += ["---", "", footer, ""]
-    lines += ["", ralph_review.response_record(response)]
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def record_command(story_number, response):
+    """Record the answer on the Story, where the negotiation state is read."""
+    return ["gh", "issue", "comment", str(story_number), "--body",
+            ralph_review.response_record(response)]
 
 
 def conduct(story, pull_request, result, context, launch, publish, checkout):
@@ -445,9 +456,9 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         if not pushed.ok:
             return False, ["git push failed: %s"
                            % (pushed.failed.output.strip() or "unknown error")]
-        # Replies next, then the consolidated record: the record is the loop's
-        # signal that this head is answered, so it is written only once the
-        # answer is actually on the pull request.
+        # Replies next, then the consolidated answer, and the Story's record
+        # last: the record is the loop's signal that this head is answered, so
+        # it is written only once the answer is actually on the pull request.
         try:
             threads = review_threads(number, root)
         except (ValueError, RuntimeError) as exc:
@@ -456,6 +467,7 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         commands.append(["gh", "pr", "comment", str(number), "--body",
                          response_comment(answer, new_head,
                                           usage_event=usage_event)])
+        commands.append(record_command(story["number"], answer))
         run = ralph_review_render.run_plan(commands, cwd=root)
         if not run.ok:
             return False, ["%s: exit %d" % (" ".join(run.failed.args),

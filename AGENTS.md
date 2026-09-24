@@ -427,6 +427,13 @@ not HITL) and `docs/adr/0001–0005`.
   `.github/workflows/` is rejected without it (`gh auth refresh -h github.com -s workflow`).
   The push fails at the git layer, so it looks like an ordinary Attempt failure rather than
   a permissions problem; check the scope before chasing the diff.
+- **Where the response record lives** (#91): on the **Story**, never the pull request.
+  `respond_to_review`'s publish posts thread replies, then the prose-only `response_comment` on
+  the PR, then `record_command` (the `ralph-review-response:v1` record) on the Story, last --
+  because every reader (`needs_review`, `rounds_answered`, deadlock, history) reads Story
+  comments. Posted on the PR, a disputed round never read as answered and the responder was
+  relaunched every poll (autopilot_controller PR #94: 17 answers to one head). A fix commit used
+  to mask it: the new head was simply unreviewed.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
   the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the
@@ -625,7 +632,11 @@ not HITL) and `docs/adr/0001–0005`.
   `disputed` with evidence). A world may carry `known_defect: {story, invariant, why}`: it is
   committed red ahead of its fix, the test asserts it fails **on that invariant**, and it fails
   loudly once it passes so the fixing Story must remove the declaration.
-  `negotiation_dispute` is red on `one-response-per-round` until #91.
+  Replays (#91): a world with `github.capture` may `rewind_to` an ISO moment (drops every
+  comment/review/thread item created later; the fake's clock moves past it) and set `labels`
+  as they were then. `replay_64_*` replays autopilot_controller #64 / PR #94 from a **redacted**
+  capture (`ralph --capture --redact`). `Watch` baselines the starting world's records, so a
+  capture's production history never counts against the scenario.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST
