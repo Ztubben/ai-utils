@@ -104,12 +104,7 @@
         "expect": {
           "1": "blocked"
         },
-        "why": "A response that rewrites the reviewed commit is refused; repeated refusals must end the Story.",
-        "known_defect": {
-          "story": "#100",
-          "why": "The refusal is never recorded, so every Tick answers again, forever.",
-          "invariant": "terminal-within-budget"
-        }
+        "why": "A response that rewrites the reviewed commit is refused; repeated refusals must end the Story."
       }
     }
   }

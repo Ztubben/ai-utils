@@ -669,6 +669,11 @@ not HITL) and `docs/adr/0001–0005`.
   `ralph_failure.record_attempt`, and a blocking one ends the wait `BLOCKED` (exit **19**),
   which the tick handles like an escalation. Before this, autopilot_controller #72 ran 41
   handoff-less iterations and 15 empty reviews with nothing recorded.
+  The same rule covers the other ways a run can stop short without being forgotten: a
+  done-signal whose promotion fails (#98, tick), and a response refused as not append-only
+  (#100, `respond_to_review` -> `ralph_failure.record_attempt`) each spend an Attempt. A
+  session limit before the Story branch exists writes a comment-only Handoff (#99); the
+  Handoff push names both refs and never uses `-u`.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST
