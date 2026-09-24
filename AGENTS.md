@@ -637,6 +637,11 @@ not HITL) and `docs/adr/0001–0005`.
   as they were then. `replay_64_*` replays autopilot_controller #64 / PR #94 from a **redacted**
   capture (`ralph --capture --redact`). `Watch` baselines the starting world's records, so a
   capture's production history never counts against the scenario.
+  **Prompt contracts** (#92) are `test/scenarios/contracts.py`: required and forbidden phrases
+  per phase (iteration, review, response, arbitration), checked as the `prompt-contract`
+  invariant against the prompt each scripted agent *received* -- template plus bundle, because
+  the PR #94 defect was in the composition. Since #92 `build_context` emits its read-only /
+  no-mutation line only for `for_role="review"`, beside the later-round scope directive.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST

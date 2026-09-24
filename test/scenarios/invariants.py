@@ -16,6 +16,9 @@ the bare remote, so every new scenario gets every invariant for free.
   empty-runs-never-count    a run with no output or zero usage never backs a
                             recorded result, a recorded response or a
                             promotion into review
+  prompt-contract           every prompt an agent received carries its phase's
+                            required instructions and none of its forbidden
+                            ones (`contracts.py`)
   terminal-within-budget    by the scenario's last Tick every Story is Passing
                             (closed), state:blocked, needs-human or
                             state:awaiting-bench
@@ -32,6 +35,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "lib"))
 
+import contracts  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_wait  # noqa: E402
@@ -227,6 +231,19 @@ def record_counts(obs):
     return counts
 
 
+def prompt_contract(obs):
+    found = []
+    for call in obs.agent_calls():
+        for kind, phrase in contracts.breaches(call.get("phase"), call.get("prompt") or ""):
+            found.append(Violation(
+                "prompt-contract",
+                "#%s %s prompt (%s round %s): %s %r" % (
+                    call.get("story"), call.get("phase"), call["tool"], call.get("round"),
+                    kind, phrase),
+                [{"phase": call.get("phase"), "argv": call["argv"]}]))
+    return found
+
+
 def terminal_within_budget(obs):
     if not obs.final:
         return []
@@ -245,6 +262,7 @@ INVARIANTS = [
     ("invocation-limit", invocation_limit),
     ("branch-only-grows", branch_only_grows),
     ("empty-runs-never-count", empty_runs_never_count),
+    ("prompt-contract", prompt_contract),
     ("terminal-within-budget", terminal_within_budget),
 ]
 
