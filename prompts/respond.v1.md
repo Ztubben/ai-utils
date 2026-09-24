@@ -37,7 +37,9 @@ Work the findings in order. For each one:
 
 If a finding is one you cannot fix in this round, record it as **unresolved** and say
 plainly why in its note. Do not pretend to fix something you did not; an honest
-unresolved finding is answerable, a false acceptance is not.
+unresolved finding is answerable, a false acceptance is not. But leaving **every**
+finding unresolved with **no new commit** answers nothing: Ralph refuses that response
+and escalates the Story to a human. Fix what you can, or dispute with evidence.
 
 ## Disputing a finding
 

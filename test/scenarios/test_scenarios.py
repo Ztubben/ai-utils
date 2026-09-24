@@ -7,9 +7,14 @@ a fixture, never harness code.
 import json
 import os
 import subprocess
+import sys
 import unittest
 
 import harness
+
+sys.path.insert(0, os.path.join(harness.REPO_ROOT, "lib"))
+import ralph_ledger  # noqa: E402
+import ralph_review  # noqa: E402
 
 
 def _scenario_test(spec):
@@ -127,6 +132,52 @@ class NegotiationIsReallyDriven(unittest.TestCase):
         response = next(c for c in self.calls if c.get("phase") == "response")
         self.assertIn("## Open findings (round 1", response["prompt"])
         self.assertIn("--model", response["argv"])
+
+
+class ResponseRounds(unittest.TestCase):
+    """#94: what counts as an answer, and whose model a response names."""
+
+    def run_world(self, name, **agents):
+        spec = harness.load(name)
+        spec["agents"] = dict(spec["agents"], **agents)
+        if agents:
+            spec["expect"] = next(case["expect"] for slot in spec["matrix"].values()
+                                  for profile, case in slot.items()
+                                  if profile == list(agents.values())[0])
+        result = harness.run_scenario(spec, keep=True)
+        self.addCleanup(result.world.cleanup)
+        return result.world.state(), result.world.calls()
+
+    def test_a_no_op_answer_is_refused_and_escalated_in_the_same_tick(self):
+        state, calls = self.run_world("negotiation_fix", response="literal-noop")
+        story = state["issues"]["1"]
+        self.assertIn("needs-human", story["labels"])
+        self.assertIn("was not answered", story["comments"][-1]["body"])
+        (pr,) = state["pulls"].values()
+        self.assertEqual(len(pr["reviews"]), 1)             # no round was spent on it
+        self.assertFalse(any("ralph-review-response" in c["body"]
+                             for c in story["comments"]))
+
+    def test_a_dispute_without_a_commit_is_still_an_answer_and_re_reviewed(self):
+        state, calls = self.run_world("negotiation_dispute")
+        (pr,) = state["pulls"].values()
+        heads = [r["commit_id"] for r in pr["reviews"]]
+        self.assertEqual(len(heads), 2)
+        self.assertEqual(heads[0], heads[1])                # re-reviewed, same head
+
+    def test_the_response_names_the_model_that_ran_as_the_ledger_does(self):
+        state, calls = self.run_world("negotiation_fix")
+        story = state["issues"]["1"]
+        (pr,) = state["pulls"].values()
+        launched = next(c["model"] for c in calls if c.get("phase") == "response")
+        head = next(c["head"] for c in calls if c.get("phase") == "response")
+        record = ralph_review.latest_response(story["comments"], head)
+        _, events = ralph_ledger.find_ledger(story["comments"])
+        ledger = [e["model"] for e in events if e["phase"] == "response"]
+        self.assertEqual(record["model"], launched)
+        self.assertEqual(ledger, [launched])
+        self.assertTrue(any("Implementing model: `%s`" % launched in c["body"]
+                            for c in pr["comments"]))
 
 
 class FakeGhContract(unittest.TestCase):

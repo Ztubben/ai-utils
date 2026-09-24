@@ -74,12 +74,7 @@
         "expect": {
           "1": "needs-human"
         },
-        "why": "A response with no commit and every finding unresolved is not an answer: refused and escalated.",
-        "known_defect": {
-          "story": "#94",
-          "why": "The no-op answer is accepted as an answer and the round is spent.",
-          "failure": "#1 expected needs-human"
-        }
+        "why": "A response with no commit and every finding unresolved is not an answer: refused and escalated."
       },
       "empty-usage": {
         "expect": {

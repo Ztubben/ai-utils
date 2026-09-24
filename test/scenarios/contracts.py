@@ -37,7 +37,7 @@ CONTRACTS = {
     },
     "response": {
         "required": ["# Ralph Response Prompt", "## Append-only, always", "**new commits**",
-                     "## Open findings", "Exact head commit:"],
+                     "## Open findings", "Exact head commit:", "answers nothing"],
         "forbidden": NO_READ_ONLY + [REVIEWER_SCOPE],
     },
     "arbitration": {
