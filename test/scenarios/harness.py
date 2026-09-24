@@ -121,6 +121,17 @@ def rewind(state, moment):
     """
     def kept(items, field):
         return [i for i in items if (i.get(field) or "") <= moment]
+    for sha, statuses in list(state["statuses"].items()):
+        state["statuses"][sha] = kept(statuses, "at")
+    # A pull request opened after the moment did not exist yet.
+    state["pulls"] = {n: pr for n, pr in state["pulls"].items()
+                      if (pr.get("createdAt") or "") <= moment}
+    for pr in state["pulls"].values():
+        if pr["state"] != "OPEN" and (pr.get("mergedAt") or "") > moment:
+            # Merged later: at the moment it was still open, following its branch.
+            pr["state"] = "OPEN"
+            for key in ("mergedAt", "mergedHeadOid", "mergedBaseOid", "mergeCommit"):
+                pr.pop(key, None)
     for issue in list(state["issues"].values()) + list(state["pulls"].values()):
         issue["comments"] = kept(issue["comments"], "createdAt")
         if "reviews" in issue:
@@ -269,6 +280,8 @@ class World:
         """
         base_oid = _git(["rev-parse", "HEAD"], self.checkout, self.env)
         mapping = {oid: base_oid for oid in (git.get("base"), git.get("merge_base")) if oid}
+        if not state["pulls"]:
+            return mapping          # rewound to before the pull request existed
         (pr,) = state["pulls"].values()
         for i, commit in enumerate(git["commits"]):
             path = os.path.join(self.checkout, "replay-%d.txt" % i)

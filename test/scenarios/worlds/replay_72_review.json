@@ -1,0 +1,75 @@
+{
+  "description": "Replay of autopilot_controller Story #72 / PR #83 (redacted capture), rewound to the moment its pull request opened. The Review Agent returns nothing with zero usage, as 15 production review runs did; the Loop must bound it and block the Story.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "codex-sol",
+          "provider": "codex",
+          "model": "gpt-5.6-sol"
+        },
+        {
+          "key": "opus",
+          "provider": "claude",
+          "model": "claude-opus-5"
+        }
+      ],
+      "defaults": {
+        "implementation": "codex-sol",
+        "review": "opus"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "capture": "captures/autopilot-controller-72.json",
+    "rewind_to": "2026-09-05T06:43:22Z",
+    "labels": {
+      "72": [
+        "type:hil",
+        "prio:3",
+        "state:in-review",
+        "model:impl:gpt-5.6-sol",
+        "model:review:claude-opus-5"
+      ]
+    },
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "empty-usage"
+  },
+  "ticks": 3,
+  "expect": {
+    "72": "blocked"
+  },
+  "known_defect": {
+    "story": "#95",
+    "invariant": "invocation-limit",
+    "why": "An empty review is retryable invalid output, relaunched every poll of every window and never recorded (15 zero-usage review runs in production)."
+  }
+}
