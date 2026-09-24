@@ -59,7 +59,7 @@ def _refuse_protected(base, branch, errors):
 
 def handoff_plan(story, summary, base=DEFAULT_BASE,
                  branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
-                 include_wip=True):
+                 include_wip=True, branch_exists=True):
     """Build the ordered command plan to write a Handoff and terminate.
 
     Pure: computes commands, runs nothing. Stages + commits WIP, pushes the story
@@ -71,6 +71,12 @@ def handoff_plan(story, summary, base=DEFAULT_BASE,
     needs (#54): its work is already pushed and a reviewer's findings are bound
     to an exact head, so an extra commit -- even the empty one -- would move that
     head and throw away the review the tick was waiting on.
+
+    `branch_exists=False` also writes the comment alone: a session limit can
+    land before the agent ever created its Story branch, and pushing a branch
+    that does not exist failed the whole tick (#99). There is no work to keep.
+    The push names both refs and never sets an upstream: the orchestration
+    checkout's tracking is not this plan's to change (AGENTS.md conventions).
     """
     number = story["number"]
     branch = ralph_iterate.branch_name(story, branch_pattern)
@@ -81,11 +87,11 @@ def handoff_plan(story, summary, base=DEFAULT_BASE,
 
     body = HANDOFF_MARKER + "\n\n" + (summary or "").strip()
     commands = []
-    if include_wip:
+    if include_wip and branch_exists:
         commands += [
             ["git", "add", "-A"],
             ["git", "commit", "--allow-empty", "-m", CHECKPOINT_COMMIT_MSG % number],
-            ["git", "push", "-u", "origin", branch],
+            ["git", "push", "origin", "refs/heads/%s:refs/heads/%s" % (branch, branch)],
         ]
     commands.append(["gh", "issue", "comment", str(number), "--body", body])
     return Plan(True, [], commands, base=base, branch=branch)
@@ -237,6 +243,16 @@ def _cmd_checkpoint(rest):
     plan = handoff_plan(story, summary, base=branching["base"],
                         branch_pattern=branching["branch_pattern"],
                         include_wip=include_wip)
+    exists = True
+    if plan.ok and include_wip:
+        # Asked only once the plan is known to be allowed: a refusal runs nothing.
+        exists = subprocess.run(
+            ["git", "rev-parse", "--verify", "-q", "refs/heads/%s" % plan.branch],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        if not exists:
+            plan = handoff_plan(story, summary, base=branching["base"],
+                                branch_pattern=branching["branch_pattern"],
+                                branch_exists=False)
     if not plan.ok:
         sys.stderr.write("REFUSED: handoff checkpoint\n")
         for err in plan.errors:
@@ -247,8 +263,9 @@ def _cmd_checkpoint(rest):
     if run.ok:
         print("OK: checkpointed #%s %s (Handoff written; terminating)"
               % (story["number"],
-                 "onto %s" % plan.branch if include_wip
-                 else "(comment only; the branch head is untouched)"))
+                 "onto %s" % plan.branch if include_wip and exists
+                 else "(comment only; the branch head is untouched)" if include_wip is False
+                 else "(comment only; %s does not exist yet)" % plan.branch))
         return 0
     sys.stderr.write("FAILED: handoff checkpoint (exit %d): %s\n"
                      % (run.failed.returncode, " ".join(run.failed.args)))
