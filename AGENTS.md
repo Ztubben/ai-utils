@@ -14,7 +14,7 @@ not HITL) and `docs/adr/0001–0005`.
   specializes `to-issues` to emit the canonical backlog shape). A skill's `examples/` hold
   well-formed sample issues that a test asserts stay canonical.
 - `.ralph.yml.sample` — documented sample config that MUST validate (a test asserts it).
-- `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (bats is **required**: `run.sh` fails fast without it, #86); `test/scenarios/` = the multi-Tick scenario tier (PRD #85), run when present. `run.sh` ends by naming the tiers that ran.
+- `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (bats is **required**: `run.sh` fails fast without it, #86); `test/scenarios/` = the multi-Tick scenario tier (PRD #85), run when present -- read `docs/scenario-harness.md` before writing a scenario, profile or invariant, and reproduce a Loop bug as a red scenario before fixing it. `run.sh` ends by naming the tiers that ran.
 
 ## Conventions / gotchas
 - Publication must name both refs explicitly: `refs/heads/<story>:refs/heads/<story>`.
