@@ -12,13 +12,13 @@ import unittest
 import harness
 
 
-def _scenario_test(name):
-    spec = harness.load(name)
+def _scenario_test(spec):
     defect = spec.get("known_defect")
+    name = spec["name"]
 
     def test(self):
         if defect is None:
-            result = harness.run_scenario(harness.load(name))
+            result = harness.run_scenario(json.loads(json.dumps(spec)))
             self.assertLessEqual(result.ticks, spec["ticks"])
             return
         # A world may be committed red ahead of its fix (PRD #85: every Loop
@@ -26,9 +26,10 @@ def _scenario_test(name):
         # named reason -- any other failure is a real one -- and once it goes
         # green the Story that fixed it has to remove the declaration.
         try:
-            harness.run_scenario(harness.load(name))
+            harness.run_scenario(json.loads(json.dumps(spec)))
         except harness.ScenarioFailure as exc:
-            self.assertIn("invariant %s violated" % defect["invariant"], str(exc))
+            self.assertIn(defect.get("failure")
+                          or "invariant %s violated" % defect["invariant"], str(exc))
         else:
             self.fail("%s now passes: %s is fixed, remove known_defect from the world"
                       % (name, defect["story"]))
@@ -41,7 +42,8 @@ class Scenarios(unittest.TestCase):
 
 
 for _name in harness.all_worlds():
-    setattr(Scenarios, "test_" + _name, _scenario_test(_name))
+    for _spec in harness.variants(harness.load(_name)):
+        setattr(Scenarios, "test_" + _spec["name"], _scenario_test(_spec))
 
 
 class HappyPathIsReallyDriven(unittest.TestCase):
