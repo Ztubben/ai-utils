@@ -593,6 +593,25 @@ not HITL) and `docs/adr/0001–0005`.
   `binary_env`) and make the suite launch a **real** agent — a hang, not a failure. Each
   harness therefore strips every adapter's `binary_env` from the child env; keep that when
   adding a harness that runs `bin/ralph.sh`.
+- `test/scenarios/` is the **scenario harness** (#87, PRD #85): the real `ralph --run` Tick,
+  repeated up to a budget, against a world that keeps state. `harness.World` builds a real git
+  checkout with a local **bare remote**, puts `fakes/gh` (stateful GitHub, one JSON state file)
+  and `fakes/agent` (scripted provider, installed as both `claude` and `codex`) on PATH, and
+  `run_scenario` ticks until every Story in `expect` reaches its terminal state. A scenario is
+  data in `worlds/*.json` (config, starting issues, CI rollup, profile per role, Tick budget,
+  expected states); `test_scenarios.py` generates one test per world. GOTCHAS: (1) the fake
+  **fails closed** -- an unemulated subcommand, flag, `--json` field or API route exits 64 and
+  is flagged `unemulated` in the call log, and `check_calls` fails the scenario on it, because
+  the Loop swallows some gh failures (`2>/dev/null`) on purpose. Extend the fake for a new call;
+  never loosen it. (2) `headRefOid` is **never stored**: it is read from the bare remote when
+  asked, so a pushed commit moves the PR exactly as on GitHub; a merged PR keeps its merge-time
+  head. `pr merge` is plumbing on the remote and refuses (unemulated) a head that does not
+  contain its base. (3) Ralph posts reviews as `COMMENT`; the fake refuses APPROVE/
+  REQUEST_CHANGES on its own PR as GitHub does. (4) The agent tells its role from the launch
+  flags (`--permission-mode plan` / `--sandbox read-only` = review) and records argv + the full
+  prompt in the call log; profiles live in `fakes/agent` `PROFILES`. (5) The World strips every
+  inherited `RALPH_*`/`GIT_*`/`GH_*` variable and each adapter's `binary_env` -- the same
+  tick-harness gotcha as below.
 - `lib/ralph_memory.py` is the two-tier memory seam (US-010, ADR-0005): pure filesystem
   queries, **no** `Plan`/git/gh (nothing to mutate — memory is just files). `nested_agents_md
   (start_dir, root)` returns the `AGENTS.md` to read at story start, nearest-first from

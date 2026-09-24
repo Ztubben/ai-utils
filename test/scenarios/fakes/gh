@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""A stateful fake of the `gh` CLI for the scenario harness (#87, PRD #85).
+
+Unlike the replay queues of the older harnesses, this fake *remembers*: every
+write lands in one JSON state file (`$SCENARIO_STATE`) and every later read --
+in the same Tick or the next -- sees it.  A record written in one place and read
+from another therefore fails a scenario instead of passing two unit suites.
+
+It emulates only the `gh` surface the Loop uses and **fails closed** on anything
+else: the call exits non-zero with "unemulated gh call: ..." and is flagged in
+the call log, so new GitHub usage cannot slip past the harness untested (the
+Loop swallows some gh failures on purpose, so the harness reads the flag rather
+than trusting an exit code to surface).
+
+Pull-request heads are never stored: `headRefOid` is read from the bare remote
+(`$SCENARIO_REMOTE`) at the moment it is asked for, exactly as GitHub follows the
+branch.  A merged pull request keeps the head it was merged at.
+
+Every call is appended to `$SCENARIO_LOG` as one JSON line.
+"""
+import datetime
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+
+OPERATOR = "ralph-operator"
+EPOCH = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+
+
+class Unemulated(Exception):
+    pass
+
+
+class Refused(Exception):
+    """A call GitHub itself would reject (bad number, missing branch...)."""
+
+
+# --- state -------------------------------------------------------------------
+
+def empty_state():
+    return {"repo": {"owner": "acme", "name": "target", "defaultBranch": "develop"},
+            "labels": [], "issues": {}, "pulls": {}, "statuses": {}, "ci": [],
+            "next_number": 1, "next_id": 1000, "clock": 0}
+
+
+def _tick(state):
+    state["clock"] += 1
+    return (EPOCH + datetime.timedelta(seconds=state["clock"])).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
+def _new_id(state):
+    state["next_id"] += 1
+    return state["next_id"]
+
+
+def _url(state, kind, number, anchor=""):
+    repo = state["repo"]
+    return "https://github.com/%s/%s/%s/%s%s" % (repo["owner"], repo["name"],
+                                                 kind, number, anchor)
+
+
+def _git_remote(*args):
+    remote = os.environ["SCENARIO_REMOTE"]
+    proc = subprocess.run(["git", "--git-dir", remote] + list(args),
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return proc.returncode, proc.stdout.strip()
+
+
+def _ref_oid(branch):
+    rc, out = _git_remote("rev-parse", "--verify", "-q", "refs/heads/%s" % branch)
+    return out if rc == 0 else None
+
+
+# --- argument parsing --------------------------------------------------------
+
+def parse(args, flags, bools=(), multi=()):
+    """Split *args* into positionals and the declared flags; refuse the rest."""
+    positional, opts = [], {name: [] for name in multi}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("-") and arg != "-":
+            name = arg.split("=", 1)[0]
+            if name in bools:
+                opts[name] = True
+            elif name in flags or name in multi:
+                if "=" in arg:
+                    value = arg.split("=", 1)[1]
+                else:
+                    i += 1
+                    if i >= len(args):
+                        raise Unemulated("flag %s without a value" % arg)
+                    value = args[i]
+                if name in multi:
+                    opts[name].append(value)
+                else:
+                    opts[name] = value
+            else:
+                raise Unemulated("flag %s" % arg)
+        else:
+            positional.append(arg)
+        i += 1
+    return positional, opts
+
+
+def select_fields(obj, fields):
+    out = {}
+    for field in fields.split(","):
+        if field not in obj:
+            raise Unemulated("--json field %r" % field)
+        out[field] = obj[field]
+    return out
+
+
+def apply_jq(value, expr):
+    if not re.fullmatch(r"(\.[A-Za-z_][A-Za-z0-9_]*)+", expr or ""):
+        raise Unemulated("--jq expression %r" % expr)
+    for key in expr.strip(".").split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def emit(value, opts):
+    if opts.get("--jq"):
+        print(apply_jq(value, opts["--jq"]))
+    else:
+        print(json.dumps(value))
+
+
+# --- views -------------------------------------------------------------------
+
+def comment_view(comment):
+    return {"id": comment["node_id"], "author": {"login": comment["author"]},
+            "authorAssociation": "OWNER", "body": comment["body"],
+            "createdAt": comment["createdAt"], "url": comment["url"]}
+
+
+def issue_view(issue):
+    return {"number": issue["number"], "title": issue["title"],
+            "body": issue["body"], "state": issue["state"],
+            "labels": [{"name": name} for name in issue["labels"]],
+            "comments": [comment_view(c) for c in issue["comments"]],
+            "url": issue["url"]}
+
+
+def head_oid(pr):
+    if pr["state"] != "OPEN":
+        return pr.get("mergedHeadOid") or pr.get("closedHeadOid")
+    return _ref_oid(pr["headRefName"])
+
+
+def rollup(state, sha):
+    entries = [dict(check) for check in state["ci"]]
+    latest = {}
+    for status in state["statuses"].get(sha or "", []):
+        latest[status["context"]] = status
+    for context, status in latest.items():
+        entries.append({"__typename": "StatusContext", "context": context,
+                        "state": status["state"].upper(),
+                        "description": status.get("description", "")})
+    return entries
+
+
+def pr_view(state, pr):
+    head = head_oid(pr)
+    base = pr.get("mergedBaseOid") or _ref_oid(pr["baseRefName"])
+    return {"number": pr["number"], "title": pr["title"], "body": pr["body"],
+            "state": pr["state"], "headRefName": pr["headRefName"],
+            "baseRefName": pr["baseRefName"], "headRefOid": head,
+            "baseRefOid": base, "url": pr["url"],
+            "author": {"login": OPERATOR},
+            "comments": [comment_view(c) for c in pr["comments"]],
+            "reviews": [review_view(r) for r in pr["reviews"]],
+            "statusCheckRollup": rollup(state, head),
+            "mergedAt": pr.get("mergedAt")}
+
+
+def review_view(review):
+    return {"id": review["node_id"], "author": {"login": review["author"]},
+            "authorAssociation": "OWNER", "body": review["body"],
+            "state": review["state"], "submittedAt": review["submittedAt"],
+            "commit": {"oid": review["commit_id"]}}
+
+
+def review_comment_rest(comment):
+    return {"id": comment["id"], "body": comment["body"],
+            "user": {"login": comment["author"]}, "path": comment.get("path"),
+            "line": comment.get("line"), "start_line": comment.get("start_line"),
+            "side": comment.get("side"), "commit_id": comment.get("commit_id"),
+            "in_reply_to_id": comment.get("in_reply_to_id"),
+            "pull_request_review_id": comment.get("pull_request_review_id"),
+            "created_at": comment["createdAt"]}
+
+
+# --- lookups -----------------------------------------------------------------
+
+def get_issue(state, number):
+    issue = state["issues"].get(str(number))
+    if issue is None:
+        raise Refused("could not resolve to an issue: %s" % number)
+    return issue
+
+
+def get_pr(state, ref):
+    pr = state["pulls"].get(str(ref))
+    if pr is None:
+        # gh also accepts a head branch name.
+        matches = [p for p in state["pulls"].values()
+                   if p["headRefName"] == ref and p["state"] == "OPEN"]
+        if len(matches) != 1:
+            raise Refused("no pull requests found for %s" % ref)
+        pr = matches[0]
+    return pr
+
+
+def add_comment(state, target, kind, number, body):
+    ident = _new_id(state)
+    anchor = "#issuecomment-%d" % ident
+    comment = {"id": ident, "node_id": "IC_%d" % ident, "author": OPERATOR,
+               "body": body, "createdAt": _tick(state),
+               "url": _url(state, kind, number, anchor)}
+    target["comments"].append(comment)
+    return comment
+
+
+def _ensure_label(state, name):
+    if not any(label["name"] == name for label in state["labels"]):
+        raise Refused("'%s' not found" % name)
+
+
+# --- commands ----------------------------------------------------------------
+
+def cmd_issue(state, args):
+    sub, rest = args[0], args[1:]
+    if sub == "list":
+        _, opts = parse(rest, ("--state", "--limit", "--json", "--label"))
+        want = (opts.get("--state") or "open").upper()
+        issues = [i for i in sorted(state["issues"].values(), key=lambda i: -i["number"])
+                  if want == "ALL" or i["state"] == want]
+        if opts.get("--label"):
+            issues = [i for i in issues if opts["--label"] in i["labels"]]
+        issues = issues[:int(opts.get("--limit") or 30)]
+        return emit([select_fields(issue_view(i), opts["--json"]) for i in issues], opts)
+    if sub == "view":
+        (number,), opts = parse(rest, ("--json", "--jq"))
+        return emit(select_fields(issue_view(get_issue(state, number)), opts["--json"]), opts)
+    if sub == "comment":
+        (number,), opts = parse(rest, ("--body",))
+        issue = get_issue(state, number)
+        comment = add_comment(state, issue, "issues", issue["number"], opts["--body"])
+        return print(comment["url"])
+    if sub == "edit":
+        (number,), opts = parse(rest, (), multi=("--add-label", "--remove-label"))
+        issue = get_issue(state, number)
+        adds = [n for v in opts["--add-label"] for n in v.split(",")]
+        removes = [n for v in opts["--remove-label"] for n in v.split(",")]
+        for name in adds:
+            _ensure_label(state, name)
+        issue["labels"] = [n for n in issue["labels"] if n not in removes]
+        issue["labels"] += [n for n in adds if n not in issue["labels"]]
+        return print(issue["url"])
+    if sub == "close":
+        (number,), opts = parse(rest, ("--comment", "--reason"))
+        issue = get_issue(state, number)
+        if opts.get("--comment"):
+            add_comment(state, issue, "issues", issue["number"], opts["--comment"])
+        issue["state"] = "CLOSED"
+        return None
+    raise Unemulated("issue %s" % sub)
+
+
+def cmd_pr(state, args):
+    sub, rest = args[0], args[1:]
+    if sub == "list":
+        _, opts = parse(rest, ("--state", "--head", "--json", "--limit", "--base"))
+        want = (opts.get("--state") or "open").upper()
+        prs = [p for p in sorted(state["pulls"].values(), key=lambda p: -p["number"])
+               if want == "ALL" or p["state"] == want]
+        if opts.get("--head"):
+            prs = [p for p in prs if p["headRefName"] == opts["--head"]]
+        if opts.get("--base"):
+            prs = [p for p in prs if p["baseRefName"] == opts["--base"]]
+        prs = prs[:int(opts.get("--limit") or 30)]
+        return emit([select_fields(pr_view(state, p), opts["--json"]) for p in prs], opts)
+    if sub == "view":
+        (ref,), opts = parse(rest, ("--json", "--jq"))
+        return emit(select_fields(pr_view(state, get_pr(state, ref)), opts["--json"]), opts)
+    if sub == "create":
+        _, opts = parse(rest, ("--base", "--head", "--title", "--body"))
+        head, base = opts["--head"], opts["--base"]
+        if _ref_oid(head) is None:
+            raise Refused("pull request create failed: head %s is not on the remote" % head)
+        if _ref_oid(base) is None:
+            raise Refused("pull request create failed: base %s is not on the remote" % base)
+        if any(p["headRefName"] == head and p["state"] == "OPEN"
+               for p in state["pulls"].values()):
+            raise Refused("a pull request for branch %s already exists" % head)
+        number = state["next_number"]
+        state["next_number"] += 1
+        pr = {"number": number, "title": opts["--title"], "body": opts["--body"],
+              "state": "OPEN", "headRefName": head, "baseRefName": base,
+              "url": _url(state, "pull", number), "comments": [], "reviews": [],
+              "reviewComments": [], "createdAt": _tick(state)}
+        state["pulls"][str(number)] = pr
+        return print(pr["url"])
+    if sub == "edit":
+        (ref,), opts = parse(rest, ("--title", "--body", "--base"),
+                             multi=("--add-reviewer",))
+        pr = get_pr(state, ref)
+        for key, field in (("--title", "title"), ("--body", "body"), ("--base", "baseRefName")):
+            if key in opts:
+                pr[field] = opts[key]
+        pr.setdefault("reviewRequests", []).extend(opts["--add-reviewer"])
+        return print(pr["url"])
+    if sub == "comment":
+        (ref,), opts = parse(rest, ("--body",))
+        pr = get_pr(state, ref)
+        comment = add_comment(state, pr, "pull", pr["number"], opts["--body"])
+        return print(comment["url"])
+    if sub == "merge":
+        (ref,), opts = parse(rest, (), bools=("--squash", "--merge", "--rebase"))
+        return merge(state, get_pr(state, ref), opts)
+    raise Unemulated("pr %s" % sub)
+
+
+def merge(state, pr, opts):
+    """Merge on the bare remote with plumbing, the way GitHub's button does.
+
+    Only a head that already contains its base is emulated: the tree of the
+    result is then the head's tree for every method.  Anything needing a real
+    three-way merge is refused loudly rather than faked.
+    """
+    if pr["state"] != "OPEN":
+        raise Refused("pull request #%s is not open" % pr["number"])
+    methods = [m for m in ("--squash", "--merge", "--rebase") if opts.get(m)]
+    if len(methods) != 1:
+        raise Unemulated("pr merge without exactly one method")
+    head, base = _ref_oid(pr["headRefName"]), _ref_oid(pr["baseRefName"])
+    rc, _ = _git_remote("merge-base", "--is-ancestor", base, head)
+    if rc != 0:
+        raise Unemulated("pr merge of a head that does not contain its base")
+    message = "%s (#%s)" % (pr["title"], pr["number"])
+    if methods[0] == "--rebase":
+        new = head
+    else:
+        parents = ["-p", base] + (["-p", head] if methods[0] == "--merge" else [])
+        rc, new = _git_remote("commit-tree", "%s^{tree}" % head, *parents, "-m", message)
+        if rc != 0:
+            raise Refused("merge failed")
+    _git_remote("update-ref", "refs/heads/%s" % pr["baseRefName"], new, base)
+    pr.update(state="MERGED", mergedAt=_tick(state), mergedHeadOid=head,
+              mergedBaseOid=base, mergeCommit=new)
+    return None
+
+
+def cmd_label(state, args):
+    if args[:1] != ["create"]:
+        raise Unemulated("label %s" % " ".join(args[:1]))
+    (name,), opts = parse(args[1:], ("--color", "--description"), bools=("--force",))
+    existing = [label for label in state["labels"] if label["name"] == name]
+    if existing and not opts.get("--force"):
+        raise Refused("label %s already exists" % name)
+    if existing:
+        existing[0].update(color=opts.get("--color"), description=opts.get("--description"))
+    else:
+        state["labels"].append({"name": name, "color": opts.get("--color"),
+                                "description": opts.get("--description")})
+    return None
+
+
+def cmd_repo(state, args):
+    if args[:1] != ["view"]:
+        raise Unemulated("repo %s" % " ".join(args[:1]))
+    _, opts = parse(args[1:], ("--json", "--jq"))
+    repo = state["repo"]
+    view = {"name": repo["name"], "owner": {"login": repo["owner"]},
+            "nameWithOwner": "%s/%s" % (repo["owner"], repo["name"]),
+            "defaultBranchRef": {"name": repo["defaultBranch"]}}
+    return emit(select_fields(view, opts["--json"]), opts)
+
+
+ROUTE_PREFIX = "repos/{owner}/{repo}/"
+
+
+def cmd_api(state, args):
+    positional, opts = parse(args, ("--method", "--input", "--jq"), multi=("-f", "-F"))
+    if len(positional) != 1:
+        raise Unemulated("api %s" % " ".join(args))
+    route, method = positional[0], (opts.get("--method") or "GET").upper()
+    if not route.startswith(ROUTE_PREFIX):
+        raise Unemulated("api route %s" % route)
+    path = route[len(ROUTE_PREFIX):]
+    fields = dict(f.split("=", 1) for f in opts["-f"] + opts["-F"])
+    if opts.get("--input"):
+        with open(opts["--input"]) as fh:
+            fields.update(json.load(fh))
+
+    match = re.fullmatch(r"statuses/([0-9a-f]{40})", path)
+    if match and method == "POST":
+        status = {"state": fields["state"], "context": fields["context"],
+                  "description": fields.get("description", ""), "at": _tick(state)}
+        state["statuses"].setdefault(match.group(1), []).append(status)
+        return emit(status, opts)
+
+    match = re.fullmatch(r"pulls/(\d+)/reviews", path)
+    if match and method == "POST":
+        pr = get_pr(state, match.group(1))
+        return emit(post_review(state, pr, fields), opts)
+    if match and method == "GET":
+        pr = get_pr(state, match.group(1))
+        return emit([review_view(r) for r in pr["reviews"]], opts)
+
+    match = re.fullmatch(r"pulls/(\d+)/comments", path)
+    if match and method == "GET":
+        pr = get_pr(state, match.group(1))
+        return emit([review_comment_rest(c) for c in pr["reviewComments"]], opts)
+
+    match = re.fullmatch(r"pulls/(\d+)/comments/(\d+)/replies", path)
+    if match and method == "POST":
+        pr = get_pr(state, match.group(1))
+        parent = next((c for c in pr["reviewComments"]
+                       if c["id"] == int(match.group(2))), None)
+        if parent is None:
+            raise Refused("review comment %s not found" % match.group(2))
+        reply = {"id": _new_id(state), "author": OPERATOR, "body": fields["body"],
+                 "path": parent.get("path"), "line": parent.get("line"),
+                 "in_reply_to_id": parent["id"], "createdAt": _tick(state),
+                 "pull_request_review_id": parent.get("pull_request_review_id")}
+        pr["reviewComments"].append(reply)
+        return emit(review_comment_rest(reply), opts)
+
+    match = re.fullmatch(r"issues/comments/(\d+)", path)
+    if match and method == "PATCH":
+        ident = int(match.group(1))
+        for issue in list(state["issues"].values()) + list(state["pulls"].values()):
+            for comment in issue["comments"]:
+                if comment["id"] == ident:
+                    comment["body"] = fields["body"]
+                    return emit(comment_view(comment), opts)
+        raise Refused("comment %s not found" % ident)
+
+    raise Unemulated("api %s %s" % (method, route))
+
+
+def post_review(state, pr, fields):
+    event = fields.get("event") or "COMMENT"
+    if event != "COMMENT":
+        # Ralph posts with the operator's own credential, and GitHub refuses a
+        # verdict-shaped review on a pull request the same account opened.
+        raise Refused("Can not approve or request changes on your own pull request")
+    ident = _new_id(state)
+    commit = fields.get("commit_id") or head_oid(pr)
+    review = {"id": ident, "node_id": "PRR_%d" % ident, "author": OPERATOR,
+              "body": fields.get("body", ""), "state": "COMMENTED",
+              "submittedAt": _tick(state), "commit_id": commit}
+    pr["reviews"].append(review)
+    for inline in fields.get("comments") or []:
+        pr["reviewComments"].append({
+            "id": _new_id(state), "author": OPERATOR, "body": inline["body"],
+            "path": inline.get("path"), "line": inline.get("line"),
+            "start_line": inline.get("start_line"), "side": inline.get("side"),
+            "commit_id": commit, "in_reply_to_id": None,
+            "pull_request_review_id": ident, "createdAt": _tick(state)})
+    return {"id": ident, "state": "COMMENTED"}
+
+
+COMMANDS = {"issue": cmd_issue, "pr": cmd_pr, "label": cmd_label,
+            "repo": cmd_repo, "api": cmd_api}
+
+
+def main(argv):
+    state_path, log_path = os.environ["SCENARIO_STATE"], os.environ["SCENARIO_LOG"]
+    entry = {"tool": "gh", "argv": argv, "cwd": os.getcwd()}
+    rc = 0
+    # One lock over read-modify-write, so a Tick's calls never interleave.
+    with open(state_path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(state_path) as fh:
+            state = json.load(fh)
+        try:
+            if not argv or argv[0] not in COMMANDS or len(argv) < 2:
+                raise Unemulated(" ".join(argv[:2]))
+            COMMANDS[argv[0]](state, argv[1:])
+        except Unemulated as exc:
+            entry["unemulated"] = str(exc)
+            sys.stderr.write("unemulated gh call: gh %s (%s)\n" % (" ".join(argv), exc))
+            rc = 64
+        except Refused as exc:
+            sys.stderr.write("%s\n" % exc)
+            rc = 1
+        except (KeyError, ValueError, IndexError) as exc:
+            # A call shape the emulation has no answer for is unemulated too.
+            entry["unemulated"] = "%s: %s" % (type(exc).__name__, exc)
+            sys.stderr.write("unemulated gh call: gh %s (%s: %s)\n"
+                             % (" ".join(argv), type(exc).__name__, exc))
+            rc = 64
+        else:
+            with open(state_path + ".tmp", "w") as fh:
+                json.dump(state, fh, indent=1, sort_keys=True)
+            os.replace(state_path + ".tmp", state_path)
+        entry["rc"] = rc
+        with open(log_path, "a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
