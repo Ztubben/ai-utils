@@ -20,6 +20,7 @@ import ralph_agent  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_complete  # noqa: E402
 import ralph_review_render  # noqa: E402
+import ralph_failure  # noqa: E402
 import ralph_review_respond  # noqa: E402
 
 FIXTURES = os.path.join(REPO_ROOT, "test", "fixtures", "reviews")
@@ -589,6 +590,8 @@ notify:
         self.assertIn("append", proc.stderr)
         self.assertNotIn("replies", calls)
         self.assertNotIn("ralph-review-response:v1", calls)
+        # Refused *and* remembered: it spends an Attempt on the Story (#100).
+        self.assertIn("gh issue comment 55 --body " + ralph_failure.ATTEMPT_MARKER, calls)
 
 
 class NoAnswerIsRefused(unittest.TestCase):

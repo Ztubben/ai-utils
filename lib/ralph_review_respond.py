@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - environment guard
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_failure  # noqa: E402
 import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
@@ -540,6 +541,21 @@ def respond_to_review(story, pull_request, config, root, comments=None):
     sys.stderr.write("REFUSED: respond-review (%s)\n" % outcome.kind)
     for error in outcome.errors:
         sys.stderr.write("  - %s\n" % error)
+    if outcome.kind == NOT_APPEND_ONLY:
+        # Refusing it is right; forgetting it is not. Unrecorded, the next tick
+        # launched the responder again, forever (#100). A rewritten head is the
+        # model breaking the protocol, so it spends an Attempt, and
+        # limits.max_attempts ends the Story instead of the budget.
+        ok, blocked = ralph_failure.record_attempt(
+            story["number"], "the response to round %s rewrote history (%s)"
+            % (result.get("round"), "; ".join(outcome.errors)),
+            ((config or {}).get("limits") or {}).get(
+                "max_attempts", ralph_failure.DEFAULT_MAX_ATTEMPTS), cwd=root)
+        if blocked:
+            print("BLOCKED: #%s ran out of Attempts rewriting history" % story["number"])
+        elif not ok:
+            sys.stderr.write("ralph: could not record the Attempt for #%s\n"
+                             % story["number"])
     if outcome.kind == NO_ANSWER:
         handle = ((config or {}).get("notify") or {}).get("github")
         run = ralph_review_render.run_plan(

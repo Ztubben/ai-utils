@@ -124,6 +124,9 @@ def record_attempt(number, reason, max_attempts, cwd=None):
         story = json.loads(proc.stdout)
     except ValueError:
         return False, False
+    if not isinstance(story, dict):
+        return False, False
+    story.setdefault("number", number)
     plan = attempt_plan(story, reason, max_attempts=max_attempts)
     return run_plan(plan.commands, cwd=cwd).ok, plan.blocked
 
