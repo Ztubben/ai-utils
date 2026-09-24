@@ -532,9 +532,13 @@ tick() {
             return 1
             ;;
           "$RC_STORY_COMPLETE")  # green: promote it off the backlog
+            # A done-signal that cannot be promoted -- no Story branch, nothing
+            # committed -- is a failed Attempt (#98). Unrecorded, the Story
+            # stayed in progress and was relaunched every tick, forever.
             complete_story "$issue" \
               || { promo_failed[$issue]=1
-                   log "promotion of #$issue failed (see above); leaving it in-progress"; }
+                   log "promotion of #$issue failed (see above); leaving it in-progress"
+                   record_failed_attempt "$issue" "the iteration signalled done but its work could not be promoted into review"; }
             ;;
           "$RC_SESSION_LIMIT")
             checkpoint_story "$issue"
