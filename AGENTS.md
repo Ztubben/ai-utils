@@ -652,6 +652,13 @@ not HITL) and `docs/adr/0001–0005`.
   pair. `known_defect` names the open issue and either the `invariant` it breaks or a `failure`
   substring. An expected `in-progress`/`in-review` (`invariants.NON_TERMINAL`) is how a pair
   declares "no progress by design" (session limit); the terminal invariant exempts exactly those.
+- **A no-op answer is refused and escalated** (#94): `ralph_review_respond.no_answer_errors` --
+  head unchanged **and every** disposition `unresolved` -> `NO_ANSWER` (exit `EXIT_NO_ANSWER`, 18,
+  not retryable). The live path runs `escalation_plan` (Story notice first, then `needs-human`,
+  which halts the loop via selection). A dispute with no commit stays an answer. `conduct`
+  overwrites `answer["model"]` with the **launched** `outcome.model` before validation, so the
+  Story record, the PR comment and the ledger name one model (PR #94 recorded the agent's
+  self-reported `gpt-5`). The scripted responder self-reports a wrong model on purpose.
 - `lib/ralph_capture.py` is **incident capture** (#90, PRD #85): `ralph --capture STORY [--out
   DIR]` writes `DIR/story-N.json` in the fake gh's state format -- the Story (labels, comments),
   its PRD when it has a `Parent:`, its newest Ralph-managed PR of any state (comments, REST

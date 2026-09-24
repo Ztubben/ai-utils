@@ -591,6 +591,48 @@ notify:
         self.assertNotIn("ralph-review-response:v1", calls)
 
 
+class NoAnswerIsRefused(unittest.TestCase):
+    """#94: no commit and every finding unresolved is not an answer."""
+
+    def test_unchanged_head_with_everything_unresolved_is_refused(self):
+        answer = response(ids=("F-1", "F-2"), disposition="unresolved")
+        errors = ralph_review_respond.no_answer_errors(answer, HEAD, HEAD)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("unresolved", errors[0])
+
+    def test_a_dispute_or_a_commit_is_still_an_answer(self):
+        disputed = response(disposition="disputed")
+        self.assertEqual(ralph_review_respond.no_answer_errors(disputed, HEAD, HEAD), [])
+        unresolved = response(disposition="unresolved")
+        self.assertEqual(ralph_review_respond.no_answer_errors(unresolved, HEAD, FIXED), [])
+
+    def test_escalation_explains_on_the_story_before_it_halts(self):
+        answer = response(disposition="unresolved")
+        plan = ralph_review_respond.escalation_plan(story(), answer, ["why"], "@carl")
+        self.assertEqual([c[:4] for c in plan],
+                         [["gh", "issue", "comment", "55"], ["gh", "issue", "edit", "55"]])
+        self.assertIn("@carl", plan[0][-1])
+        self.assertEqual(plan[1][-2:], ["--add-label", "needs-human"])
+
+    def test_conduct_refuses_it_and_names_the_launched_model(self):
+        answer = dict(response(disposition="unresolved"), model="gpt-5")
+
+        outcome = ralph_agent.Outcome(ralph_agent.NORMAL, "codex", "gpt-5.6-sol", 0,
+                                      "```json\n%s\n```" % json.dumps(answer))
+        published = []
+        result = ralph_review_respond.conduct(
+            story(), {"number": 70, "headRefOid": HEAD},
+            {"round": 1, "head": HEAD, "verdict": "request_changes",
+             "findings": [{"id": "F-3", "blocking": True}]},
+            "context", lambda prompt: (outcome, []),
+            lambda *a: published.append(a) or (True, []), Checkout(after=HEAD))
+        self.assertEqual(result.kind, ralph_review_respond.NO_ANSWER)
+        self.assertEqual(result.response["model"], "gpt-5.6-sol")
+        self.assertEqual(published, [])
+        self.assertEqual(ralph_review_respond.EXIT_CODES[result.kind],
+                         ralph_review_respond.EXIT_NO_ANSWER)
+
+
 if __name__ == "__main__":
     unittest.main()
 
