@@ -37,6 +37,8 @@ import yaml  # noqa: E402
 import ralph_agent  # noqa: E402
 import ralph_init  # noqa: E402
 
+import invariants  # noqa: E402
+
 GH_FAKE = os.path.join(FAKES, "gh")
 
 # What each expected terminal state means, read off the Story's durable state.
@@ -185,7 +187,7 @@ def trace(calls, last=25):
                                                " UNEMULATED" if call.get("unemulated") else ""))
         else:
             lines.append("  %s[%s/%s] #%s -> %s%s" % (
-                call["tool"], call["role"], call["profile"], call.get("issue"),
+                call["tool"], call.get("phase"), call["profile"], call.get("story"),
                 call.get("rc"), (" " + call["error"]) if call.get("error") else ""))
     return "\n".join(lines)
 
@@ -218,6 +220,8 @@ class Result:
 def run_scenario(spec, keep=False):
     """Run *spec* for its Tick budget; return a Result or raise ScenarioFailure."""
     world = World(spec)
+    watch = invariants.Watch(world)
+    watch.check()           # the starting branch heads are the first baseline
     outputs = []
     try:
         expect = spec["expect"]
@@ -228,7 +232,12 @@ def run_scenario(spec, keep=False):
             if proc.returncode != 0:
                 raise ScenarioFailure("tick %d exited %d\n%s\nlast calls:\n%s" % (
                     tick_no, proc.returncode, proc.stdout[-3000:], trace(world.calls())))
-            if all(reached(world, expect).values()):
+            done = all(reached(world, expect).values())
+            violations = watch.check(final=done or tick_no == spec["ticks"])
+            if violations:
+                raise ScenarioFailure(invariants.report(tick_no, violations,
+                                                        trace(world.calls())))
+            if done:
                 return Result(world, tick_no, outputs)
         issues = world.state()["issues"]
         raise ScenarioFailure(

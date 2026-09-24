@@ -21,6 +21,30 @@ RALPH = os.environ.get("SCENARIO_RALPH", "ralph")
 DONE_MARKER = os.environ.get("RALPH_STORY_COMPLETE_MARKER", "RALPH-STORY-COMPLETE")
 
 
+PHASES = {"# Ralph Iteration Prompt": "iteration",
+          "# Ralph Review Prompt": "review",
+          "# Ralph Response Prompt": "response",
+          "# Ralph Human Arbitration Prompt": "arbitration"}
+
+
+def phase_of(prompt):
+    """Which stage launched this run, read off the title of the prompt it got."""
+    first = prompt.lstrip().split("\n", 1)[0]
+    return next((phase for title, phase in PHASES.items()
+                 if first.startswith(title)), "unknown")
+
+
+def told(prompt):
+    """The Story, head and round this run was told about, where it was told."""
+    story = (re.search(r"^Story: #(\d+)", prompt, re.M)
+             or re.search(r"^Next action: \w+ #(\d+)", prompt, re.M))
+    head = re.search(r"^Exact head commit: ([0-9a-f]{40})", prompt, re.M)
+    round_no = re.search(r"^Review round: (\d+)", prompt, re.M)
+    return {"story": int(story.group(1)) if story else None,
+            "head": head.group(1) if head else None,
+            "round": int(round_no.group(1)) if round_no else None}
+
+
 def role_of(provider, argv):
     if provider == "claude":
         return "review" if "plan" in argv else "implementation"
@@ -39,7 +63,7 @@ def run(args, **kw):
 
 def implement_cooperatively(context):
     """Do the Story's work on its own branch, commit, push, signal done."""
-    issue = os.environ["RALPH_ITERATION_ISSUE"]
+    issue = str(context["story"])
     story = json.loads(run(["gh", "issue", "view", issue, "--json",
                             "number,title,labels,body,state"]))
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
@@ -65,18 +89,17 @@ def implement_cooperatively(context):
 
 def review_approving(context):
     """An approving review of exactly the head and round it was handed."""
-    prompt = context["prompt"]
-    head = re.search(r"Exact head commit: ([0-9a-f]{40})", prompt).group(1)
-    round_no = int(re.search(r"Review round: (\d+)", prompt).group(1))
-    result = {"contract": "ralph-review/v1", "verdict": "approve", "head": head,
-              "model": context["model"] or "unknown", "round": round_no,
+    result = {"contract": "ralph-review/v1", "verdict": "approve",
+              "head": context["head"], "model": context["model"] or "unknown",
+              "round": context["round"],
               "summary": "Every acceptance criterion is met at this head.",
               "findings": []}
     return "Review complete.\n```json\n%s\n```" % json.dumps(result, indent=1)
 
 
+# A profile is a behaviour per phase; the scenario picks a profile per role.
 PROFILES = {
-    "cooperative": {"implementation": implement_cooperatively,
+    "cooperative": {"iteration": implement_cooperatively,
                     "review": review_approving},
 }
 
@@ -89,16 +112,15 @@ USAGE = {"claude": {"input_tokens": 1200, "cache_creation_input_tokens": 0,
                    "output_tokens": 400, "reasoning_output_tokens": 50}}
 
 
-def transcript(provider, text):
+def transcript(provider, text, usage):
     if provider == "claude":
         return json.dumps({"type": "result", "subtype": "success",
-                           "is_error": False, "result": text,
-                           "usage": USAGE["claude"]})
+                           "is_error": False, "result": text, "usage": usage})
     return "\n".join([
         json.dumps({"type": "thread.started", "thread_id": "scenario"}),
         json.dumps({"type": "item.completed",
                     "item": {"type": "agent_message", "text": text}}),
-        json.dumps({"type": "turn.completed", "usage": USAGE["codex"]}),
+        json.dumps({"type": "turn.completed", "usage": usage}),
     ])
 
 
@@ -108,14 +130,20 @@ def main(argv):
     role = role_of(provider, argv)
     profiles = json.loads(os.environ.get("SCENARIO_AGENTS") or "{}")
     profile = profiles.get(role, "cooperative")
-    entry = {"tool": provider, "role": role, "profile": profile, "argv": argv,
-             "model": model_of(argv), "prompt": prompt,
-             "issue": os.environ.get("RALPH_ITERATION_ISSUE")}
+    phase = phase_of(prompt)
+    context = dict(told(prompt), prompt=prompt, model=model_of(argv), argv=argv)
+    entry = {"tool": provider, "role": role, "phase": phase, "profile": profile,
+             "argv": argv, "model": context["model"], "prompt": prompt,
+             "story": context["story"], "head": context["head"],
+             "round": context["round"]}
     rc = 0
     try:
-        behaviour = PROFILES[profile][role]
-        text = behaviour({"prompt": prompt, "model": model_of(argv), "argv": argv})
-        print(transcript(provider, text))
+        behaviour = PROFILES[profile][phase]
+        text = behaviour(context)
+        # A behaviour returns its words, or (words, usage) to report other counts.
+        text, usage = text if isinstance(text, tuple) else (text, USAGE[provider])
+        entry.update(text=text, usage=usage)
+        print(transcript(provider, text, usage))
     except Exception as exc:                    # noqa: BLE001 - reported, not hidden
         entry["error"] = "%s: %s" % (type(exc).__name__, exc)
         sys.stderr.write("scripted agent failed: %s\n" % entry["error"])
