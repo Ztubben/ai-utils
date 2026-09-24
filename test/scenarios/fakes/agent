@@ -159,8 +159,10 @@ def open_findings(prompt):
 
 def response(context, disposition_for):
     round_no, head, findings = open_findings(context["prompt"])
+    # The model an agent names for itself is not evidence of what ran: codex
+    # launched as gpt-5.6-sol wrote "gpt-5" on PR #94. So does this one.
     answer = {"contract": "ralph-response/v1", "head": head, "round": round_no,
-              "model": context["model"] or "unknown",
+              "model": "self-reported-model",
               "summary": "Answered every open finding of round %d." % round_no,
               "dispositions": [disposition_for(f) for f in findings]}
     return "Round answered.\n```json\n%s\n```" % json.dumps(answer, indent=1)

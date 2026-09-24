@@ -37,7 +37,13 @@ CONTRACT_VERSION = "ralph-response/v1"
 RESPONDED = "responded"
 INVALID_OUTPUT = "invalid-output"
 NOT_APPEND_ONLY = "not-append-only"
+NO_ANSWER = "no-answer"
 REFUSED = "refused"
+
+# A response that moved nothing and left every finding unresolved (#94). Its
+# own code, and not retryable: the wait must stop, the Story is escalated.
+EXIT_NO_ANSWER = 18
+NEEDS_HUMAN_LABEL = "needs-human"
 
 # The tick reads the outcome as an exit code, the same contract the review
 # round uses: a provider that never finished is distinguishable from an answer
@@ -49,6 +55,7 @@ REFUSED = "refused"
 EXIT_CODES = {
     INVALID_OUTPUT: ralph_review_round.EXIT_INVALID_OUTPUT,
     NOT_APPEND_ONLY: 2,
+    NO_ANSWER: EXIT_NO_ANSWER,
     REFUSED: 2,
     ralph_agent.SESSION_EXHAUSTED: ralph_agent.EXIT_SESSION_EXHAUSTED,
     ralph_agent.INFRASTRUCTURE_FAILURE: ralph_agent.EXIT_INFRASTRUCTURE_FAILURE,
@@ -71,6 +78,43 @@ class RespondResult:
         self.response = response
         # What this answer's invocation cost (#62), or None when it made none.
         self.usage_event = usage_event
+
+
+def no_answer_errors(answer, head, new_head):
+    """Refuse a round that answered nothing: no commit, every finding unresolved.
+
+    That is not an answer -- it spends a round and leaves the negotiation
+    exactly where it was, which is how autopilot_controller PR #94 answered
+    one head seventeen times. A dispute, even with no commit, *is* an answer:
+    it carries evidence the next round adjudicates.
+    """
+    dispositions = [d.get("disposition") for d in answer.get("dispositions") or []]
+    if new_head == head and dispositions and all(d == UNRESOLVED for d in dispositions):
+        return ["dispositions: every finding of round %s is unresolved and %s gained "
+                "no commit; that answers nothing, so it is refused and escalated"
+                % (answer.get("round"), head)]
+    return []
+
+
+def escalation_plan(story, answer, errors, handle=None):
+    """Explain on the Story, then halt the loop on it with needs-human.
+
+    The notice goes first: a halt nobody can see the reason for is worse than
+    a reason posted a moment before the halt.
+    """
+    number = str(story["number"])
+    notice = "\n".join([
+        "## Ralph cannot proceed: the review round was not answered",
+        "",
+        "The Implementation Agent answered round %s of %s with no commit and every "
+        "finding unresolved. That is not an answer, so Ralph refused it rather "
+        "than spend another round, and needs a human to decide what happens next."
+        % (answer.get("round"), answer.get("head")),
+        "",
+    ] + ["- %s" % error for error in errors] + ([
+        "", "@%s" % handle.lstrip("@")] if handle else []))
+    return [["gh", "issue", "comment", number, "--body", notice],
+            ["gh", "issue", "edit", number, "--add-label", NEEDS_HUMAN_LABEL]]
 
 
 def open_findings(result):
@@ -265,11 +309,20 @@ def conduct(story, pull_request, result, context, launch, publish, checkout):
                                      % (outcome.kind, outcome.exit_code)],
                              outcome.kind, head=head, usage_event=event)
     answer = ralph_review_round.extract_result(outcome.output)
+    if isinstance(answer, dict):
+        # The record names the model that *ran*, as the ledger does -- never
+        # the one the agent believes it is (PR #94 recorded `gpt-5` while
+        # `gpt-5.6-sol` was launched).
+        answer["model"] = outcome.model or answer.get("model")
     errors = validate_response(answer, result)
     if errors:
         return RespondResult(False, errors, INVALID_OUTPUT, head=head,
                              usage_event=event)
     new_head = checkout.head()
+    errors = no_answer_errors(answer, head, new_head)
+    if errors:
+        return RespondResult(False, errors, NO_ANSWER, head=head, new_head=new_head,
+                             response=answer, usage_event=event)
     errors = append_only_errors(answer, head, new_head, checkout)
     if errors:
         return RespondResult(False, errors, NOT_APPEND_ONLY, head=head,
@@ -487,6 +540,16 @@ def respond_to_review(story, pull_request, config, root, comments=None):
     sys.stderr.write("REFUSED: respond-review (%s)\n" % outcome.kind)
     for error in outcome.errors:
         sys.stderr.write("  - %s\n" % error)
+    if outcome.kind == NO_ANSWER:
+        handle = ((config or {}).get("notify") or {}).get("github")
+        run = ralph_review_render.run_plan(
+            escalation_plan(story, outcome.response, outcome.errors, handle), cwd=root)
+        if not run.ok:
+            sys.stderr.write("ralph: could not escalate #%s: %s\n"
+                             % (story["number"], run.failed.output.strip()))
+            return 1
+        print("ESCALATED: #%s needs a human; round %s was not answered"
+              % (story["number"], result.get("round")))
     return EXIT_CODES.get(outcome.kind, 2)
 
 
