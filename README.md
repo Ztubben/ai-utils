@@ -696,6 +696,11 @@ test/run.sh
 `test/run.sh` is the green gate. `test/unit/` uses Python's stdlib `unittest`
 (no `pytest` needed); `test/bats/` holds bats orchestration tests; bats is
 required, and `test/run.sh` fails rather than skip them. Fixtures live under `test/fixtures/`.
+`test/scenarios/` is the scenario harness: the real Tick, run repeatedly against a
+stateful fake GitHub, a real git remote and scripted agents, with loop invariants
+checked after every Tick. Fix a Loop bug by reproducing it as a scenario first —
+see [the scenario harness guide](docs/scenario-harness.md), which also covers
+capturing a production incident with `ralph --capture`.
 
 ## Design decisions
 
