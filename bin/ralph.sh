@@ -169,6 +169,23 @@ run_iteration() {
   return 0
 }
 
+# How many Handoffs the story carries, or nothing when it cannot be read.
+story_handoffs() {
+  gh issue view "$1" --json comments 2>/dev/null \
+    | "$RALPH_BIN" --count-handoffs - 2>/dev/null || true
+}
+
+# Record a failed Attempt (ADR-0004); at limits.max_attempts the story moves to
+# state:blocked, so resume-first stops selecting it. Best-effort: if it cannot
+# be recorded, the iteration bound is still there.
+record_failed_attempt() {
+  local issue="$1" reason="$2"
+  log "#$issue: $reason; recording a failed Attempt"
+  gh issue view "$issue" --json number,title,labels,body,state,comments \
+    | "$RALPH_BIN" --record-attempt - "$reason" "$RALPH_CONFIG" \
+    || log "could not record the Attempt for #$issue; continuing"
+}
+
 # Write a Handoff for the current in-progress story and end the tick cleanly.
 # The story is fetched fresh from gh so `ralph --checkpoint` has the full record.
 checkpoint_story() {
@@ -234,6 +251,7 @@ assign_story_models() {
 RC_REVIEW_WINDOW=14
 RC_REVIEW_ESCALATED=15
 RC_REVIEW_COMPLETED=16
+RC_REVIEW_BLOCKED=19
 await_review() {
   local issue="$1" story_file rc=0
   story_file="$(mktemp)"
@@ -386,7 +404,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --launch-agent --assign-models --checkpoint --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
+  for sub in --dry-run --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -451,6 +469,15 @@ tick() {
               n=$(( n + 1 ))
               continue
               ;;
+            "$RC_REVIEW_BLOCKED")
+              # A model that kept answering with nothing usable spent the
+              # Story's Attempts (#95): it is state:blocked, like a deadlock,
+              # and the tick moves on -- the breaker decides for the loop.
+              log "#$issue is blocked: its model produced nothing usable until its Attempts ran out"
+              check_breaker
+              n=$(( n + 1 ))
+              continue
+              ;;
             "$RC_REVIEW_ESCALATED")
               # Deadlock stops this Story, not the loop: it is already
               # state:blocked with a human asked to arbitrate, so it will not be
@@ -478,10 +505,18 @@ tick() {
         assign_story_models "$issue"
         sync_branch
         freshness_merge "$issue" "$base_branch"
-        local rc=0
+        local rc=0 handoffs_before
+        handoffs_before="$(story_handoffs "$issue")"
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
-          0)  # partial progress: resume the same story on the next pass
+          0)  # Stopped short of the done-signal. Partial progress only when
+              # the iteration reached a normal boundary -- a Handoff (ADR-0004).
+              # Otherwise it is a failed Attempt: treating every clean exit as
+              # progress relaunched autopilot_controller #72 41 times over two
+              # ticks with nothing recorded (#95).
+            if [[ -n "$handoffs_before" && "$(story_handoffs "$issue")" == "$handoffs_before" ]]; then
+              record_failed_attempt "$issue" "the iteration ended without the done-signal or a Handoff"
+            fi
             ;;
           "$RC_INFRA_FAILURE")  # the provider ran and died; no progress to promote
             log "agent launch failed for #$issue (infrastructure); resuming it on a later pass"

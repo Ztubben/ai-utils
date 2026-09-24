@@ -66,10 +66,5 @@
   "ticks": 3,
   "expect": {
     "72": "blocked"
-  },
-  "known_defect": {
-    "story": "#95",
-    "invariant": "invocation-limit",
-    "why": "An empty review is retryable invalid output, relaunched every poll of every window and never recorded (15 zero-usage review runs in production)."
   }
 }

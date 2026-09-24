@@ -122,6 +122,8 @@ RALPH-STORY-COMPLETE
 ```
 
 Do **not** print it for partial progress, a red gate, or a context-full Handoff —
-in those cases just commit/terminate and the orchestrator resumes the story next
-pass. You still never move labels, open the PR, or merge yourself (step above): the
+in those cases commit/terminate and the orchestrator resumes the story next pass.
+Stopping short is only a normal boundary when you wrote a Handoff: ending without
+the marker **and** without a Handoff is recorded as a failed **Attempt**, and after
+`limits.max_attempts` of those the story is blocked. You still never move labels, open the PR, or merge yourself (step above): the
 marker is the whole of your reporting; the completion stage owns the state change.

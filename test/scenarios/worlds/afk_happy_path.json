@@ -74,23 +74,13 @@
         "expect": {
           "1": "blocked"
         },
-        "why": "An implementation that changes nothing and claims nothing must be bounded, then blocked.",
-        "known_defect": {
-          "story": "#95",
-          "why": "Each no-op iteration is partial progress, so one Tick relaunches it up to RALPH_MAX_ITERATIONS (25).",
-          "invariant": "invocation-limit"
-        }
+        "why": "An implementation that changes nothing and claims nothing must be bounded, then blocked."
       },
       "empty-usage": {
         "expect": {
           "1": "blocked"
         },
-        "why": "An implementation that exits cleanly with no output and zero tokens must be bounded, then blocked.",
-        "known_defect": {
-          "story": "#95",
-          "why": "An empty run is partial progress: 25 launches in one Tick (autopilot_controller #72: 41).",
-          "invariant": "invocation-limit"
-        }
+        "why": "An implementation that exits cleanly with no output and zero tokens must be bounded, then blocked."
       },
       "invalid-output": {
         "expect": {
@@ -138,23 +128,13 @@
         "expect": {
           "1": "blocked"
         },
-        "why": "A reviewer that returns nothing must not be relaunched until the window closes.",
-        "known_defect": {
-          "story": "#95",
-          "why": "Invalid output is retryable, so the reviewer is relaunched every poll (autopilot_controller #72: 15 empty reviews).",
-          "invariant": "invocation-limit"
-        }
+        "why": "A reviewer that returns nothing must not be relaunched until the window closes."
       },
       "invalid-output": {
         "expect": {
           "1": "blocked"
         },
-        "why": "A reviewer whose output never validates must not be relaunched until the window closes.",
-        "known_defect": {
-          "story": "#95",
-          "why": "Invalid output is retryable, so the reviewer is relaunched every poll.",
-          "invariant": "invocation-limit"
-        }
+        "why": "A reviewer whose output never validates must not be relaunched until the window closes."
       },
       "session-limit": {
         "expect": {

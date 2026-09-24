@@ -12,6 +12,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_failure  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_complete  # noqa: E402
 import ralph_review_deadlock  # noqa: E402
@@ -33,6 +34,7 @@ GONE = "gone"          # no marked pull request, or it is no longer open
 # How the wait itself ended (REVIEW is never an ending; it is a step).
 EXPIRED = "expired"    # the bounded window closed: Handoff and end the tick
 FAILED = "failed"      # a step did not complete; leave it for the next tick
+BLOCKED = "blocked"    # a model kept producing nothing usable: Attempts ran out
 
 # The tick reads the ending as an exit code. Window expiry is its own code
 # because it is the one ending that obliges the caller to write a Handoff --
@@ -47,6 +49,10 @@ EXIT_ESCALATED = 15
 # And so is completion: the Story is finished, so the tick is free to go
 # straight on to the next one rather than ending on it.
 EXIT_COMPLETED = 16
+
+# A model that produced nothing usable spends an Attempt each time; when that
+# blocks the Story it is one Story's ending, like a deadlock (#95).
+EXIT_BLOCKED = 19
 
 # However long the window is, a poll never falls further apart than this: the
 # backoff is there to stop hammering the API, not to sleep through the arrival
@@ -187,7 +193,7 @@ class WaitPolicy:
 
 
 def await_review(policy, fetch, act, sleep, now, read_comments=None,
-                 read_protected=None, approvers=()):
+                 read_protected=None, approvers=(), record_attempt=None):
     """Poll durable state until the negotiation moves on or the window closes.
 
     ``fetch`` reads the pull request and ``read_comments`` the Story's recorded
@@ -197,6 +203,11 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
     agent.  One window can carry a whole exchange -- review, answer, review of
     the answered head -- because each step changes the durable state the next
     poll reads.
+
+    ``record_attempt(step, errors)`` is told of every retryable failure and
+    returns True when it blocked the Story. Without it a model that keeps
+    returning nothing usable is relaunched every poll of every window
+    (autopilot_controller #72: 15 empty reviews).
     """
     read_comments = read_comments or (lambda: [])
     read_protected = read_protected or (lambda pull_request: ())
@@ -233,6 +244,10 @@ def await_review(policy, fetch, act, sleep, now, read_comments=None,
                 # The backoff between polls is what keeps it from being a storm.
                 retries += 1
                 last_errors = errors
+                if record_attempt is not None and record_attempt(step, errors):
+                    return WaitResult(BLOCKED, errors=errors, polls=polls,
+                                      invocations=invocations,
+                                      elapsed=now() - started, retries=retries)
             elif step in (ESCALATE, COMPLETE, FINISH):
                 # Nothing is left to wait for. Either the Story is blocked with
                 # a human asked, or it is finished. Sitting out the rest of the
@@ -275,6 +290,7 @@ def _cmd_await(rest):
         return 2
 
     seen = {"pull_request": None}
+    last = {"rc": 0}
 
     def fetch():
         # Durable state only: whatever this reads, another tick or a human
@@ -334,12 +350,25 @@ def _cmd_await(rest):
                                                 validated.config, root)
             return step_outcome(rc, "escalation")
         if step == RESPOND:
-            rc = ralph_review_respond.respond_to_review(
+            rc = last["rc"] = ralph_review_respond.respond_to_review(
                 story, pull_request, validated.config, root)
             return step_outcome(rc, "response round")
-        rc = ralph_review_round.run_round(story, pull_request,
-                                          validated.config, root)
+        rc = last["rc"] = ralph_review_round.run_round(story, pull_request,
+                                                       validated.config, root)
         return step_outcome(rc, "review round")
+
+    def record_attempt(step, errors):
+        # Only a model that answered with nothing usable spends an Attempt; an
+        # infrastructure failure launched nothing billable and stays a free
+        # retry within the window (#61).
+        if last["rc"] != ralph_review_round.EXIT_INVALID_OUTPUT:
+            return False
+        agent = "Review Agent" if step == REVIEW else "Implementation Agent"
+        ok, blocked = ralph_failure.record_attempt(
+            story["number"], "the %s produced no usable result (%s)"
+            % (agent, "; ".join(errors)), validated.config["limits"]["max_attempts"],
+            cwd=root)
+        return ok and blocked
 
     def read_protected(pull_request):
         # The control-plane policy is read from the diff of whatever head the
@@ -361,7 +390,8 @@ def _cmd_await(rest):
                           now=time.monotonic, read_comments=read_comments,
                           read_protected=read_protected,
                           approvers=ralph_review_human.approvers_from(
-                              validated.config))
+                              validated.config),
+                          record_attempt=record_attempt)
     number = story.get("number", "?")
     if result.kind == EXPIRED:
         print("OK: review window closed after %.0fs on #%s (%d poll%s, %d "
@@ -383,6 +413,10 @@ def _cmd_await(rest):
         print("OK: #%s is blocked after a deadlocked negotiation; a human was "
               "asked to arbitrate. Unrelated Stories keep running." % number)
         return EXIT_ESCALATED
+    if result.kind == BLOCKED:
+        print("OK: #%s is blocked: its model kept producing nothing usable and "
+              "its Attempts ran out. Unrelated Stories keep running." % number)
+        return EXIT_BLOCKED
     if result.kind == HOLD:
         print("OK: #%s touches the protected control plane; a human was asked "
               "to approve before it can complete" % number)
