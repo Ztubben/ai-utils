@@ -86,12 +86,7 @@
         "expect": {
           "1": "blocked"
         },
-        "why": "An iteration that signals done without doing the work must end blocked, not loop.",
-        "known_defect": {
-          "story": "#98",
-          "why": "The failed promotion is never an Attempt; the Story stays in progress forever.",
-          "invariant": "terminal-within-budget"
-        }
+        "why": "An iteration that signals done without doing the work must end blocked, not loop."
       },
       "session-limit": {
         "expect": {
