@@ -314,8 +314,9 @@
      "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5796244785"
     }
    ],
-   "createdAt": null,
+   "createdAt": "2026-09-23T08:10:54Z",
    "headRefName": "ralph/64-story-64",
+   "mergedAt": null,
    "number": 94,
    "reviewComments": [
     {
@@ -2683,6 +2684,7 @@
  "statuses": {
   "d114bacc4a3f0d924d7ee4be305d5df3841d6b56": [
    {
+    "at": "2026-09-23T08:18:35Z",
     "context": "ralph/model-review",
     "description": "",
     "state": "failure"

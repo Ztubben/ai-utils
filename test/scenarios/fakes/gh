@@ -178,6 +178,7 @@ def pr_view(state, pr):
             "comments": [comment_view(c) for c in pr["comments"]],
             "reviews": [review_view(r) for r in pr["reviews"]],
             "statusCheckRollup": rollup(state, head),
+            "createdAt": pr.get("createdAt"),
             "mergedAt": pr.get("mergedAt")}
 
 

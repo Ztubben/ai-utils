@@ -34,7 +34,7 @@ ISSUE_FIELDS = "number,title,labels,body,state,comments"
 # No baseRefOid: gh releases before it was added to `pr view --json` refuse the
 # whole call over it (2.46 does), so the base commit is read from the REST pull.
 PR_FIELDS = ("number,title,body,state,headRefName,baseRefName,headRefOid,"
-             "statusCheckRollup,comments")
+             "statusCheckRollup,comments,createdAt,mergedAt")
 # REST lists page (30 by default); an incident is exactly the Story that
 # outgrew a page, so every page is read, one element per line.
 PER_PAGE = "?per_page=100"
@@ -84,7 +84,8 @@ def _split_rollup(rollup):
         if "state" in entry and "conclusion" not in entry:
             statuses.append({"context": entry.get("context"),
                              "state": (entry.get("state") or "").lower(),
-                             "description": entry.get("description") or ""})
+                             "description": entry.get("description") or "",
+                             "at": entry.get("startedAt")})
         else:
             checks.append({k: entry.get(k) for k in
                            ("__typename", "name", "status", "conclusion")})
@@ -131,7 +132,7 @@ def to_state(repo, story, pull_request=None, reviews=(), threads=(), commits=(),
                                      "in_reply_to_id": c.get("in_reply_to_id"),
                                      "pull_request_review_id": c.get("pull_request_review_id"),
                                      "createdAt": c.get("created_at")} for c in threads],
-                 "createdAt": None}
+                 "createdAt": pr.get("createdAt"), "mergedAt": pr.get("mergedAt")}
         if entry["state"] != "OPEN":
             entry["mergedHeadOid"] = head
             entry["mergedBaseOid"] = pr.get("baseRefOid")

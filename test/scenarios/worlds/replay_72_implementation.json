@@ -1,0 +1,75 @@
+{
+  "description": "Replay of autopilot_controller Story #72 (redacted capture), rewound to before its first iteration. The Implementation Agent never signals done and never writes a Handoff, as all 41 production iterations did; the Loop must bound it and block the Story.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "codex-sol",
+          "provider": "codex",
+          "model": "gpt-5.6-sol"
+        },
+        {
+          "key": "opus",
+          "provider": "claude",
+          "model": "claude-opus-5"
+        }
+      ],
+      "defaults": {
+        "implementation": "codex-sol",
+        "review": "opus"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "capture": "captures/autopilot-controller-72.json",
+    "rewind_to": "2026-09-04T07:38:59Z",
+    "labels": {
+      "72": [
+        "type:hil",
+        "prio:3",
+        "state:ready",
+        "model:impl:gpt-5.6-sol",
+        "model:review:claude-opus-5"
+      ]
+    },
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "literal-noop",
+    "review": "cooperative"
+  },
+  "ticks": 3,
+  "expect": {
+    "72": "blocked"
+  },
+  "known_defect": {
+    "story": "#95",
+    "invariant": "invocation-limit",
+    "why": "A clean exit without the done-signal is taken as partial progress whether or not a Handoff was written, so one Tick relaunches it up to RALPH_MAX_ITERATIONS and no Attempt is ever recorded (41 production iterations over two Ticks)."
+  }
+}
