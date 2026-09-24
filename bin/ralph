@@ -83,6 +83,7 @@ usage: ralph --init [CONFIG]
        ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
        ralph --learn-target PATH [ROOT]
+       ralph --capture STORY [--out DIR]
 
   --init [CONFIG]         Bootstrap the superproject for the Ralph Loop:
                           idempotently create the canonical state:/type:/prio:/
@@ -242,6 +243,12 @@ usage: ralph --init [CONFIG]
                           posted. A result whose head is no longer the PR's
                           head posts nothing and updates no check. Exits 0 on
                           success, 1 on a gh failure, 2 on a refusal.
+  --capture STORY         Write a Story's GitHub state (issue, labels, comments,
+       [--out DIR]        its PRD, its newest Ralph-managed pull request with
+                          reviews, inline threads and PR comments, and the pull
+                          request's commit chain) to DIR/story-N.json in the
+                          scenario harness's fake-GitHub format, so an incident
+                          replays as a scenario. Read-only against GitHub.
   --review-round STORY    Run one Negotiation Round for a Story In Review.
        [CONFIG] [ROOT]    Finds the Story's open, Ralph-managed pull request
        [--pr PATH]        (marker + "Refs #N"; pass --pr to supply it as JSON
@@ -508,6 +515,10 @@ main() {
     --render-review)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_review_render.py" render "$@"
+      ;;
+    --capture)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_capture.py" "$@"
       ;;
     --review-round)
       shift

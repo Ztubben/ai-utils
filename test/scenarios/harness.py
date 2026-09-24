@@ -20,6 +20,7 @@ requests, the remote.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -73,16 +74,36 @@ def _git(args, cwd, env):
                           text=True).stdout.strip()
 
 
+def load_capture(path):
+    """A `ralph --capture` fixture, resolved relative to `worlds/`."""
+    with open(path if os.path.isabs(path) else os.path.join(WORLDS, path)) as fh:
+        return json.load(fh)
+
+
 def initial_state(spec):
-    """The fake's state file for the scenario's starting GitHub world."""
+    """The fake's state file for the scenario's starting GitHub world.
+
+    A world may start from a capture (`github.capture`); its issues, pull
+    request and records are served as captured, with the canonical labels
+    added and any `issues`/`ci` the scenario declares layered on top.
+    """
     github = spec.get("github", {})
     base = spec["config"].get("branching", {}).get("base", "develop")
-    state = {"repo": {"owner": "acme", "name": "target", "defaultBranch": base},
-             "labels": [{"name": name, "color": color, "description": desc}
-                        for name, color, desc in ralph_init.canonical_labels()],
-             "issues": {}, "pulls": {}, "statuses": {},
-             "ci": github.get("ci", []), "next_number": 1, "next_id": 1000,
-             "clock": 0}
+    canonical = [{"name": name, "color": color, "description": desc}
+                 for name, color, desc in ralph_init.canonical_labels()]
+    if github.get("capture"):
+        state = load_capture(github["capture"])
+        state.pop("format", None)
+        state.pop("git", None)
+        known = {label["name"] for label in canonical}
+        state["labels"] = canonical + [l for l in state["labels"] if l["name"] not in known]
+        if "ci" in github:
+            state["ci"] = github["ci"]
+    else:
+        state = {"repo": {"owner": "acme", "name": "target", "defaultBranch": base},
+                 "labels": canonical, "issues": {}, "pulls": {}, "statuses": {},
+                 "ci": github.get("ci", []), "next_number": 1, "next_id": 1000,
+                 "clock": 0}
     for issue in github.get("issues", []):
         number = issue["number"]
         state["issues"][str(number)] = {
@@ -92,6 +113,24 @@ def initial_state(spec):
             "url": "https://github.com/acme/target/issues/%d" % number}
         state["next_number"] = max(state["next_number"], number + 1)
     return state
+
+
+def translate_oids(value, mapping):
+    """*value* with every captured commit id -- whole or abbreviated to 7+
+    characters -- replaced by its replay counterpart, the same length.
+
+    Plain text substitution over the JSON: the harness never interprets the
+    Loop's markers, it only makes the ids they carry point at real commits.
+    """
+    if not mapping:
+        return value
+
+    def swap(match):
+        token = match.group(0)
+        hits = {new for old, new in mapping.items() if old.startswith(token)}
+        return next(iter(hits))[:len(token)] if len(hits) == 1 else token
+
+    return json.loads(re.sub(r"\b[0-9a-f]{7,40}\b", swap, json.dumps(value)))
 
 
 class World:
@@ -150,9 +189,48 @@ class World:
         _git(["add", "-A"], self.checkout, self.env)
         _git(["commit", "-q", "-m", "chore: scenario world"], self.checkout, self.env)
         _git(["push", "-q", "-u", "origin", base], self.checkout, self.env)
+        state = initial_state(self.spec)
+        self.oid_map = {}
+        capture = self.spec.get("github", {}).get("capture")
+        if capture:
+            git = load_capture(capture).get("git")
+            if git:
+                self.oid_map = self._replay_chain(git, state)
+                state = translate_oids(state, self.oid_map)
         with open(self.state_path, "w") as fh:
-            json.dump(initial_state(self.spec), fh, indent=1)
+            json.dump(state, fh, indent=1)
         open(self.log_path, "w").close()
+
+    def _replay_chain(self, git, state):
+        """Rebuild a captured pull request's commit chain on the scenario base.
+
+        Content is synthetic; the *shape* is the capture's: the captured base
+        (and merge base) become this world's base commit, each captured commit
+        one commit on top of it, pushed where GitHub would have it -- the head
+        branch while the pull request is open, and `refs/pull/N/head` always.
+        """
+        base_oid = _git(["rev-parse", "HEAD"], self.checkout, self.env)
+        mapping = {oid: base_oid for oid in (git.get("base"), git.get("merge_base")) if oid}
+        (pr,) = state["pulls"].values()
+        for i, commit in enumerate(git["commits"]):
+            path = os.path.join(self.checkout, "replay-%d.txt" % i)
+            with open(path, "w") as fh:
+                fh.write("captured commit %s\n" % commit["oid"])
+            _git(["add", path], self.checkout, self.env)
+            _git(["commit", "-q", "-m", commit.get("subject") or "replay"],
+                 self.checkout, self.env)
+            mapping[commit["oid"]] = _git(["rev-parse", "HEAD"], self.checkout, self.env)
+        refs = ["HEAD:refs/pull/%s/head" % pr["number"]]
+        if pr["state"] == "OPEN":
+            refs.append("HEAD:refs/heads/%s" % pr["headRefName"])
+        if _git(["ls-remote", "origin", "refs/heads/%s" % pr["baseRefName"]],
+                self.checkout, self.env) == "":
+            refs.append("%s:refs/heads/%s" % (base_oid, pr["baseRefName"]))
+        _git(["push", "-q", "origin"] + refs, self.checkout, self.env)
+        base = self.spec["config"].get("branching", {}).get("base", "develop")
+        _git(["checkout", "-q", "--detach", base_oid], self.checkout, self.env)
+        _git(["checkout", "-q", "-B", base, base_oid], self.checkout, self.env)
+        return mapping
 
     # --- reading the world back ---------------------------------------------
 
