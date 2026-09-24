@@ -92,12 +92,7 @@
         "expect": {
           "1": "in-progress"
         },
-        "why": "A provider out of session budget makes no progress; the Tick hands off cleanly and the Story waits.",
-        "known_defect": {
-          "story": "#99",
-          "why": "The Handoff pushes a Story branch that does not exist yet and fails the Tick.",
-          "failure": "exited 1"
-        }
+        "why": "A provider out of session budget makes no progress; the Tick hands off cleanly and the Story waits."
       },
       "commit-no-push": {
         "expect": {

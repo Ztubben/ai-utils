@@ -56,7 +56,7 @@ class HandoffPlan(unittest.TestCase):
         self.assertTrue(any(cmd[:2] == ["git", "add"] for cmd in plan.commands))
         self.assertTrue(any(cmd[:2] == ["git", "commit"] for cmd in plan.commands))
         self.assertTrue(any(cmd[:2] == ["git", "push"] for cmd in plan.commands))
-        self.assertIn("ralph/8-wire-up-the-adc", _flat(plan.commands))
+        self.assertIn("refs/heads/ralph/8-wire-up-the-adc:refs/heads/ralph/8-wire-up-the-adc", _flat(plan.commands))
         # a Handoff comment is posted to the issue.
         self.assertTrue(any(cmd[:3] == ["gh", "issue", "comment"] for cmd in plan.commands))
 
@@ -92,12 +92,24 @@ class HandoffPlan(unittest.TestCase):
         self.assertLess(kinds.index(("git", "commit")), kinds.index(("git", "push")))
         self.assertLess(kinds.index(("git", "push")), kinds.index(("gh", "issue", "comment")))
 
+    def test_pushes_named_refs_and_never_sets_an_upstream(self):
+        plan = ralph_handoff.handoff_plan(story(number=8), "s")
+        push = next(c for c in plan.commands if c[:2] == ["git", "push"])
+        self.assertNotIn("-u", push)
+        self.assertEqual(push[-1], "refs/heads/%s:refs/heads/%s" % (plan.branch, plan.branch))
+
+    def test_no_story_branch_yet_writes_the_comment_alone(self):
+        # #99: a session limit before the agent created its branch.
+        plan = ralph_handoff.handoff_plan(story(number=8), "s", branch_exists=False)
+        self.assertTrue(plan.ok)
+        self.assertEqual([c[:3] for c in plan.commands], [["gh", "issue", "comment"]])
+
     def test_pushes_story_branch_not_base(self):
         # The base branch is never referenced; only the story branch is pushed.
         plan = ralph_handoff.handoff_plan(story(number=8), "s", base="develop")
         self.assertNotIn("develop", _flat(plan.commands))
         push = next(c for c in plan.commands if c[:2] == ["git", "push"])
-        self.assertIn("ralph/8-wire-up-the-adc", push)
+        self.assertIn("refs/heads/ralph/8-wire-up-the-adc:refs/heads/ralph/8-wire-up-the-adc", push)
 
     def test_never_touches_main(self):
         plan = ralph_handoff.handoff_plan(story(), "s", base="develop")
@@ -118,7 +130,7 @@ class HandoffPlan(unittest.TestCase):
     def test_honors_custom_branch_pattern(self):
         plan = ralph_handoff.handoff_plan(
             story(number=9), "s", base="develop", branch_pattern="wip/{issue}/{slug}")
-        self.assertIn("wip/9/wire-up-the-adc", _flat(plan.commands))
+        self.assertIn("refs/heads/wip/9/wire-up-the-adc:refs/heads/wip/9/wire-up-the-adc", _flat(plan.commands))
 
 
 class ResumePlan(unittest.TestCase):
