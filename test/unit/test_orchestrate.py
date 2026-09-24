@@ -12,8 +12,8 @@ repository's model catalog selects. The harness therefore puts a fake binary for
 *every* provider on PATH and asserts which one the tick actually ran.
 
 The bats suite (`test/bats/orchestration.bats`) drives the same script against
-mocked provider CLIs/`gh` on PATH; bats is not installed in this environment, so
-these stdlib-`unittest` subprocess tests are the executed green gate (the same
+mocked provider CLIs/`gh` on PATH; both tiers run in the green gate. These
+stdlib-`unittest` subprocess tests cover the bulk of the tick (the same
 "mock the CLIs on PATH via $RALPH_LOG" pattern the completion stages use).
 """
 import fcntl

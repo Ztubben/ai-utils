@@ -14,7 +14,7 @@ not HITL) and `docs/adr/0001–0005`.
   specializes `to-issues` to emit the canonical backlog shape). A skill's `examples/` hold
   well-formed sample issues that a test asserts stay canonical.
 - `.ralph.yml.sample` — documented sample config that MUST validate (a test asserts it).
-- `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (auto-skipped if bats absent).
+- `test/run.sh` — the green gate. `test/unit/` = Python `unittest` (fixtures under `test/fixtures/`); `test/bats/` = bats orchestration (bats is **required**: `run.sh` fails fast without it, #86); `test/scenarios/` = the multi-Tick scenario tier (PRD #85), run when present. `run.sh` ends by naming the tiers that ran.
 
 ## Conventions / gotchas
 - Publication must name both refs explicitly: `refs/heads/<story>:refs/heads/<story>`.
@@ -28,7 +28,7 @@ not HITL) and `docs/adr/0001–0005`.
   the Story merged but open). The remote branch is deleted by name as best-effort
   cleanup after the Story is closed. A Story In Review whose pull request is
   already merged is finished (`FINISH`: close, merge nothing), never reported gone.
-- No `pytest`/`bats` installed here; unit tests use stdlib `unittest`, run via `test/run.sh`.
+- No `pytest`; unit tests use stdlib `unittest`, run via `test/run.sh`. `bats` must be installed.
 - Python logic returns a result object (`ok`, `errors`, resolved data) rather than
   exiting; only the CLI wrapper prints and sets exit codes. Keeps logic unit-testable.
 - Error strings name the offending field path (e.g. `branching/afk_merge: ...`) so
@@ -643,8 +643,8 @@ not HITL) and `docs/adr/0001–0005`.
   `--check-config`, *before* `begin_story` can label anything — that tick left #48 stranded in
   `state:in-progress`. Every knob is an env var so
   tests/superprojects override without editing the script. Covered by
-  `test/bats/orchestration.bats` (run by `test/run.sh` when bats is present) AND
-  `test/unit/test_orchestrate.py` (the executed gate here — bats is not installed — driving the
+  `test/bats/orchestration.bats` (bats is required by `test/run.sh`) AND
+  `test/unit/test_orchestrate.py` (driving the
   script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
   queue that pops one backlog fixture per call to simulate stories completing).
 - `lib/ralph_session.py` owns the one question the tick must never get wrong (#65): did the
