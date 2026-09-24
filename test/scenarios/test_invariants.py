@@ -24,6 +24,7 @@ class HandBuiltWorld(unittest.TestCase):
         self.addCleanup(self.world.cleanup)
         self.watch = invariants.Watch(self.world)
         self.head = self.git("rev-parse", "HEAD")
+        self.watch.check()      # the starting world is the baseline, as in a run
 
     def git(self, *args):
         return subprocess.run(["git"] + list(args), cwd=self.world.checkout,

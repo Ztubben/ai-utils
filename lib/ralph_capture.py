@@ -24,16 +24,19 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ralph_iterate  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_round  # noqa: E402
 import ralph_story  # noqa: E402
 
 FORMAT = "ralph-capture/v1"
 ISSUE_FIELDS = "number,title,labels,body,state,comments"
+# No baseRefOid: gh releases before it was added to `pr view --json` refuse the
+# whole call over it (2.46 does), so the base commit is read from the REST pull.
 PR_FIELDS = ("number,title,body,state,headRefName,baseRefName,headRefOid,"
-             "baseRefOid,statusCheckRollup,comments")
-# REST lists page at 30 by default; one page of 100 covers any Story the loop
-# should ever have produced, and a Story that outgrew it is an incident itself.
+             "statusCheckRollup,comments")
+# REST lists page (30 by default); an incident is exactly the Story that
+# outgrew a page, so every page is read, one element per line.
 PER_PAGE = "?per_page=100"
 
 
@@ -144,6 +147,138 @@ def to_state(repo, story, pull_request=None, reviews=(), threads=(), commits=(),
     return state
 
 
+# --- redaction ----------------------------------------------------------------
+#
+# A capture of a private repository must be committable to a public one.
+# Redaction keeps what the Loop *parses* and drops what people wrote: every
+# marker, every fenced JSON record (with only its structural fields' strings
+# kept), the generated header lines, the finding headings and the ledger rows.
+# It is a whitelist -- a line nobody listed here is prose, and prose goes.
+
+REDACTED = "[redacted]"
+_KEEP_LINE = [re.compile(p) for p in (
+    r"^\s*<!--.*-->\s*$",
+    r"^Refs #\d+$", r"^Closes #\d+$",
+    r"^Parent: .*$", r"^Depends on: .*$",
+    r"^(Implementing|Reviewing) model: `[^`]*`$",
+    r"^(Reviewed commit|New head|Head|Base): [0-9a-f]{7,40}$",
+    r"^Ralph [a-z ]+— round \d+$",
+    r"^## Token ledger — #\d+$",
+    r"^\|.*\|$",
+    r"^(/approve|/request-changes)$",
+    r"^-{3,}$",
+)]
+_HEADINGS = {"What to build", "Acceptance Criteria", "Bench Test Procedure",
+             "Problem Statement", "Solution", "User Stories",
+             "Implementation Decisions", "Testing Decisions", "Out of Scope",
+             "Further Notes", "Earlier findings"}
+_FINDING_HEAD = re.compile(
+    r"^(\*\*[A-Z]+-\d+\*\*(?: \([a-z_]+, (?:non-)?blocking\))?"
+    r"(?: — (?:accepted|disputed|unresolved))?)")
+_CHECKBOX = re.compile(r"^(\s*- \[[ xX]\] )")
+_TOKEN = re.compile(r"^\S{0,64}$")
+# String values of these record fields are identifiers, never prose.
+_KEEP_KEYS = {"contract", "verdict", "head", "model", "provider", "id", "category",
+              "disposition", "phase", "role", "kind", "status", "state", "run_id",
+              "event", "decision", "review", "at", "recorded_at", "timestamp",
+              "new_head", "reviewed_head", "outcome", "login", "author", "source"}
+
+
+def _redact_json(value, paths, key=None):
+    if isinstance(value, dict):
+        return {k: _redact_json(v, paths, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_json(v, paths, key) for v in value]
+    if isinstance(value, str) and key == "path":
+        return paths.setdefault(value, "redacted/file-%d" % (len(paths) + 1))
+    # A space-free token (a version, a status, a timestamp, an identifier) is
+    # structure; prose has words.
+    if isinstance(value, str) and key not in _KEEP_KEYS and not _TOKEN.match(value):
+        return REDACTED
+    return value
+
+
+def redact_text(text, paths):
+    """*text* reduced to the structure the Loop reads (see the block comment)."""
+    out, fence, dropped = [], None, False
+    for line in (text or "").splitlines():
+        if fence is not None:
+            if line.strip().startswith("```"):
+                try:
+                    body = json.dumps(_redact_json(json.loads("\n".join(fence)), paths),
+                                      indent=2, sort_keys=True)
+                except ValueError:
+                    body = REDACTED
+                out += ["```json", body, "```"]
+                fence = None
+            else:
+                fence.append(line)
+            continue
+        if line.strip() == "```json":
+            fence = []
+            continue
+        stripped = line.strip()
+        heading = re.match(r"^#{1,6} (.*)$", stripped)
+        finding = _FINDING_HEAD.match(stripped)
+        box = _CHECKBOX.match(line)
+        if any(p.match(stripped) for p in _KEEP_LINE) or (
+                heading and heading.group(1) in _HEADINGS) or not stripped:
+            kept = line
+        elif finding:
+            kept = finding.group(1)
+        elif box:
+            kept = box.group(1) + REDACTED
+        else:
+            if not dropped:
+                out.append(REDACTED)
+            dropped = True
+            continue
+        dropped = False
+        out.append(kept)
+    return "\n".join(out)
+
+
+def redact(state):
+    """A copy of a captured *state* safe to publish: prose out, structure kept.
+
+    Titles become "Story N" / "PRD N" and branch names are renamed to what the
+    Loop derives from those titles, so a replay recomputes the same branches.
+    """
+    state = json.loads(json.dumps(state))
+    paths, renames = {}, {}
+    for issue in state["issues"].values():
+        issue["title"] = ("PRD %d" if "prd" in issue["labels"] else "Story %d") % issue["number"]
+    stories = {int(n): i for n, i in state["issues"].items()}
+    for pr in state["pulls"].values():
+        story = next((stories[n] for n in stories
+                      if re.search(r"Refs #%d\b" % n, pr["body"])), None)
+        if story is not None:
+            _, parent = ralph_story._parse_parent(story["body"])
+            new = ralph_iterate.branch_name(story)
+            renames[pr["headRefName"]] = new
+            if parent in stories:
+                renames[pr["baseRefName"]] = ralph_iterate.branch_name(
+                    stories[parent], ralph_iterate.DEFAULT_FEATURE_PATTERN)
+        pr["title"] = REDACTED
+    for issue in list(state["issues"].values()) + list(state["pulls"].values()):
+        issue["body"] = redact_text(issue["body"], paths)
+        for comment in issue.get("comments", []):
+            comment["body"] = redact_text(comment["body"], paths)
+        for review in issue.get("reviews", []):
+            review["body"] = redact_text(review["body"], paths)
+        for comment in issue.get("reviewComments", []):
+            comment["body"] = redact_text(comment["body"], paths)
+            if comment.get("path"):
+                comment["path"] = paths.setdefault(comment["path"],
+                                                   "redacted/file-%d" % (len(paths) + 1))
+    for i, commit in enumerate((state.get("git") or {}).get("commits", [])):
+        commit["subject"] = "commit %d" % (i + 1)
+    text = json.dumps(state)
+    for old, new in sorted(renames.items(), key=lambda kv: -len(kv[0])):
+        text = text.replace(old, new)
+    return json.loads(text)
+
+
 # --- the reads ---------------------------------------------------------------
 
 def _run(args, cwd):
@@ -157,6 +292,11 @@ def _run(args, cwd):
 
 def _gh_json(args, cwd):
     return json.loads(_run(["gh"] + args, cwd) or "null")
+
+
+def _gh_list(route, cwd):
+    out = _run(["gh", "api", "--paginate", "--jq", ".[]", route], cwd)
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
 def _story_pull_request(number, cwd):
@@ -202,9 +342,11 @@ def capture(number, cwd=None):
         if pr_number is None:
             return CaptureResult(True, [], to_state(repo, story, prd=prd))
         pr = _gh_json(["pr", "view", str(pr_number), "--json", PR_FIELDS + ",url"], cwd)
+        rest = _gh_json(["api", "repos/{owner}/{repo}/pulls/%s" % pr_number], cwd)
+        pr["baseRefOid"] = rest["base"]["sha"]
         route = "repos/{owner}/{repo}/pulls/%s/%%s%s" % (pr_number, PER_PAGE)
-        reviews = _gh_json(["api", route % "reviews"], cwd) or []
-        threads = _gh_json(["api", route % "comments"], cwd) or []
+        reviews = _gh_list(route % "reviews", cwd)
+        threads = _gh_list(route % "comments", cwd)
         merge_base, commits = _chain(pr, cwd)
     except (RuntimeError, ValueError, KeyError) as exc:
         return CaptureResult(False, ["capture: %s" % exc])
@@ -213,9 +355,13 @@ def capture(number, cwd=None):
 
 
 def main(argv):
-    positional, out_dir = [], "."
+    positional, out_dir, redacting = [], ".", False
     i = 0
     while i < len(argv):
+        if argv[i] == "--redact":
+            redacting = True
+            i += 1
+            continue
         if argv[i] == "--out":
             if i + 1 >= len(argv):
                 sys.stderr.write("ralph: --out requires a DIR\n")
@@ -226,7 +372,7 @@ def main(argv):
         positional.append(argv[i])
         i += 1
     if len(positional) != 1 or not positional[0].lstrip("#").isdigit():
-        sys.stderr.write("usage: ralph --capture STORY [--out DIR]\n")
+        sys.stderr.write("usage: ralph --capture STORY [--out DIR] [--redact]\n")
         return 2
     number = int(positional[0].lstrip("#"))
     result = capture(number)
@@ -234,10 +380,11 @@ def main(argv):
         for error in result.errors:
             sys.stderr.write("ralph: %s\n" % error)
         return 1
+    state = redact(result.state) if redacting else result.state
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "story-%d.json" % number)
     with open(path, "w") as fh:
-        json.dump(result.state, fh, indent=1, sort_keys=True)
+        json.dump(state, fh, indent=1, sort_keys=True)
         fh.write("\n")
     print(path)
     return 0

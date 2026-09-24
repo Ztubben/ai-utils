@@ -54,12 +54,15 @@ class Violation:
 class Observation:
     """One read of the world after a Tick; the invariants only look, never act."""
 
-    def __init__(self, world, previous_heads, final):
+    def __init__(self, world, previous_heads, final, baseline=None):
         self.state = world.state()
         self.calls = world.calls()
         self.remote = world.remote
         self.final = final
         self.previous_heads = previous_heads
+        # Records the world *started* with -- a capture's production history --
+        # were made by runs this scenario never saw, so they back nothing here.
+        self.baseline = baseline or Counter()
         self.heads = self._branch_heads()
         config = ralph_config.load_and_validate(
             os.path.join(world.checkout, ".ralph.yml")).config
@@ -100,6 +103,11 @@ def is_empty(call):
     usage = call.get("usage") or {}
     counts = [v for v in usage.values() if isinstance(v, int)]
     return not (call.get("text") or "").strip() or not any(counts)
+
+
+def _adds(argv, label):
+    return any(a == "--add-label" and label in b.split(",")
+               for a, b in zip(argv, argv[1:]))
 
 
 def _per_round(records):
@@ -182,6 +190,7 @@ def empty_runs_never_count(obs):
                     ("response", "response",
                      ralph_review.response_records(story["comments"] + pr_comments, head))):
                 for round_no, n in _per_round(records).items():
+                    n -= obs.baseline[(kind, story["number"], head, round_no)]
                     if n > backed(phase, head, round_no):
                         found.append(Violation(
                             "empty-runs-never-count",
@@ -191,7 +200,7 @@ def empty_runs_never_count(obs):
                                                      phase), records))
         promotions = [c for c in obs.calls if c["tool"] == "gh"
                       and c["argv"][:3] == ["issue", "edit", str(story["number"])]
-                      and "state:in-review" in c["argv"] and c.get("rc") == 0]
+                      and _adds(c["argv"], "state:in-review") and c.get("rc") == 0]
         runs = [c for c in obs.agent_calls(story=story["number"], phase="iteration")
                 if not is_empty(c)]
         if len(promotions) > len(runs):
@@ -201,6 +210,21 @@ def empty_runs_never_count(obs):
                 "iteration(s) ran" % (story["number"], len(promotions), len(runs)),
                 [c["argv"] for c in promotions]))
     return found
+
+
+def record_counts(obs):
+    """(kind, story, head, round) -> how many records of that kind exist."""
+    counts = Counter()
+    pr_comments = obs.all_pr_comments()
+    for story in obs.stories():
+        for head in obs.commits():
+            for kind, records in (
+                    ("review result", ralph_review.result_records(story["comments"], head)),
+                    ("response", ralph_review.response_records(
+                        story["comments"] + pr_comments, head))):
+                for round_no, n in _per_round(records).items():
+                    counts[(kind, story["number"], head, round_no)] += n
+    return counts
 
 
 def terminal_within_budget(obs):
@@ -231,9 +255,13 @@ class Watch:
     def __init__(self, world):
         self.world = world
         self.heads = {}
+        self.baseline = None
 
     def check(self, final=False):
-        obs = Observation(self.world, self.heads, final)
+        obs = Observation(self.world, self.heads, final, self.baseline)
+        if self.baseline is None:
+            self.baseline = record_counts(obs)
+            obs.baseline = self.baseline
         violations = [v for _name, invariant in INVARIANTS for v in invariant(obs)]
         self.heads = obs.heads
         return violations

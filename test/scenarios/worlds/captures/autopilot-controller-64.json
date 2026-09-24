@@ -1,0 +1,2692 @@
+{
+ "ci": [],
+ "clock": 0,
+ "format": "ralph-capture/v1",
+ "git": {
+  "base": "30b9478bf0b6acfabeee7d3846d75bcde4eb001f",
+  "commits": [
+   {
+    "oid": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+    "subject": "commit 1"
+   }
+  ],
+  "head": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+  "merge_base": "30b9478bf0b6acfabeee7d3846d75bcde4eb001f"
+ },
+ "issues": {
+  "52": {
+   "body": "## Problem Statement\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n## Solution\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n## User Stories\n\n[redacted]\n\n## Implementation Decisions\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n## Testing Decisions\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n## Out of Scope\n\n[redacted]\n\n## Further Notes\n\n[redacted]\n\nDepends on: None",
+   "comments": [],
+   "labels": [
+    "state:ready",
+    "prd"
+   ],
+   "number": 52,
+   "state": "OPEN",
+   "title": "PRD 52",
+   "url": ""
+  },
+  "64": {
+   "body": "## What to build\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n[redacted]\n\n## Acceptance Criteria\n\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n- [ ] [redacted]\n\nParent: #52\nDepends on: #57, #61, #84",
+   "comments": [
+    {
+     "author": "Ztubben",
+     "body": "## Token ledger \u2014 #64\n\n[redacted]\n\n| Round | Phase | Provider | Model | Input | Cached | Reasoning | Output | Total |\n|---|---|---|---|---|---|---|---|---|\n| \u2014 | implementation | codex | gpt-5.6-sol | 2,580,386 | 2,485,632 | 4,184 | 14,437 | \u2014 |\n| 1 | review | claude | claude-opus-5 | 2,847,775 | 2,741,276 | 22,093 | 33,197 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 126,626 | 86,784 | 306 | 1,126 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 116,606 | 81,152 | 178 | 879 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 124,533 | 90,240 | 375 | 1,115 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 85,030 | 50,816 | 147 | 713 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 84,850 | 52,480 | 224 | 812 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 43,082 | 11,136 | 68 | 467 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 144,118 | 102,784 | 285 | 1,041 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 94,544 | 62,464 | 213 | 801 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 47,283 | 16,512 | 77 | 472 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 48,543 | 0 | 104 | 498 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 157,300 | 117,760 | 182 | 904 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 50,823 | 16,512 | 94 | 489 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 52,083 | 11,136 | 70 | 464 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 106,551 | 60,672 | 147 | 658 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 171,940 | 110,976 | 370 | 1,043 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 55,539 | 0 | 63 | 457 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 116,778 | 67,712 | 116 | 626 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 180,769 | 133,760 | 185 | 825 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 59,139 | 6,656 | 91 | 485 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 188,089 | 128,768 | 95 | 805 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 61,645 | 11,136 | 109 | 504 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 62,701 | 16,512 | 55 | 450 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 63,961 | 6,656 | 119 | 513 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 65,015 | 0 | 52 | 446 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 66,169 | 11,136 | 118 | 511 | \u2014 |\n| 1 | response | codex | gpt-5.6-sol | 67,323 | 6,656 | 40 | 435 | \u2014 |\n\n<!-- ralph-usage-ledger:v1 -->\n\n```json\n{\n  \"dropped\": 0,\n  \"events\": [\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": null,\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"implementation\",\n      \"provider\": \"codex\",\n      \"pull_request\": null,\n      \"role\": \"implementation\",\n      \"round\": null,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:10:47Z\",\n      \"usage\": {\n        \"cached_input\": 2485632,\n        \"input\": 2580386,\n        \"output\": 14437,\n        \"reasoning\": 4184,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"claude-opus-5\",\n      \"phase\": \"review\",\n      \"provider\": \"claude\",\n      \"pull_request\": 94,\n      \"role\": \"review\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:18:33Z\",\n      \"usage\": {\n        \"cached_input\": 2741276,\n        \"input\": 2847775,\n        \"output\": 33197,\n        \"reasoning\": 22093,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:19:54Z\",\n      \"usage\": {\n        \"cached_input\": 86784,\n        \"input\": 126626,\n        \"output\": 1126,\n        \"reasoning\": 306,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:21:43Z\",\n      \"usage\": {\n        \"cached_input\": 81152,\n        \"input\": 116606,\n        \"output\": 879,\n        \"reasoning\": 178,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:24:43Z\",\n      \"usage\": {\n        \"cached_input\": 90240,\n        \"input\": 124533,\n        \"output\": 1115,\n        \"reasoning\": 375,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:29:25Z\",\n      \"usage\": {\n        \"cached_input\": 50816,\n        \"input\": 85030,\n        \"output\": 713,\n        \"reasoning\": 147,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:35:08Z\",\n      \"usage\": {\n        \"cached_input\": 52480,\n        \"input\": 84850,\n        \"output\": 812,\n        \"reasoning\": 224,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:40:40Z\",\n      \"usage\": {\n        \"cached_input\": 11136,\n        \"input\": 43082,\n        \"output\": 467,\n        \"reasoning\": 68,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:46:37Z\",\n      \"usage\": {\n        \"cached_input\": 102784,\n        \"input\": 144118,\n        \"output\": 1041,\n        \"reasoning\": 285,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:52:28Z\",\n      \"usage\": {\n        \"cached_input\": 62464,\n        \"input\": 94544,\n        \"output\": 801,\n        \"reasoning\": 213,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T08:57:59Z\",\n      \"usage\": {\n        \"cached_input\": 16512,\n        \"input\": 47283,\n        \"output\": 472,\n        \"reasoning\": 77,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T09:03:31Z\",\n      \"usage\": {\n        \"cached_input\": 0,\n        \"input\": 48543,\n        \"output\": 498,\n        \"reasoning\": 104,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T09:09:21Z\",\n      \"usage\": {\n        \"cached_input\": 117760,\n        \"input\": 157300,\n        \"output\": 904,\n        \"reasoning\": 182,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T080128Z-951426\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T09:11:22Z\",\n      \"usage\": {\n        \"cached_input\": 16512,\n        \"input\": 50823,\n        \"output\": 489,\n        \"reasoning\": 94,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:01:54Z\",\n      \"usage\": {\n        \"cached_input\": 11136,\n        \"input\": 52083,\n        \"output\": 464,\n        \"reasoning\": 70,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:03:04Z\",\n      \"usage\": {\n        \"cached_input\": 60672,\n        \"input\": 106551,\n        \"output\": 658,\n        \"reasoning\": 147,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:05:00Z\",\n      \"usage\": {\n        \"cached_input\": 110976,\n        \"input\": 171940,\n        \"output\": 1043,\n        \"reasoning\": 370,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:07:32Z\",\n      \"usage\": {\n        \"cached_input\": 0,\n        \"input\": 55539,\n        \"output\": 457,\n        \"reasoning\": 63,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:12:11Z\",\n      \"usage\": {\n        \"cached_input\": 67712,\n        \"input\": 116778,\n        \"output\": 626,\n        \"reasoning\": 116,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:17:59Z\",\n      \"usage\": {\n        \"cached_input\": 133760,\n        \"input\": 180769,\n        \"output\": 825,\n        \"reasoning\": 185,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:23:32Z\",\n      \"usage\": {\n        \"cached_input\": 6656,\n        \"input\": 59139,\n        \"output\": 485,\n        \"reasoning\": 91,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:29:19Z\",\n      \"usage\": {\n        \"cached_input\": 128768,\n        \"input\": 188089,\n        \"output\": 805,\n        \"reasoning\": 95,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:34:53Z\",\n      \"usage\": {\n        \"cached_input\": 11136,\n        \"input\": 61645,\n        \"output\": 504,\n        \"reasoning\": 109,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:40:27Z\",\n      \"usage\": {\n        \"cached_input\": 16512,\n        \"input\": 62701,\n        \"output\": 450,\n        \"reasoning\": 55,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:46:00Z\",\n      \"usage\": {\n        \"cached_input\": 6656,\n        \"input\": 63961,\n        \"output\": 513,\n        \"reasoning\": 119,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:51:33Z\",\n      \"usage\": {\n        \"cached_input\": 0,\n        \"input\": 65015,\n        \"output\": 446,\n        \"reasoning\": 52,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T13:57:08Z\",\n      \"usage\": {\n        \"cached_input\": 11136,\n        \"input\": 66169,\n        \"output\": 511,\n        \"reasoning\": 118,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    },\n    {\n      \"availability\": {\n        \"cached_input\": \"reported\",\n        \"input\": \"reported\",\n        \"output\": \"reported\",\n        \"reasoning\": \"reported\",\n        \"total\": \"unavailable\"\n      },\n      \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n      \"model\": \"gpt-5.6-sol\",\n      \"phase\": \"response\",\n      \"provider\": \"codex\",\n      \"pull_request\": 94,\n      \"role\": \"implementation\",\n      \"round\": 1,\n      \"run\": \"tick-20260923T130128Z-1157915\",\n      \"story\": 64,\n      \"time\": \"2026-09-23T14:01:53Z\",\n      \"usage\": {\n        \"cached_input\": 6656,\n        \"input\": 67323,\n        \"output\": 435,\n        \"reasoning\": 40,\n        \"total\": null\n      },\n      \"version\": \"ralph-usage/v1\"\n    }\n  ],\n  \"story\": 64,\n  \"version\": \"ralph-usage-ledger/v1\"\n}\n```",
+     "createdAt": "2026-09-23T08:10:48Z",
+     "id": 5791361519,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTEp7w",
+     "url": "https://github.com/Ztubben/autopilot_controller/issues/64#issuecomment-5791361519"
+    },
+    {
+     "author": "Ztubben",
+     "body": "<!-- ralph-review-result:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-review/v1\",\n  \"findings\": [\n    {\n      \"blocking\": true,\n      \"category\": \"defect\",\n      \"claim\": \"[redacted]\",\n      \"evidence\": \"[redacted]\",\n      \"id\": \"F-1\",\n      \"location\": {\n        \"line\": 133,\n        \"path\": \"redacted/file-1\"\n      },\n      \"requirement\": \"[redacted]\",\n      \"verification\": \"[redacted]\"\n    },\n    {\n      \"blocking\": false,\n      \"category\": \"style_preference\",\n      \"claim\": \"[redacted]\",\n      \"evidence\": \"[redacted]\",\n      \"id\": \"F-2\",\n      \"location\": {\n        \"line\": 54,\n        \"path\": \"redacted/file-1\"\n      },\n      \"requirement\": \"[redacted]\",\n      \"verification\": \"[redacted]\"\n    },\n    {\n      \"blocking\": false,\n      \"category\": \"speculative_improvement\",\n      \"claim\": \"[redacted]\",\n      \"evidence\": \"[redacted]\",\n      \"id\": \"F-3\",\n      \"location\": {\n        \"line\": 80,\n        \"path\": \"redacted/file-2\"\n      },\n      \"requirement\": \"[redacted]\",\n      \"verification\": \"[redacted]\"\n    },\n    {\n      \"blocking\": false,\n      \"category\": \"style_preference\",\n      \"claim\": \"[redacted]\",\n      \"evidence\": \"[redacted]\",\n      \"id\": \"F-4\",\n      \"location\": {\n        \"line\": 73,\n        \"path\": \"redacted/file-2\"\n      },\n      \"requirement\": \"[redacted]\",\n      \"verification\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"claude-opus-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\",\n  \"verdict\": \"request_changes\"\n}\n```",
+     "createdAt": "2026-09-23T08:18:36Z",
+     "id": 5791462576,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTK0sA",
+     "url": "https://github.com/Ztubben/autopilot_controller/issues/64#issuecomment-5791462576"
+    },
+    {
+     "author": "Ztubben",
+     "body": "<!-- ralph:handoff -->\n\n[redacted]",
+     "createdAt": "2026-09-23T09:11:31Z",
+     "id": 5792145641,
+     "node_id": "IC_kwDOR0BlvM8AAAABWT0g6Q",
+     "url": "https://github.com/Ztubben/autopilot_controller/issues/64#issuecomment-5792145641"
+    },
+    {
+     "author": "Ztubben",
+     "body": "<!-- ralph:handoff -->\n\n[redacted]",
+     "createdAt": "2026-09-23T14:02:05Z",
+     "id": 5796245528,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXuwGA",
+     "url": "https://github.com/Ztubben/autopilot_controller/issues/64#issuecomment-5796245528"
+    }
+   ],
+   "labels": [
+    "prio:5",
+    "type:afk",
+    "state:blocked",
+    "model:impl:gpt-5.6-sol",
+    "model:review:claude-opus-5"
+   ],
+   "number": 64,
+   "state": "OPEN",
+   "title": "Story 64",
+   "url": ""
+  }
+ },
+ "labels": [
+  {
+   "name": "model:impl:gpt-5.6-sol"
+  },
+  {
+   "name": "model:review:claude-opus-5"
+  },
+  {
+   "name": "prd"
+  },
+  {
+   "name": "prio:5"
+  },
+  {
+   "name": "state:blocked"
+  },
+  {
+   "name": "state:ready"
+  },
+  {
+   "name": "type:afk"
+  }
+ ],
+ "next_id": 5796245528,
+ "next_number": 95,
+ "pulls": {
+  "94": {
+   "baseRefName": "feature/52-prd-52",
+   "body": "<!-- ralph-managed-pr:v1 -->\n\nRefs #64\n\n[redacted]",
+   "comments": [
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:20:01Z",
+     "id": 5791480498,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTL6sg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791480498"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:21:50Z",
+     "id": 5791505862,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTNdxg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791505862"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:24:50Z",
+     "id": 5791545184,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTP3YA",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791545184"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:29:32Z",
+     "id": 5791602144,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTTV4A",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791602144"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:35:15Z",
+     "id": 5791672828,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTXp_A",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791672828"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:40:48Z",
+     "id": 5791742546,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTb6Ug",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791742546"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:46:44Z",
+     "id": 5791821830,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTgwBg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791821830"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:52:35Z",
+     "id": 5791893842,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTlJUg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791893842"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T08:58:06Z",
+     "id": 5791964571,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTpdmw",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5791964571"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T09:03:37Z",
+     "id": 5792034343,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTtuJw",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5792034343"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T09:09:28Z",
+     "id": 5792116144,
+     "node_id": "IC_kwDOR0BlvM8AAAABWTytsA",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5792116144"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T09:11:29Z",
+     "id": 5792145049,
+     "node_id": "IC_kwDOR0BlvM8AAAABWT0emQ",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5792145049"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:02:02Z",
+     "id": 5795319936,
+     "node_id": "IC_kwDOR0BlvM8AAAABWW2QgA",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795319936"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:03:13Z",
+     "id": 5795336953,
+     "node_id": "IC_kwDOR0BlvM8AAAABWW3S-Q",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795336953"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:05:08Z",
+     "id": 5795365566,
+     "node_id": "IC_kwDOR0BlvM8AAAABWW5Cvg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795365566"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:07:40Z",
+     "id": 5795403710,
+     "node_id": "IC_kwDOR0BlvM8AAAABWW7Xvg",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795403710"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:12:18Z",
+     "id": 5795472993,
+     "node_id": "IC_kwDOR0BlvM8AAAABWW_mYQ",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795472993"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:18:06Z",
+     "id": 5795560553,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXE8aQ",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795560553"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:23:39Z",
+     "id": 5795644615,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXKExw",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795644615"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:29:26Z",
+     "id": 5795736656,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXPsUA",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795736656"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:35:00Z",
+     "id": 5795824343,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXVC1w",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795824343"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:40:34Z",
+     "id": 5795910259,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXaScw",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795910259"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:46:08Z",
+     "id": 5795994872,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXfc-A",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5795994872"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:51:41Z",
+     "id": 5796081373,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXku3Q",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5796081373"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-5\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T13:57:20Z",
+     "id": 5796170140,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXqJnA",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5796170140"
+    },
+    {
+     "author": "Ztubben",
+     "body": "Ralph implementation response \u2014 round 1\n\nImplementing model: `gpt-6-sol`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\nNew head: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n**F-1** \u2014 unresolved\n\n[redacted]\n\n**F-2** \u2014 unresolved\n\n[redacted]\n\n**F-3** \u2014 unresolved\n\n[redacted]\n\n**F-4** \u2014 unresolved\n\n[redacted]\n\n---\n\n[redacted]\n\n\n<!-- ralph-review-response:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 round=1 -->\n\n```json\n{\n  \"contract\": \"ralph-response/v1\",\n  \"dispositions\": [\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-1\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-2\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-3\",\n      \"note\": \"[redacted]\"\n    },\n    {\n      \"disposition\": \"unresolved\",\n      \"id\": \"F-4\",\n      \"note\": \"[redacted]\"\n    }\n  ],\n  \"head\": \"d114bacc4a3f0d924d7ee4be305d5df3841d6b56\",\n  \"model\": \"gpt-6-sol\",\n  \"round\": 1,\n  \"summary\": \"[redacted]\"\n}\n```",
+     "createdAt": "2026-09-23T14:02:01Z",
+     "id": 5796244785,
+     "node_id": "IC_kwDOR0BlvM8AAAABWXutMQ",
+     "url": "https://github.com/Ztubben/autopilot_controller/pull/94#issuecomment-5796244785"
+    }
+   ],
+   "createdAt": null,
+   "headRefName": "ralph/64-story-64",
+   "number": 94,
+   "reviewComments": [
+    {
+     "author": "Ztubben",
+     "body": "**F-1** (defect, blocking)\n\n[redacted]\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:18:33Z",
+     "id": 4080385903,
+     "in_reply_to_id": null,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288512550,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** (style_preference, non-blocking)\n\n[redacted]\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:18:33Z",
+     "id": 4080385915,
+     "in_reply_to_id": null,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288512550,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** (speculative_improvement, non-blocking)\n\n[redacted]\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:18:33Z",
+     "id": 4080385919,
+     "in_reply_to_id": null,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288512550,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** (style_preference, non-blocking)\n\n[redacted]\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:18:33Z",
+     "id": 4080385928,
+     "in_reply_to_id": null,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288512550,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:19:56Z",
+     "id": 4080396166,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288525021,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:19:57Z",
+     "id": 4080396293,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288525287,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:19:58Z",
+     "id": 4080396435,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288525473,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:19:59Z",
+     "id": 4080396579,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288525640,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:21:45Z",
+     "id": 4080409111,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288542195,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:21:46Z",
+     "id": 4080409219,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288542342,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:21:47Z",
+     "id": 4080409358,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288542515,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:21:48Z",
+     "id": 4080409529,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288542721,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:24:45Z",
+     "id": 4080431798,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288569261,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:24:46Z",
+     "id": 4080431954,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288569430,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:24:47Z",
+     "id": 4080432095,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288569591,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:24:48Z",
+     "id": 4080432252,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288569765,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:29:27Z",
+     "id": 4080466895,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288610490,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:29:28Z",
+     "id": 4080467063,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288610660,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:29:29Z",
+     "id": 4080467214,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288610832,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:29:31Z",
+     "id": 4080467375,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288611022,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:35:10Z",
+     "id": 4080509342,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288659763,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:35:12Z",
+     "id": 4080509486,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288659957,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:35:13Z",
+     "id": 4080509646,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288660125,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:35:14Z",
+     "id": 4080509767,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288660283,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:40:42Z",
+     "id": 4080550611,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288708633,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:40:44Z",
+     "id": 4080550757,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288708827,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:40:45Z",
+     "id": 4080550912,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288709023,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:40:46Z",
+     "id": 4080551039,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288709196,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:46:39Z",
+     "id": 4080596000,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288766309,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:46:40Z",
+     "id": 4080596131,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288766484,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:46:41Z",
+     "id": 4080596255,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288766644,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:46:42Z",
+     "id": 4080596417,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288766831,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:52:30Z",
+     "id": 4080643852,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288820939,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:52:31Z",
+     "id": 4080644011,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288821091,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:52:32Z",
+     "id": 4080644119,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288821254,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:52:33Z",
+     "id": 4080644320,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288821554,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:58:01Z",
+     "id": 4080695731,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288880078,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:58:02Z",
+     "id": 4080695882,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288880238,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:58:03Z",
+     "id": 4080696022,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288880414,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T08:58:04Z",
+     "id": 4080696135,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288880571,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:03:33Z",
+     "id": 4080738162,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288930071,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:03:34Z",
+     "id": 4080738299,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288930243,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:03:35Z",
+     "id": 4080738419,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288930400,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:03:36Z",
+     "id": 4080738540,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288930542,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:09:23Z",
+     "id": 4080784328,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288991088,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:09:24Z",
+     "id": 4080784470,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5288991348,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:09:25Z",
+     "id": 4080784670,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288991651,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:09:26Z",
+     "id": 4080784846,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5288991926,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:11:24Z",
+     "id": 4080800356,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5289012804,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:11:25Z",
+     "id": 4080800531,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5289013035,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:11:27Z",
+     "id": 4080800699,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5289013232,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T09:11:28Z",
+     "id": 4080800826,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5289013374,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:01:56Z",
+     "id": 4082698151,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291307959,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:01:58Z",
+     "id": 4082698398,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291308241,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:01:59Z",
+     "id": 4082698601,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291308491,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:02:00Z",
+     "id": 4082698748,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291308651,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:03:07Z",
+     "id": 4082708494,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291320091,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:03:08Z",
+     "id": 4082708708,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291320367,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:03:10Z",
+     "id": 4082708964,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291320669,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:03:12Z",
+     "id": 4082709170,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291320946,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:05:02Z",
+     "id": 4082725719,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291340554,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:05:03Z",
+     "id": 4082725916,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291340775,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:05:05Z",
+     "id": 4082726126,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291340982,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:05:06Z",
+     "id": 4082726269,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291341162,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:07:34Z",
+     "id": 4082748674,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291367664,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:07:35Z",
+     "id": 4082748847,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291367834,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:07:37Z",
+     "id": 4082749030,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291368041,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:07:38Z",
+     "id": 4082749229,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291368311,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:12:13Z",
+     "id": 4082793575,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291423246,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:12:14Z",
+     "id": 4082793793,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291423590,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:12:15Z",
+     "id": 4082793963,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291423841,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:12:17Z",
+     "id": 4082794199,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291424080,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:18:02Z",
+     "id": 4082849243,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291493463,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:18:03Z",
+     "id": 4082849378,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291493636,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:18:04Z",
+     "id": 4082849486,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291493807,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:18:05Z",
+     "id": 4082849707,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291494023,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:23:34Z",
+     "id": 4082902516,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291556113,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:23:35Z",
+     "id": 4082902719,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291556385,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:23:36Z",
+     "id": 4082902906,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291556593,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:23:37Z",
+     "id": 4082903091,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291556822,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:29:22Z",
+     "id": 4082960909,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291625593,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:29:23Z",
+     "id": 4082961066,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291625794,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:29:24Z",
+     "id": 4082961267,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291626008,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:29:25Z",
+     "id": 4082961455,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291626210,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:34:55Z",
+     "id": 4083018607,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291694507,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:34:56Z",
+     "id": 4083018823,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291694751,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:34:57Z",
+     "id": 4083019021,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291694967,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:34:58Z",
+     "id": 4083019169,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291695169,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:40:29Z",
+     "id": 4083073683,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291758972,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:40:31Z",
+     "id": 4083073906,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291759211,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:40:32Z",
+     "id": 4083074090,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291759427,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:40:33Z",
+     "id": 4083074246,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291759608,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:46:03Z",
+     "id": 4083128858,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291823269,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:46:04Z",
+     "id": 4083129065,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291823522,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:46:05Z",
+     "id": 4083129227,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291823750,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:46:07Z",
+     "id": 4083129425,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291823990,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:51:36Z",
+     "id": 4083184586,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291888515,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:51:37Z",
+     "id": 4083184813,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291888760,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:51:38Z",
+     "id": 4083185005,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291888986,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:51:40Z",
+     "id": 4083185193,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291889196,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:57:14Z",
+     "id": 4083241968,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291955252,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:57:15Z",
+     "id": 4083242211,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5291955559,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:57:17Z",
+     "id": 4083242512,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291955902,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T13:57:18Z",
+     "id": 4083242714,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5291956148,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-1** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T14:01:56Z",
+     "id": 4083290864,
+     "in_reply_to_id": 4080385903,
+     "line": 133,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5292012242,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-2** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T14:01:57Z",
+     "id": 4083291067,
+     "in_reply_to_id": 4080385915,
+     "line": 54,
+     "path": "redacted/file-1",
+     "pull_request_review_id": 5292012472,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-3** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T14:01:58Z",
+     "id": 4083291247,
+     "in_reply_to_id": 4080385919,
+     "line": 80,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5292012714,
+     "side": "RIGHT",
+     "start_line": null
+    },
+    {
+     "author": "Ztubben",
+     "body": "**F-4** \u2014 unresolved\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "createdAt": "2026-09-23T14:01:59Z",
+     "id": 4083291430,
+     "in_reply_to_id": 4080385928,
+     "line": 73,
+     "path": "redacted/file-2",
+     "pull_request_review_id": 5292012936,
+     "side": "RIGHT",
+     "start_line": null
+    }
+   ],
+   "reviews": [
+    {
+     "author": "Ztubben",
+     "body": "<!-- ralph-review:v1 head=d114bacc4a3f0d924d7ee4be305d5df3841d6b56 -->\nRalph model review \u2014 round 1\n\nReviewing model: `claude-opus-5`\nReviewed commit: d114bacc4a3f0d924d7ee4be305d5df3841d6b56\n\n[redacted]\n\n[redacted]\n\n---\n\n[redacted]",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288512550,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzhMJg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:18:33Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288525021,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzh83Q",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:19:56Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288525287,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzh95w",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:19:57Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288525473,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzh-oQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:19:58Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288525640,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzh_SA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:19:59Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288542195,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzi_8w",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:21:45Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288542342,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzjAhg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:21:46Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288542515,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzjBMw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:21:47Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288542721,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzjCAQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:21:48Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288569261,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzkprQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:24:45Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288569430,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzkqVg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:24:46Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288569591,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzkq9w",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:24:47Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288569765,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzkrpQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:24:48Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288610490,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOznKug",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:29:27Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288610660,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOznLZA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:29:28Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288610832,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOznMEA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:29:29Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288611022,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOznMzg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:29:31Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288659763,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzqLMw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:35:11Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288659957,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzqL9Q",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:35:12Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288660125,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzqMnQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:35:13Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288660283,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzqNOw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:35:14Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288708633,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOztKGQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:40:42Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288708827,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOztK2w",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:40:44Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288709023,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOztLnw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:40:45Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288709196,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOztMTA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:40:46Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288766309,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzwrZQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:46:39Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288766484,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzwsFA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:46:40Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288766644,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzwstA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:46:41Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288766831,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOzwtbw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:46:42Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288820939,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz0Ayw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:52:30Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288821091,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz0BYw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:52:31Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288821254,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz0CBg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:52:32Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288821554,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz0DMg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:52:33Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288880078,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz3nzg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:58:01Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288880238,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz3obg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:58:02Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288880414,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz3pHg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:58:03Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288880571,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz3puw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T08:58:04Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288930071,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz6rFw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:03:33Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288930243,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz6rww",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:03:34Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288930400,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz6sYA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:03:35Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288930542,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz6s7g",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:03:36Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288991088,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz-ZcA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:09:23Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288991348,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz-adA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:09:24Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288991651,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz-bow",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:09:25Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5288991926,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz-ctg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:09:26Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5289012804,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz_uRA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:11:24Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5289013035,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz_vKw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:11:25Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5289013232,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz_v8A",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:11:27Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5289013374,
+     "node_id": "PRR_kwDOR0BlvM8AAAABOz_wfg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T09:11:28Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291307959,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Lztw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:01:56Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291308241,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2L00Q",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:01:58Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291308491,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2L1yw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:01:59Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291308651,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2L2aw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:02:00Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291320091,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2MjGw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:03:07Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291320367,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2MkLw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:03:08Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291320669,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2MlXQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:03:10Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291320946,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Mmcg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:03:12Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291340554,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2NzCg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:05:02Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291340775,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Nz5w",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:05:04Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291340982,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2N0tg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:05:05Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291341162,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2N1ag",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:05:06Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291367664,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Pc8A",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:07:34Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291367834,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Pdmg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:07:35Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291368041,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2PeaQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:07:37Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291368311,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2Pfdw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:07:38Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291423246,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2S2Dg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:12:13Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291423590,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2S3Zg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:12:14Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291423841,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2S4YQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:12:15Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291424080,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2S5UA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:12:17Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291493463,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2XIVw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:18:02Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291493636,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2XJBA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:18:03Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291493807,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2XJrw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:18:04Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291494023,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2XKhw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:18:05Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291556113,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2a9EQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:23:34Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291556385,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2a-IQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:23:35Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291556593,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2a-8Q",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:23:36Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291556822,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2a_1g",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:23:38Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291625593,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2fMeQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:29:22Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291625794,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2fNQg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:29:23Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291626008,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2fOGA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:29:24Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291626210,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2fO4g",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:29:25Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291694507,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2jZqw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:34:55Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291694751,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2janw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:34:56Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291694967,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2jbdw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:34:57Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291695169,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2jcQQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:34:58Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291758972,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2nVfA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:40:29Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291759211,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2nWaw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:40:31Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291759427,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2nXQw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:40:32Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291759608,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2nX-A",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:40:33Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291823269,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2rQpQ",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:46:03Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291823522,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2rRog",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:46:04Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291823750,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2rShg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:46:05Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291823990,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2rTdg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:46:07Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291888515,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2vPgw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:51:36Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291888760,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2vQeA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:51:37Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291888986,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2vRWg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:51:38Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291889196,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2vSLA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:51:40Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291955252,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2zUNA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:57:14Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291955559,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2zVZw",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:57:15Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291955902,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2zWvg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:57:17Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5291956148,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO2zXtA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T13:57:18Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5292012242,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO22y0g",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T14:01:56Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5292012472,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO22zuA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T14:01:57Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5292012714,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO220qg",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T14:01:58Z"
+    },
+    {
+     "author": "Ztubben",
+     "body": "",
+     "commit_id": "d114bacc4a3f0d924d7ee4be305d5df3841d6b56",
+     "id": 5292012936,
+     "node_id": "PRR_kwDOR0BlvM8AAAABO221iA",
+     "state": "COMMENTED",
+     "submittedAt": "2026-09-23T14:01:59Z"
+    }
+   ],
+   "state": "OPEN",
+   "title": "[redacted]",
+   "url": "https://github.com/Ztubben/autopilot_controller/pull/94"
+  }
+ },
+ "repo": {
+  "defaultBranch": "main",
+  "name": "autopilot_controller",
+  "owner": "Ztubben"
+ },
+ "statuses": {
+  "d114bacc4a3f0d924d7ee4be305d5df3841d6b56": [
+   {
+    "context": "ralph/model-review",
+    "description": "",
+    "state": "failure"
+   }
+  ]
+ }
+}

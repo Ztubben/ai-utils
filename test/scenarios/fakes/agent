@@ -106,10 +106,26 @@ FINDING = {
 }
 
 
+def diff_anchor(prompt):
+    """The first line the reviewed diff touches -- the only place an inline
+    finding may anchor (a location outside the diff is refused)."""
+    diff = re.search(r"## Base/Head Diff\s*```diff\n(.*?)```", prompt, re.S)
+    path = hunk = None
+    for line in (diff.group(1) if diff else "").splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:]
+        hunk = hunk or (path and re.match(r"^@@ -\S+ \+(\d+)", line))
+        if path and hunk:
+            return {"path": path, "line": int(hunk.group(1))}
+    return None
+
+
 def requesting_changes(context):
     """A request_changes review holding the one blocking finding, F-1."""
-    finding = dict(FINDING, location={"path": "story-%s.txt" % context["story"],
-                                      "line": 1})
+    finding = dict(FINDING)
+    anchor = diff_anchor(context["prompt"])
+    if anchor:
+        finding["location"] = anchor
     result = {"contract": "ralph-review/v1", "verdict": "request_changes",
               "head": context["head"], "model": context["model"] or "unknown",
               "round": context["round"],

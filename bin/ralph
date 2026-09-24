@@ -83,7 +83,7 @@ usage: ralph --init [CONFIG]
        ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
        ralph --learn-target PATH [ROOT]
-       ralph --capture STORY [--out DIR]
+       ralph --capture STORY [--out DIR] [--redact]
 
   --init [CONFIG]         Bootstrap the superproject for the Ralph Loop:
                           idempotently create the canonical state:/type:/prio:/
@@ -249,6 +249,9 @@ usage: ralph --init [CONFIG]
                           request's commit chain) to DIR/story-N.json in the
                           scenario harness's fake-GitHub format, so an incident
                           replays as a scenario. Read-only against GitHub.
+                          --redact keeps only what the Loop parses (markers,
+                          records' structural fields, finding headings) and
+                          drops prose, for a private repository's incident.
   --review-round STORY    Run one Negotiation Round for a Story In Review.
        [CONFIG] [ROOT]    Finds the Story's open, Ralph-managed pull request
        [--pr PATH]        (marker + "Refs #N"; pass --pr to supply it as JSON
