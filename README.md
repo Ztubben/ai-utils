@@ -169,6 +169,7 @@ scheduler (every ~5h)
 - The **[`gh`](https://cli.github.com/) GitHub CLI**, authenticated for the superproject (Ralph reads the backlog and opens PRs through it).
 - A **provider CLI on `PATH` for every adapter your model catalog uses** — Ralph launches it to do the actual implementation: [Claude Code](https://claude.com/claude-code) (`claude`) for the `claude` adapter, [Codex CLI](https://developers.openai.com/codex/cli) (`codex`) for the `codex` adapter. Override a binary's path with `RALPH_CLAUDE` / `RALPH_CODEX`.
 - Whatever your gating steps need (e.g. `make`, a toolchain, a test runner).
+- To run ai-utils' own test suite (`test/run.sh`): **[bats](https://github.com/bats-core/bats-core)** is required — the runner refuses to report green without its orchestration tier.
 
 ## Getting started
 
@@ -664,7 +665,7 @@ prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drif
 skills/          Authoring skills shipped with the tool (ralph-story + examples).
 scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
 docs/adr/        Architecture Decision Records (0001–0005).
-test/            Green gate: test/run.sh, unit tests, fixtures, optional bats.
+test/            Green gate: test/run.sh, unit tests, fixtures, bats.
 .github/workflows/  ai-utils' own CI (self-hosting only — not inherited by a submodule mount).
 .ralph.yml.sample  Documented sample config (a test asserts it validates).
 ```
@@ -676,8 +677,8 @@ test/run.sh
 ```
 
 `test/run.sh` is the green gate. `test/unit/` uses Python's stdlib `unittest`
-(no `pytest` needed); `test/bats/` holds bats orchestration tests that are
-auto-skipped if bats isn't installed. Fixtures live under `test/fixtures/`.
+(no `pytest` needed); `test/bats/` holds bats orchestration tests; bats is
+required, and `test/run.sh` fails rather than skip them. Fixtures live under `test/fixtures/`.
 
 ## Design decisions
 
