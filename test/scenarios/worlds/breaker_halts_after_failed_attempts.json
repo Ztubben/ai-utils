@@ -1,0 +1,86 @@
+{
+  "description": "Two Ready Stories, an implementation that never does the work, max_attempts 1 and circuit_breaker 1: the first Story blocks, the breaker trips on it, and the loop halts before the second Story is launched.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    },
+    "limits": {
+      "max_attempts": 1,
+      "circuit_breaker": 1
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      },
+      {
+        "number": 2,
+        "title": "Add the farewell",
+        "labels": [
+          "type:afk",
+          "prio:2",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "literal-noop",
+    "review": "cooperative"
+  },
+  "ticks": 2,
+  "expect": {
+    "1": "needs-human",
+    "2": "ready"
+  }
+}
