@@ -25,6 +25,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_iterate  # noqa: E402
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_round  # noqa: E402
 import ralph_story  # noqa: E402
@@ -152,20 +153,22 @@ def to_state(repo, story, pull_request=None, reviews=(), threads=(), commits=(),
 #
 # A capture of a private repository must be committable to a public one.
 # Redaction keeps what the Loop *parses* and drops what people wrote: every
-# marker, every fenced JSON record (with only its structural fields' strings
-# kept), the generated header lines, the finding headings and the ledger rows.
-# It is a whitelist -- a line nobody listed here is prose, and prose goes.
+# Ralph marker, every fenced JSON record (with only its structural fields'
+# strings kept), the generated header lines and the finding headings. The Token
+# Ledger's table is not copied at all: it is regenerated from the ledger's own
+# redacted payload. It is a whitelist -- a line, a comment or a JSON field
+# nobody listed here is prose, and prose goes, however short.
 
 REDACTED = "[redacted]"
 _KEEP_LINE = [re.compile(p) for p in (
-    r"^\s*<!--.*-->\s*$",
+    # Ralph's own markers only; any other HTML comment is someone's prose.
+    r"^<!--\s*ralph[-:][a-z0-9:-]*(?:\s+[a-z_]+=[0-9a-f]{7,40}|\s+[a-z_]+=\d+)*\s*-->$",
     r"^Refs #\d+$", r"^Closes #\d+$",
     r"^Parent: .*$", r"^Depends on: .*$",
     r"^(Implementing|Reviewing) model: `[^`]*`$",
     r"^(Reviewed commit|New head|Head|Base): [0-9a-f]{7,40}$",
     r"^Ralph [a-z ]+— round \d+$",
     r"^## Token ledger — #\d+$",
-    r"^\|.*\|$",
     r"^(/approve|/request-changes)$",
     r"^-{3,}$",
 )]
@@ -177,12 +180,16 @@ _FINDING_HEAD = re.compile(
     r"^(\*\*[A-Z]+-\d+\*\*(?: \([a-z_]+, (?:non-)?blocking\))?"
     r"(?: — (?:accepted|disputed|unresolved))?)")
 _CHECKBOX = re.compile(r"^(\s*- \[[ xX]\] )")
-_TOKEN = re.compile(r"^\S{0,64}$")
-# String values of these record fields are identifiers, never prose.
-_KEEP_KEYS = {"contract", "verdict", "head", "model", "provider", "id", "category",
-              "disposition", "phase", "role", "kind", "status", "state", "run_id",
-              "event", "decision", "review", "at", "recorded_at", "timestamp",
-              "new_head", "reviewed_head", "outcome", "login", "author", "source"}
+# String values of these record fields are identifiers, never prose. Every
+# other string field is redacted, however short: "PrivateClass::method()" is
+# a whitespace-free token and still somebody's private content.
+_KEEP_KEYS = {"contract", "version", "verdict", "head", "model", "provider", "id",
+              "category", "disposition", "phase", "role", "kind", "status", "state",
+              "run", "run_id", "time", "event", "decision", "review", "at",
+              "recorded_at", "timestamp", "new_head", "reviewed_head", "outcome",
+              "login", "author", "source"}
+# The ledger's per-category availability flags (ralph_usage).
+_KEEP_VALUES = {"reported", "unavailable"}
 
 
 def _redact_json(value, paths, key=None):
@@ -192,9 +199,7 @@ def _redact_json(value, paths, key=None):
         return [_redact_json(v, paths, key) for v in value]
     if isinstance(value, str) and key == "path":
         return paths.setdefault(value, "redacted/file-%d" % (len(paths) + 1))
-    # A space-free token (a version, a status, a timestamp, an identifier) is
-    # structure; prose has words.
-    if isinstance(value, str) and key not in _KEEP_KEYS and not _TOKEN.match(value):
+    if isinstance(value, str) and key not in _KEEP_KEYS and value not in _KEEP_VALUES:
         return REDACTED
     return value
 
@@ -264,7 +269,12 @@ def redact(state):
     for issue in list(state["issues"].values()) + list(state["pulls"].values()):
         issue["body"] = redact_text(issue["body"], paths)
         for comment in issue.get("comments", []):
-            comment["body"] = redact_text(comment["body"], paths)
+            existing, events = ralph_ledger.find_ledger([comment])
+            if existing is not None:
+                comment["body"] = ralph_ledger.ledger_body(
+                    issue["number"], _redact_json(events, paths))
+            else:
+                comment["body"] = redact_text(comment["body"], paths)
         for review in issue.get("reviews", []):
             review["body"] = redact_text(review["body"], paths)
         for comment in issue.get("reviewComments", []):
@@ -301,9 +311,13 @@ def _gh_list(route, cwd):
 
 
 def _story_pull_request(number, cwd):
-    """The newest Ralph-managed pull request that references the Story, any state."""
-    prs = _gh_json(["pr", "list", "--state", "all", "--limit", "100",
-                    "--json", "number,body"], cwd) or []
+    """The newest Ralph-managed pull request that references the Story, any state.
+
+    Every page of the repository's pull requests is read: an incident's pull
+    request is often old, and a capture that missed it would still report
+    success with the pull request, its reviews and its threads silently absent.
+    """
+    prs = _gh_list("repos/{owner}/{repo}/pulls?state=all&per_page=100", cwd)
     managed = [pr for pr in ralph_review.review_candidates(prs)
                if ralph_review_round.references_story(pr, number)]
     return max((pr["number"] for pr in managed), default=None)

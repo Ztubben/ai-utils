@@ -673,7 +673,10 @@ not HITL) and `docs/adr/0001–0005`.
   done-signal whose promotion fails (#98, tick), and a response refused as not append-only
   (#100, `respond_to_review` -> `ralph_failure.record_attempt`) each spend an Attempt. A
   session limit before the Story branch exists writes a comment-only Handoff (#99); the
-  Handoff push names both refs and never uses `-u`.
+  Handoff push names both refs and never uses `-u`. Every one of those paths asks
+  `check_breaker` afterwards (`record_failed_attempt`, and a review step that failed): a
+  Story blocked there counts toward `limits.circuit_breaker` (world
+  `breaker_halts_after_failed_attempts`, PR #101 review).
 - `lib/ralph_pointer.py` is the **Superproject pointer check** (#96): `ralph --check-pointer
   [CONFIG]` (dispatched with `$RALPH_HOME`) compares the running ai-utils `HEAD` with the gitlink
   in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index) and

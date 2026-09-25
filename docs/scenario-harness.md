@@ -156,9 +156,11 @@ captured: a world rebuilds a synthetic commit chain of the same shape and
 translates every captured commit id to its replay counterpart.
 
 `--redact` makes a capture of a private repository safe to commit to a public
-one. It is a whitelist: every marker, every record's structural fields, the
-Finding headings and the generated header lines survive; all prose becomes
-`[redacted]`, titles become `Story N` / `PRD N`, branches are renamed to what the
+one. It is a whitelist: Ralph's own `<!-- ralph… -->` markers, the named
+structural fields of each fenced record, the Finding headings and the generated
+header lines survive; every other line, HTML comment, table and JSON string —
+however short — becomes `[redacted]`. The Token Ledger is regenerated from its
+redacted payload rather than copied, titles become `Story N` / `PRD N`, branches are renamed to what the
 Loop derives from those titles, and file paths are mapped consistently. Read
 the output before committing it.
 
