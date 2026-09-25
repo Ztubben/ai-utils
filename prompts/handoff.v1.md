@@ -9,7 +9,9 @@ terminology — this is a **HIL** (human-in-the-loop) loop; always use the term 
 ## When to checkpoint
 
 Watch your remaining context. As it fills — and before it runs out — **stop adding
-new work** and write a Handoff. Do not try to compress or summarize the conversation
+new work** and write a Handoff. When a tool result carries a **Ralph context notice**,
+your context has passed the configured hand-off threshold
+(`limits.handoff_context_tokens`): finish the step you are on, then hand off. Do not try to compress or summarize the conversation
 to keep going: a clean-context resume is always preferred over a degraded one. Size
 stories small enough to fit one context window; terminate-and-resume is the safety
 net when one still turns out too big.

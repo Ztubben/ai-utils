@@ -308,6 +308,7 @@ branching:
 limits:
   max_attempts: 3      # failed Attempts before a story → state:blocked (default: 3)
   circuit_breaker: 2   # blocked stories that halt the loop + tag a human (default: 2)
+  handoff_context_tokens: 150000  # context size at which a Claude iteration is told to hand off (default: 150000)
 
 # Allowlisted Model Profiles + the committed defaults for the two model roles.
 models:
