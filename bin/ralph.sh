@@ -177,13 +177,16 @@ story_handoffs() {
 
 # Record a failed Attempt (ADR-0004); at limits.max_attempts the story moves to
 # state:blocked, so resume-first stops selecting it. Best-effort: if it cannot
-# be recorded, the iteration bound is still there.
+# be recorded, the iteration bound is still there. The breaker is asked every
+# time: a Story blocked here counts toward limits.circuit_breaker, and without
+# asking, the tick went straight on to block the next Story too.
 record_failed_attempt() {
   local issue="$1" reason="$2"
   log "#$issue: $reason; recording a failed Attempt"
   gh issue view "$issue" --json number,title,labels,body,state,comments \
     | "$RALPH_BIN" --record-attempt - "$reason" "$RALPH_CONFIG" \
     || log "could not record the Attempt for #$issue; continuing"
+  check_breaker
 }
 
 # Write a Handoff for the current in-progress story and end the tick cleanly.
@@ -501,6 +504,9 @@ tick() {
               ;;
             *)
               log "review step for #$issue did not complete (exit $review_rc); the next tick retries"
+              # A refused response can itself have spent the Story's last
+              # Attempt (#100), so the breaker gets its say here too.
+              check_breaker
               ;;
           esac
           log "#$issue stays in review; the next tick resumes it first"
