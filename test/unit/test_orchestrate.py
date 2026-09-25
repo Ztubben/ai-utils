@@ -1316,12 +1316,15 @@ class TheTickAlternatesTheRolesAcrossNewlyStartedStories(unittest.TestCase):
 
     def _queue_in_sequence(self, h, stories):
         """Backlogs for a tick that starts each story in turn: the engine pops
-        one backlog per --dry-run and one per --needs-freshness."""
+        one backlog per --dry-run, one per --needs-freshness, and -- since these
+        iterations stop short without a Handoff, which records a failed Attempt
+        (#95) -- one per --check-breaker that follows it."""
         backlogs = []
         for i in range(len(stories)):
             remaining = stories[i:]
             backlogs.append(remaining)   # --dry-run -> start stories[i]
             backlogs.append(remaining)   # --needs-freshness
+            backlogs.append(remaining)   # --check-breaker after the Attempt
         backlogs.append([])              # --dry-run -> no-work, tick ends
         h.set_backlogs(*backlogs)
         h.set_view_stories(*stories)
