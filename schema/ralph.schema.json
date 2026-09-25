@@ -74,6 +74,12 @@
           "type": "integer",
           "minimum": 1,
           "default": 2
+        },
+        "handoff_context_tokens": {
+          "description": "Context size (tokens) past which a Claude implementation run is told, after each tool call, to write a Handoff and end the iteration (ADR-0004). Advice, not a gate.",
+          "type": "integer",
+          "minimum": 10000,
+          "default": 150000
         }
       }
     },
