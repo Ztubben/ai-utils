@@ -66,6 +66,24 @@ class Redaction(unittest.TestCase):
         self.assertNotIn("Autopilot", self.text)
         self.assertNotIn("firmware", self.text)
 
+    def test_short_tokens_foreign_tables_and_comments_are_prose_too(self):
+        # PR #101 review: each of these survived the first version.
+        text = ("```json\n" + json.dumps({"evidence": "PrivateClass::secret_method()",
+                                           "password": "private-value"}) + "\n```\n"
+                "| Password | private-value |\n"
+                "<!-- customer contract details -->\n")
+        out = ralph_capture.redact_text(text, {})
+        for secret in ("PrivateClass", "private-value", "customer contract", "Password"):
+            self.assertNotIn(secret, out)
+
+    def test_ralph_markers_survive_and_other_comments_do_not(self):
+        out = ralph_capture.redact_text("\n".join([
+            ralph_review.review_marker(HEAD), ralph_review.MANAGED_PR_MARKER,
+            "<!-- ralph: but really a note -->"]), {})
+        self.assertIn(ralph_review.review_marker(HEAD), out)
+        self.assertIn(ralph_review.MANAGED_PR_MARKER, out)
+        self.assertNotIn("really a note", out)
+
     def test_the_records_the_loop_reads_survive_with_their_structure(self):
         story = self.state["issues"]["64"]
         record = ralph_review.latest_result(story["comments"], HEAD)
@@ -116,6 +134,34 @@ class Redaction(unittest.TestCase):
         redacted = ralph_capture.redact(state)
         _, events = ralph_ledger.find_ledger(redacted["issues"]["64"]["comments"])
         self.assertEqual(events, [event])
+
+    def test_a_ledger_table_is_rebuilt_from_its_payload_not_copied(self):
+        body = ralph_ledger.ledger_body(64, []) + "\n| Password | private-value |\n"
+        state = captured()
+        state["issues"]["64"]["comments"] = [{"id": 9, "body": body}]
+        redacted = ralph_capture.redact(state)
+        self.assertNotIn("private-value", json.dumps(redacted))
+
+
+class Discovery(unittest.TestCase):
+    """PR #101 review: the linked pull request can be older than one page."""
+
+    def test_every_page_is_read_and_an_old_story_pull_request_is_found(self):
+        seen = []
+
+        def run(args, cwd):
+            seen.append(args)
+            prs = [{"number": n, "body": "unrelated"} for n in range(200, 100, -1)]
+            prs.append({"number": 7, "body": ralph_review.MANAGED_PR_MARKER + "\n\nRefs #1\n"})
+            return "\n".join(json.dumps(pr) for pr in prs)
+
+        original = ralph_capture._run
+        ralph_capture._run = run
+        try:
+            self.assertEqual(ralph_capture._story_pull_request(1, None), 7)
+        finally:
+            ralph_capture._run = original
+        self.assertIn("--paginate", seen[0])
 
 
 if __name__ == "__main__":
