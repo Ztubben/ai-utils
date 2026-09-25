@@ -29,6 +29,7 @@ branching:
 limits:
   max_attempts: 3      # failed Attempts before a story moves to state:blocked (default: 3)
   circuit_breaker: 2   # blocked stories that halt the loop and tag a human (default: 2)
+  handoff_context_tokens: 150000  # context size at which a Claude iteration is told to hand off (default: 150000)
 
 # Allowlisted Model Profiles and the committed defaults for the two roles.
 # Optional: declare it to let Ralph resolve an Implementation Agent and an

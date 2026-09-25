@@ -33,6 +33,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_context  # noqa: E402
 import ralph_ledger  # noqa: E402
 import ralph_models  # noqa: E402
 import ralph_session  # noqa: E402
@@ -127,9 +128,12 @@ class AgentAdapter:
     session_env = ()       # inherited session state stripped from the child
     memory_env = {}        # env forced on the child to close cross-run memory
 
-    def __init__(self, model=None, role="implementation"):
+    def __init__(self, model=None, role="implementation", handoff_tokens=None):
         self.model = model
         self.role = role
+        # Context size at which an implementation run is told to hand off
+        # (`limits.handoff_context_tokens`); None installs no signal.
+        self.handoff_tokens = handoff_tokens
 
     def binary(self):
         return os.environ.get(self.binary_env) or self.default_binary
@@ -240,6 +244,12 @@ class ClaudeAdapter(AgentAdapter):
                     "--permission-mode", "plan", "--no-session-persistence"]
         else:
             argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
+            if self.handoff_tokens:
+                # The only way a `--print` run learns how full its context is:
+                # a hook that reads the transcript after each tool call and
+                # says so once it passes the hand-off threshold (ADR-0004).
+                argv += ["--settings",
+                         ralph_context.hook_settings(self.handoff_tokens)]
         # The envelope is the only place this CLI states what a run cost (#62).
         # It wraps the same text `--print` prints on its own, and `unwrap` puts
         # that text back, so asking for it changes nothing a caller sees.
@@ -333,8 +343,11 @@ def adapter_for_role(config, role, implementation=None, review=None,
     if role not in ROLES:
         return None, ["role: unknown role %r (roles: %s)"
                       % (role, ", ".join(ROLES))]
+    handoff_tokens = ((config or {}).get("limits") or {}).get(
+        "handoff_context_tokens")
     if not ralph_models.profiles(config):
-        return PROVIDERS[DEFAULT_PROVIDER](role=role), []
+        return PROVIDERS[DEFAULT_PROVIDER](role=role,
+                                           handoff_tokens=handoff_tokens), []
 
     if story is None:
         resolved = ralph_models.resolve_roles(
@@ -347,7 +360,8 @@ def adapter_for_role(config, role, implementation=None, review=None,
     if not resolved.ok:
         return None, resolved.errors
     profile = getattr(resolved, role)
-    return PROVIDERS[profile.provider](profile.model, role=role), []
+    return PROVIDERS[profile.provider](profile.model, role=role,
+                                      handoff_tokens=handoff_tokens), []
 
 
 def launch_role(config, role, prompt, implementation=None, review=None,

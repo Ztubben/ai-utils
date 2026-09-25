@@ -103,7 +103,8 @@ every gating step passes. If a step fails, fix and re-run — do not commit red.
 Commit all changes to the working branch with a clear message referencing the issue.
 The base branch and `ai-utils` stay untouched. If context fills before the story is
 green, write a Handoff (issue comment + WIP commits) and terminate so the next
-iteration resumes with clean context.
+iteration resumes with clean context. A **Ralph context notice** on a tool result
+means it has: finish the step you are on, then hand off.
 
 ## 5. Signal done (green) — required
 
