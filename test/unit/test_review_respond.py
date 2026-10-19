@@ -22,6 +22,7 @@ import ralph_review_complete  # noqa: E402
 import ralph_review_render  # noqa: E402
 import ralph_failure  # noqa: E402
 import ralph_review_respond  # noqa: E402
+import ralph_review_wait  # noqa: E402
 
 FIXTURES = os.path.join(REPO_ROOT, "test", "fixtures", "reviews")
 HEAD = "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d"
@@ -453,6 +454,17 @@ notify:
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def _gh(self):
+        self._write("record-comment.py", '''import json
+import os
+import sys
+if os.path.exists("refuse-story-comment"):
+    sys.exit(1)
+with open("issue-comments.json") as fh:
+    data = json.load(fh)
+data["comments"].append({"body": sys.argv[sys.argv.index("--body") + 1]})
+with open("issue-comments.json", "w") as fh:
+    json.dump(data, fh)
+''')
         marked = ralph_review.MANAGED_PR_MARKER + "\n\nRefs #55\n"
         self._write("prs.json", json.dumps([{"number": 70, "body": marked}]))
         self._write("pr.json", json.dumps({
@@ -472,6 +484,7 @@ notify:
                      '  "pr list") cat "%(r)s/prs.json";;\n'
                      '  "pr view") cat "%(r)s/pr.json";;\n'
                      '  "issue view") cat "%(r)s/issue-comments.json";;\n'
+                     '  "issue comment") python3 "%(r)s/record-comment.py" "$@" || exit $?;;\n'
                      '  "api repos/{owner}/{repo}/pulls/70/comments")'
                      ' cat "%(r)s/threads.json";;\n'
                      'esac\n'
@@ -579,6 +592,41 @@ notify:
         self.assertEqual(proc.returncode, 2)
         self.assertNotIn("claude", calls)
         self.assertEqual(self._rev(), self.head)
+
+    def test_published_dispute_hands_the_next_turn_to_the_reviewer(self):
+        self._agent(fix="dispute")
+        self._gh()
+
+        proc, calls = self.run_respond()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(os.path.join(self.root, "issue-comments.json")) as fh:
+            comments = json.load(fh)["comments"]
+        self.assertEqual(ralph_review.rounds_answered(comments, self.head), 1)
+        self.assertEqual(ralph_review_wait.next_step(
+            pull_request(head=self.head), comments, max_rounds=2),
+            ralph_review_wait.REVIEW)
+        self.assertLess(calls.index("gh pr comment 70"),
+                        calls.index("gh issue comment 55"))
+        # A fresh process reads what publication actually persisted; no
+        # synthetic response record is injected to make the guard pass.
+        proc, calls = self.run_respond()
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(calls.count("claude --dangerously-skip-permissions"), 1)
+
+    def test_failure_to_record_the_story_response_is_not_success(self):
+        self._agent(fix="dispute")
+        self._gh()
+        self._write("refuse-story-comment", "")
+
+        proc, calls = self.run_respond()
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("gh pr comment 70", calls)
+        self.assertIn("gh issue comment 55", calls)
+        with open(os.path.join(self.root, "issue-comments.json")) as fh:
+            comments = json.load(fh)["comments"]
+        self.assertEqual(ralph_review.rounds_answered(comments, self.head), 0)
 
     def test_an_amended_head_is_refused_and_no_reply_is_posted(self):
         self._agent(fix="amend")
