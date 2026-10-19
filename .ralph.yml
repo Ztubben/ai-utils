@@ -20,12 +20,12 @@ models:
     - key: claude-opus
       provider: claude
       model: claude-opus-5
-    - key: codex-high
+    - key: codex-sol
       provider: codex
-      model: gpt-5-codex
+      model: gpt-6.1-sol
   defaults:
     implementation: claude-opus
-    review: codex-high
+    review: codex-sol
 
 # ai-utils is its own target repository here, so its control plane is its own
 # review machinery: a Story touching any of this needs a human Approve before it

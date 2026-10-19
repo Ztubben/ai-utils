@@ -316,12 +316,12 @@ models:
     - key: claude-opus         # stable profile key; roles are selected by key
       provider: claude         # provider adapter: claude | codex
       model: claude-opus-5     # exact model identity, persisted on the story
-    - key: codex-high
+    - key: codex-sol
       provider: codex
-      model: gpt-5-codex
+      model: gpt-6.1-sol
   defaults:
     implementation: claude-opus   # must name a profile above
-    review: codex-high
+    review: codex-sol
   alternate: true                 # swap the pair on each newly started story (default: true)
 
 # Model review and negotiation.
@@ -356,8 +356,8 @@ either role by profile key at tick start:
 
 ```sh
 ralph --resolve-models                                   # committed defaults
-ralph --resolve-models --review codex-high               # override one role
-ralph --resolve-models --implementation codex-high --review claude-opus
+ralph --resolve-models --review codex-sol               # override one role
+ralph --resolve-models --implementation codex-sol --review claude-opus
 ```
 
 `--check-config` rejects an unknown provider adapter, a duplicate profile key, and
@@ -391,7 +391,7 @@ decision on the story itself**, as two labels carrying the exact model
 identities:
 
 ```
-model:impl:claude-opus-5      model:review:gpt-5-codex
+model:impl:claude-opus-5      model:review:gpt-6.1-sol
 ```
 
 The labels are created on demand the first time an identity is assigned, so the
@@ -423,9 +423,9 @@ The resolved role order — the committed defaults, or the operator's
 the next newly assigned story runs the same pair the other way round:
 
 ```
-#61  impl claude-opus-5   review gpt-5-codex
-#62  impl gpt-5-codex     review claude-opus-5
-#63  impl claude-opus-5   review gpt-5-codex
+#61  impl claude-opus-5   review gpt-6.1-sol
+#62  impl gpt-6.1-sol     review claude-opus-5
+#63  impl claude-opus-5   review gpt-6.1-sol
 ```
 
 Alternation advances **only when a story that carries no assignment starts**. A
@@ -594,7 +594,7 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 
 | What | Where | ai-utils' choice |
 | --- | --- | --- |
-| Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`claude-opus-5`) implements, `codex-high` (`gpt-5-codex`) reviews, alternating |
+| Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`claude-opus-5`) implements, `codex-sol` (`gpt-6.1-sol`) reviews, alternating |
 | Quality gate | `.ralph.yml` `gating` | one step, `test`, running `test/run.sh` |
 | CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `develop`; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
