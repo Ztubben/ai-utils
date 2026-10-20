@@ -15,7 +15,7 @@ for the code it touches. Add a new learning here, in the file that owns it.
   Closing the issue is what makes `ralph_select` count the dep satisfied — the two connect
   through gh CLOSED state, not a shared call.
 - `lib/ralph_hil.py` is the HIL sibling of `ralph_afk.py` (same `Plan`/`run_plan`/CLI shape):
-  `hil_complete_plan` refuses when base is `main` or the story is not `type:hil`; otherwise
+  `hil_complete_plan` refuses when the story is not `type:hil`; otherwise
   emits push → `gh pr create` (body **Refs #N**, never `Closes #N`) → `gh issue edit
   --add-label state:awaiting-bench --remove-label state:in-progress`. It **never** emits a
   `gh pr merge` or `gh issue close`: the human bench-verifies and merges the clean diff. The
@@ -26,7 +26,7 @@ for the code it touches. Add a new learning here, in the file that owns it.
   --allow-empty` → `git push` the story branch → `gh issue comment` carrying
   `HANDOFF_MARKER` + summary (story stays state:in-progress, so selection resumes it).
   `resume_plan` refuses a non-`state:in-progress` story and emits `git fetch` +
-  `git checkout <branch>`. Both refuse base/branch == `main`; neither references base,
+  `git checkout <branch>`. Both refuse a working branch of `main` (a base of `main` is fine); neither references base,
   so the base branch is untouched. The comment marker is how a context-full checkpoint
   stays distinct from a failed Attempt: `non_handoff_comments` filters checkpoints out,
   and that is what US-009's attempt counter must operate on. The judgment-heavy "when to

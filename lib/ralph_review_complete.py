@@ -13,7 +13,6 @@ does not disappear, it moves to the Feature boundary, where a Feature is
 refused integration into the base branch while any of its HIL Stories is still
 unverified.  A HIL Orphan Story has no Feature branch between it and the base
 branch, so it is not merged at all before a human has been to the bench.
-Neither path ever targets `main`.
 """
 import fnmatch
 import json
@@ -342,7 +341,7 @@ def completion_plan(story, pull_request, comments, base=ralph_iterate.DEFAULT_BA
                  "--remove-label", IN_REVIEW_LABEL]
         if parent is None:
             # An Orphan Story's base *is* the base branch, so there is nothing
-            # between unverified hardware code and `develop`: it is not merged.
+            # between unverified hardware code and the base branch: it is not merged.
             return Plan(True, [],
                         [["gh", "issue", "comment", str(number), "--body", anchor],
                          label],
