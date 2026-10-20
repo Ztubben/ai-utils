@@ -77,7 +77,7 @@ def label_command(name, color, description):
 def _base_commands(base, base_exists, default_branch):
     """Commands to ensure `base` exists on origin, or [] if nothing to do.
 
-    Refuses to fabricate `main` (Ralph never touches main, ADR-0001) and never
+    Never fabricates `main` (it always exists, and is a valid base) and never
     creates a base that already exists. When missing, `base` is branched off the
     repo's default branch on origin without disturbing the working tree.
     """
