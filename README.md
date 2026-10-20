@@ -299,7 +299,7 @@ gating:
 
 # Ralph integrates into `base` and never touches `main`.
 branching:
-  base: develop                            # default: develop
+  base: main                               # default: main
   branch_pattern: "ralph/{issue}-{slug}"   # every story's own working branch
   feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue
   afk_merge: squash                        # merge | squash | rebase (default: squash)

@@ -18,9 +18,9 @@ gating:
   - name: test
     run: make test
 
-# Branching strategy. Ralph integrates into `base` and never touches `main`.
+# Branching strategy. Ralph integrates into `base`; it never commits on `main` itself.
 branching:
-  base: develop                     # default: develop
+  base: main                        # default: main
   branch_pattern: "ralph/{issue}-{slug}"  # {issue} and {slug} are substituted
   feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue (default shown)
   afk_merge: squash                 # one of: merge | squash | rebase (default: squash)

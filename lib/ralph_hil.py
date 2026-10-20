@@ -11,7 +11,7 @@ integration branch with the completion commit SHA recorded as a *bench anchor*
 comment on the issue -- no PR -- so the human verifies at that exact commit
 while sibling stories keep landing on the branch tip. Re-completion after
 bench-fail rework appends a new anchor comment superseding the old (comments
-are never edited). Ralph **never touches main** (ADR-0001).
+are never edited). Ralph never commits on `main` itself (ADR-0001).
 
 The deterministic, host-testable seam mirrors AFK completion: a pure command
 *plan* (`hil_complete_plan`) returns the ordered git/gh commands (as argv lists)
@@ -59,8 +59,7 @@ def hil_complete_plan(story, base=DEFAULT_BASE,
     the caller resolved from HEAD -- is recorded as a bench anchor comment on
     the issue, with no PR. Each completion appends a fresh anchor comment, so
     re-completion after bench-fail rework supersedes the old anchor without
-    editing history. Refuses (ok=False, no commands) when base is `main`
-    (never touches main), the story is not `type:hil` (AFK auto-merge is
+    editing history. Refuses (ok=False, no commands) when the story is not `type:hil` (AFK auto-merge is
     US-006's job), a Feature story lacks its PRD context, or a Feature story
     lacks `head_sha`. Never emits a merge or a close: the human bench-verifies.
     """

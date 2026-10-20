@@ -10,7 +10,7 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `implementation_green_plan` pushes the Story's own branch, creates a marked PR
   or updates the already-open marked PR **against the Story's resolved base**, and moves
   both AFK and HIL Stories to `state:in-review`. It never merges, closes, or emits
-  `state:awaiting-bench`, and refuses `main` and an unmarked existing PR. Since #71
+  `state:awaiting-bench`, and refuses an unmarked existing PR. Since #71
   (PRD #69) each Story owns exactly one pull request: a Feature Story's targets its Feature
   branch, which the plan creates off the base branch when `feature_exists=False` (the CLI
   asks origin, via `remote_branch_exists`, and only for a Story that has a Feature at all).

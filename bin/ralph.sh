@@ -28,7 +28,7 @@
 #
 # Ralph only ever modifies its target repository (the superproject when ai-utils is
 # mounted as a submodule; ai-utils itself when it is the checkout root -- ADR-0001
-# amendment) and never touches main. The heavy
+# amendment) and never commits on main itself. The heavy
 # lifting (TDD, gating) lives in the agent iteration driven by
 # prompts/iterate.v1.md, which reports a green story via a done-signal marker;
 # this script is only the orchestration shell -- selecting, promoting green
@@ -305,7 +305,7 @@ check_breaker() {
 
 # Promote locally green implementation work into review. Both Story types use
 # the same marked-PR boundary and move to state:in-review; final AFK/HIL
-# completion is a later, review-gated stage. The tool refuses main and validates
+# completion is a later, review-gated stage. The tool validates
 # the Story type/state, so this stays thin orchestration.
 # The story is fetched fresh so promotion has the full record. A Feature story
 # (Parent: #N, ADR-0006) needs its PRD issue to resolve the feature branch, so
