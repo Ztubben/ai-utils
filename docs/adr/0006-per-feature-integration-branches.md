@@ -42,3 +42,5 @@ Adopting the amendment does not rewrite anything automatically, and no in-flight
 3. **Remaining Stories of that Feature.** They pick up the new topology at their next start: a branch of their own cut from the current feature tip, and a pull request of their own into the feature branch. Nothing has to be re-implemented.
 4. **Stories already In Review under the shared pull request.** Finish or close their negotiation before adopting, or let them escalate and arbitrate by hand — their recorded rounds are read from the Story issue, so a Story mid-negotiation is not stranded, but it will still be judged against a diff that includes its predecessors until it opens a pull request of its own.
 5. **Branch protection is unchanged.** The base branch keeps requiring CI and `ralph/model-review`; a feature branch needs no protection of its own.
+
+*Amended:* `develop` throughout this record means the configured base branch, which may be `main` (ADR-0001).
