@@ -2,8 +2,8 @@
 
 For a green `type:afk` story Ralph auto-merges the story branch into base per the
 configured `afk_merge` policy and closes the issue (marks it Passing), so
-fully-autonomous work keeps `base` (default `develop`) moving and unblocks
-dependents. Ralph integrates into base and **never touches main** (ADR-0001).
+fully-autonomous work keeps `base` (default `main`) moving and unblocks
+dependents. Ralph integrates into base and never commits on `main` itself (ADR-0001).
 
 The deterministic, host-testable seam is a pure command *plan*: `afk_complete_plan`
 returns the ordered git/gh commands (as argv lists) without running anything, so
@@ -48,7 +48,7 @@ def afk_complete_plan(story, base=DEFAULT_BASE,
     merged into base per afk_merge, and closed; a Feature story (`Parent: #N`)
     is pushed to its Feature's integration branch and closed -- no PR, no
     merge -- because the code integrates only when the whole Feature merges.
-    Refuses (ok=False, no commands) when base is `main`, the story is not
+    Refuses (ok=False, no commands) when the story is not
     `type:afk`, afk_merge is unknown, or a Feature story lacks its PRD context.
     """
     errors = []

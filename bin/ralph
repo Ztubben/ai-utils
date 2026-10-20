@@ -211,8 +211,8 @@ usage: ralph --init [CONFIG]
                           machine marker (or updates the existing marked PR),
                           and moves either an AFK or HIL Story from
                           state:in-progress to state:in-review. Never merges,
-                          closes, or moves a HIL Story to awaiting-bench; never
-                          targets main. PRD is required for a Feature Story.
+                          closes, or moves a HIL Story to awaiting-bench. PRD is
+                          required for a Feature Story.
                           Exits 0 on success, 1 on git/gh failure, and 2 on bad
                           config or refusal (including an unmarked existing PR).
   --review-context        Print the diff-first evidence bundle for one fresh
@@ -358,8 +358,8 @@ usage: ralph --init [CONFIG]
                            Feature's code integrates when the Feature merges
                            (ADR-0006). A HIL Story of either kind is never
                            merged: it records a bench anchor at the exact head
-                           and moves to state:awaiting-bench, still open. Never
-                           targets main. Exits 0 on success, 1 on a gh failure,
+                           and moves to state:awaiting-bench, still open.
+                           Exits 0 on success, 1 on a gh failure,
                            2 on a refusal (a shut gate reaches GitHub not at
                            all).
   --complete-afk STORY    Complete a green AFK story (gh --json shape; - for
@@ -367,7 +367,7 @@ usage: ralph --init [CONFIG]
                           auto-merged into base per afk_merge and closed; a
                           Feature story (Parent: #N) is pushed to its feature
                           branch (resolved from its PRD issue, given as PRD)
-                          and closed -- no PR, no merge. Never touches main.
+                          and closed -- no PR, no merge.
                           Exits 0 on success, 1 on a git/gh failure, 2 on bad
                           config or a refusal (incl. a Feature story without
                           its PRD context).
@@ -378,7 +378,7 @@ usage: ralph --init [CONFIG]
                           #N) is pushed to its feature branch (resolved from
                           its PRD issue, given as PRD) with the completion
                           commit SHA recorded as a bench anchor comment -- no
-                          PR. Never merges or closes; never touches main.
+                          PR. Never merges or closes.
                           Exits 0 on success, 1 on a git/gh failure, 2 on bad
                           config or a refusal (incl. a Feature story without
                           its PRD context).
@@ -390,7 +390,7 @@ usage: ralph --init [CONFIG]
                           commit (never squash), then closes the PRD. A rebase
                           conflict or red gate pushes the branch, comments
                           details on the PRD, and labels it ready-for-human
-                          (no needs-human). Never touches main. Exits 0 on
+                          (no needs-human). Exits 0 on
                           success, 1 on a blocker, 2 on bad config or refusal.
   --count-handoffs        Print how many Handoff checkpoints a story carries
        [STORY]            (gh --json comments; default - for stdin). The tick
@@ -400,7 +400,8 @@ usage: ralph --init [CONFIG]
   --checkpoint STORY      Write a Handoff for an in-progress story: commit + push
        SUMMARY [CONFIG]   WIP to the story branch and post an issue comment
        [--comment-only]   (carrying the handoff marker) with SUMMARY, then stop.
-                          Ralph never compacts context. Never touches base/main.
+                          Ralph never compacts context. Never touches base, and
+                          never commits on main.
                           --comment-only posts the Handoff comment alone, which
                           is what a Story In Review needs: its work is already
                           pushed, and a commit would move the head a reviewer's

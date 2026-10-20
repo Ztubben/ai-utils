@@ -13,7 +13,7 @@ The parent embedded project that mounts `ai-utils` as a submodule — the target
 _Avoid_: parent repo, host project (use "superproject")
 
 **Ralph Loop**:
-The autonomous coding agent loop that scans the superproject's backlog for workable stories and implements them test-first. Shipped from `ai-utils`, executed from the superproject root. Ralph integrates into the configured base branch (default `develop`) and **never touches `main`**; promoting `develop → main`, including any slower-cadence integration/regression bench testing, is human-owned and outside Ralph's scope.
+The autonomous coding agent loop that scans the superproject's backlog for workable stories and implements them test-first. Shipped from `ai-utils`, executed from the superproject root. Ralph integrates into the configured base branch (default `main`), and never commits on `main` itself; any promotion beyond that base, including slower-cadence integration/regression bench testing, is human-owned and outside Ralph's scope.
 _Avoid_: the agent, the bot, the runner (use "Ralph Loop" or "Ralph")
 
 **Story**:

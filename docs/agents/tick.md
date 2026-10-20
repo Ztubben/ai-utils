@@ -48,7 +48,7 @@ for the code it touches. Add a new learning here, in the file that owns it.
   prio_max)` returns the ordered gh/git commands to `gh label create --force` the canonical
   vocabulary (`FIXED_LABELS` — the exact `state:`/`type:`/`needs-human`/`ready-for-human`
   labels `ralph_story`/`ralph_select` consume — plus a `prio:0..N` starter range) and, when
-  `base` is missing, create it off the default branch (refusing to fabricate `main`, ADR-0001).
+  `base` is missing, create it off the default branch (never fabricating `main`, which always exists).
   The CLI detects live state (`_remote_has_branch`, `_default_branch`) then runs the plan.
   Idempotent by construction (`--force`, skip-if-present). Covered by `test/unit/test_init.py`.
 - `scheduler/` ships the sample schedulers (US-012, ADR-0001): systemd `ralph.service`

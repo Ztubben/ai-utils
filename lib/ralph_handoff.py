@@ -63,7 +63,7 @@ def handoff_plan(story, summary, base=DEFAULT_BASE,
     Pure: computes commands, runs nothing. Stages + commits WIP, pushes the story
     branch, and posts an issue comment carrying `HANDOFF_MARKER` + the summary.
     The story stays `state:in-progress` so selection resumes it next iteration.
-    Refuses (ok=False, no commands) when base is `main` (never touches main).
+    Refuses (ok=False, no commands) when the working branch is `main`.
 
     `include_wip=False` writes the comment alone. That is what a Story In Review
     needs (#54): its work is already pushed and a reviewer's findings are bound

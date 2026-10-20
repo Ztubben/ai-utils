@@ -27,7 +27,7 @@
       }
     },
     "branching": {
-      "description": "Branching strategy. Ralph integrates into base and never touches main.",
+      "description": "Branching strategy. Ralph integrates into base, main included; it never commits on main itself.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

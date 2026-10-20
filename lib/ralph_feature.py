@@ -86,7 +86,7 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
       - fallback_ok (optional): if True, step failure is tolerated (cosmetic)
       - on_fail (optional): list of argv lists to run on failure (blocker path)
 
-    Refuses (ok=False, no steps) when base is `main`, and when *backlog* shows
+    Refuses (ok=False, no steps) when *backlog* shows
     any HIL Story of this Feature still open -- naming each one, because the
     person reading the refusal is the person who has to bench-verify them.
     Pass `backlog=None` only where the backlog genuinely cannot be read; the
