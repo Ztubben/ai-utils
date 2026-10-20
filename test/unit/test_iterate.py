@@ -156,7 +156,7 @@ class ResolveBranch(unittest.TestCase):
                 ralph_iterate.resolve_topology(story, prd=prd).branch)
 
     def test_default_base_matches_schema_default(self):
-        self.assertEqual(ralph_iterate.DEFAULT_BASE, "develop")
+        self.assertEqual(ralph_iterate.DEFAULT_BASE, "main")
 
     def test_default_feature_pattern_matches_schema_default(self):
         self.assertEqual(ralph_iterate.DEFAULT_FEATURE_PATTERN, "feature/{issue}-{slug}")

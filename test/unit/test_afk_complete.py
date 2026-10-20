@@ -97,16 +97,14 @@ class AfkCompletePlan(unittest.TestCase):
         plan = ralph_afk.afk_complete_plan(afk_story(number=42), base="develop")
         self.assertIn("Closes #42", _flat(plan.commands))
 
-    def test_refuses_to_merge_into_main(self):
+    def test_merges_into_main_base(self):
         plan = ralph_afk.afk_complete_plan(afk_story(), base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertIn("main", _flat(plan.commands))
 
-    def test_refuses_main_case_insensitively(self):
+    def test_accepts_main_case_insensitively(self):
         plan = ralph_afk.afk_complete_plan(afk_story(), base="Main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
 
     def test_refuses_non_afk_story(self):
         plan = ralph_afk.afk_complete_plan(afk_story(type_="hil"), base="develop")
@@ -171,11 +169,9 @@ class AfkCompletePlanFeatureStory(unittest.TestCase):
         plan = self._plan()
         self.assertNotIn("main", _flat(plan.commands))
 
-    def test_refuses_main_base(self):
+    def test_accepts_main_base(self):
         plan = self._plan(base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
 
     def test_refuses_non_afk_feature_story(self):
         plan = ralph_afk.afk_complete_plan(
@@ -255,14 +251,14 @@ class CliCompleteAfk(unittest.TestCase):
             self.assertIn("issue close 6", calls)
             self.assertNotIn("main", calls)
 
-    def test_refusal_to_touch_main_exits_two_and_runs_nothing(self):
+    def test_main_base_runs_the_merge(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = self._mockbin(tmp)
             config = os.path.join(FIXTURES, "config", "valid", "base-main.yml")
-            proc = self._run(afk_story(), config, tmp, log)
-            self.assertEqual(proc.returncode, 2, proc.stdout)
-            self.assertIn("main", proc.stderr)
-            self.assertFalse(os.path.exists(log))  # nothing executed
+            proc = self._run(afk_story(number=6), config, tmp, log)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(log) as fh:
+                self.assertIn("pr merge", fh.read())
 
     def test_gh_failure_exits_one(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -175,14 +175,14 @@ def _write_exec(path, contents):
 class FreshnessTickHarness:
     """A throwaway superproject with mock CLIs that logs git merge calls."""
 
-    def __init__(self, tmp):
+    def __init__(self, tmp, config=None):
         self.tmp = tmp
         self.log = os.path.join(tmp, "ralph.log")
         self.queue = os.path.join(tmp, "ghq")
         os.makedirs(self.queue)
         os.makedirs(os.path.join(tmp, ".git"))
         os.makedirs(os.path.join(tmp, "mockbin"))
-        with open(FULL_CONFIG) as fh:
+        with open(config or FULL_CONFIG) as fh:
             with open(os.path.join(tmp, ".ralph.yml"), "w") as out:
                 out.write(fh.read())
         self._write_mocks()
@@ -270,10 +270,27 @@ class FreshnessOrchestration(unittest.TestCase):
     """Verify that bin/ralph.sh merges base into the feature branch when a
     Feature story has out-of-Feature dependencies, and skips it otherwise."""
 
-    def harness(self):
+    def harness(self, config=None):
         tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        return FreshnessTickHarness(tmp)
+        return FreshnessTickHarness(tmp, config)
+
+    def test_freshness_merges_main_when_base_is_main(self):
+        h = self.harness(os.path.join(os.path.dirname(FULL_CONFIG), "base-main.yml"))
+        backlog = [
+            story(10, prio=None, prd=True),
+            story(4, type_="afk", prio=9, closed=True),
+            _feature_story(11, "ready", depends=[4]),
+        ]
+        h.set_backlogs(backlog, backlog, [], [])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = h.log_lines()
+        merge_idx = next((i for i, ln in enumerate(log)
+                          if "git merge" in ln and "main" in ln), None)
+        self.assertIsNotNone(merge_idx, "expected 'git merge main' in log: %s" % log)
+        claude_idx = next(i for i, ln in enumerate(log) if ln.startswith("claude "))
+        self.assertLess(merge_idx, claude_idx)
 
     def test_start_with_out_of_feature_dep_merges_base(self):
         """Starting a Feature story that depends on a closed Orphan #4 must

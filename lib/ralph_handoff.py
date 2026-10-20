@@ -31,7 +31,7 @@ import ralph_story  # noqa: E402
 
 PROTECTED_BRANCH = "main"
 IN_PROGRESS_STATE = "in-progress"
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 
 # Distinct marker every Handoff comment carries. A context-full checkpoint is not
 # a failed Attempt (ADR-0004), so an attempt counter (US-009) excludes comments
@@ -49,10 +49,8 @@ class Plan:
         self.branch = branch
 
 
-def _refuse_protected(base, branch, errors):
-    """Guard the safety invariant: never touch base or main from a Handoff."""
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to checkpoint onto main (ADR-0001)")
+def _refuse_protected(branch, errors):
+    """Guard the safety invariant: a Handoff never commits on main itself."""
     if (branch or "").strip().lower() == PROTECTED_BRANCH:
         errors.append("branch: refusing to touch main (ADR-0001)")
 
@@ -81,7 +79,7 @@ def handoff_plan(story, summary, base=DEFAULT_BASE,
     number = story["number"]
     branch = ralph_iterate.branch_name(story, branch_pattern)
     errors = []
-    _refuse_protected(base, branch, errors)
+    _refuse_protected(branch, errors)
     if errors:
         return Plan(False, errors, [], base=base, branch=branch)
 
@@ -112,7 +110,7 @@ def resume_plan(story, base=DEFAULT_BASE,
         errors.append(
             "state: --resume only resumes a state:in-progress story (got %s)"
             % (fields.get("state") or "none"))
-    _refuse_protected(base, branch, errors)
+    _refuse_protected(branch, errors)
     if errors:
         return Plan(False, errors, [], base=base, branch=branch)
 
