@@ -43,7 +43,7 @@ class ValidConfigTests(unittest.TestCase):
 
     def test_defaults_are_applied_when_omitted(self):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
-        self.assertEqual(result.config["branching"]["base"], "develop")
+        self.assertEqual(result.config["branching"]["base"], "main")
         self.assertEqual(result.config["limits"]["max_attempts"], 3)
         self.assertEqual(result.config["limits"]["circuit_breaker"], 2)
 

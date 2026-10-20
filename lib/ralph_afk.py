@@ -22,9 +22,8 @@ import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_story  # noqa: E402
 
-PROTECTED_BRANCH = "main"
 MERGE_FLAG = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 DEFAULT_AFK_MERGE = "squash"
 
 
@@ -53,8 +52,6 @@ def afk_complete_plan(story, base=DEFAULT_BASE,
     `type:afk`, afk_merge is unknown, or a Feature story lacks its PRD context.
     """
     errors = []
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to auto-merge into main (ADR-0001)")
 
     fields = ralph_story.validate_story(story).fields
     if fields.get("type") != "afk":

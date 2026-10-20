@@ -227,12 +227,12 @@ class CompletingAnAfkStory(unittest.TestCase):
         self.assertFalse(plan.ok)
         self.assertEqual(plan.commands, [])
 
-    def test_it_never_merges_into_main(self):
+    def test_it_merges_into_main(self):
         plan = self.plan(base="main")
 
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertIn("main", " ".join(plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual(plan.base, "main")
+        self.assertTrue(plan.merged)
 
     def test_a_story_that_is_not_in_review_is_refused(self):
         plan = self.plan(story=story(state="in-progress"))
@@ -321,11 +321,11 @@ class CompletingAHilStory(unittest.TestCase):
             self.assertFalse(any("issue close" in c for c in flat), flat)
             self.assertTrue(any("state:awaiting-bench" in c for c in flat), flat)
 
-    def test_it_never_targets_main(self):
+    def test_it_targets_main(self):
         plan = self.plan(base="main")
 
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
+        self.assertEqual(plan.base, "main")
 
 
 class CliCompleteStory(unittest.TestCase):

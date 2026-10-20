@@ -39,8 +39,7 @@ import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_select  # noqa: E402
 
-PROTECTED_BRANCH = "main"
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 READY_FOR_HUMAN_LABEL = "ready-for-human"
 
 
@@ -94,8 +93,6 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
     live CLI reads it and refuses rather than integrating unchecked.
     """
     errors = []
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to integrate into main (ADR-0001)")
 
     unverified = (unverified_hil_stories(prd, backlog)
                   if backlog is not None else [])

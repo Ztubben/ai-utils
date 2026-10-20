@@ -35,7 +35,7 @@
           "description": "Base branch Ralph integrates into.",
           "type": "string",
           "minLength": 1,
-          "default": "develop"
+          "default": "main"
         },
         "branch_pattern": {
           "description": "Story branch naming pattern; {issue} and {slug} are substituted.",
