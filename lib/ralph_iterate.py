@@ -35,7 +35,7 @@ import ralph_story  # noqa: E402
 
 DEFAULT_BRANCH_PATTERN = "ralph/{issue}-{slug}"
 DEFAULT_FEATURE_PATTERN = "feature/{issue}-{slug}"
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = "main"
 SLUG_MAX = 50
 
 

@@ -116,16 +116,20 @@ class HandoffPlan(unittest.TestCase):
         self.assertTrue(plan.ok)
         self.assertNotIn("main", _flat(plan.commands))
 
-    def test_refuses_base_main(self):
+    def test_main_base_is_allowed(self):
         plan = ralph_handoff.handoff_plan(story(), "s", base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
 
-    def test_refuses_base_main_case_insensitively(self):
+    def test_main_base_is_allowed_case_insensitively(self):
         plan = ralph_handoff.handoff_plan(story(), "s", base="Main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
+
+    def test_still_refuses_main_as_working_branch(self):
+        for name in ("main", "Main", " main "):
+            plan = ralph_handoff.handoff_plan(story(), "s", base="main",
+                                              branch_pattern=name)
+            self.assertFalse(plan.ok, name)
+            self.assertEqual(plan.commands, [])
 
     def test_honors_custom_branch_pattern(self):
         plan = ralph_handoff.handoff_plan(
@@ -167,10 +171,9 @@ class ResumePlan(unittest.TestCase):
         self.assertEqual(plan.commands, [])
         self.assertTrue(any("in-progress" in e for e in plan.errors))
 
-    def test_refuses_base_main(self):
+    def test_main_base_is_allowed(self):
         plan = ralph_handoff.resume_plan(story(state="in-progress"), base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
 
 
 class HandoffComments(unittest.TestCase):
@@ -259,14 +262,13 @@ class CliCheckpoint(unittest.TestCase):
             self.assertIn(ralph_handoff.HANDOFF_MARKER, calls)
             self.assertNotIn("main", calls)
 
-    def test_refusal_to_touch_main_exits_two_and_runs_nothing(self):
+    def test_main_base_is_not_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = _mockbin(tmp)
             config = os.path.join(FIXTURES, "config", "valid", "base-main.yml")
             proc = self._run(story(), "s", config, tmp, log)
-            self.assertEqual(proc.returncode, 2, proc.stdout)
-            self.assertIn("main", proc.stderr)
-            self.assertFalse(os.path.exists(log))
+            self.assertNotIn("refusing", proc.stderr)
+            self.assertTrue(os.path.exists(log))  # the plan ran
 
     def test_gh_failure_exits_one(self):
         with tempfile.TemporaryDirectory() as tmp:

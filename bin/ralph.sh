@@ -58,14 +58,14 @@ export RALPH_RUN_ID
 
 log() { printf 'ralph: %s\n' "$*"; }
 
-# Read the configured base branch from .ralph.yml (default 'develop').
+# Read the configured base branch from .ralph.yml (default 'main').
 # Called once per tick after config validation; cached in BASE_BRANCH.
 read_base_branch() {
   python3 -c "
 import sys; sys.path.insert(0, '$(dirname "$RALPH_BIN")/../lib')
 import ralph_config
 r = ralph_config.load_and_validate('$RALPH_CONFIG')
-print(r.config['branching']['base'] if r.ok else 'develop')
+print(r.config['branching']['base'] if r.ok else 'main')
 "
 }
 

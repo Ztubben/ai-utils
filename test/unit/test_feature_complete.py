@@ -9,7 +9,7 @@ Failure modes:
   - Autosquash conflict: fall back to uncollapsed linear history, continue
   - Rebase conflict or red gate: push branch, comment on PRD, label
     ready-for-human, stop — NO needs-human circuit breaker
-  - Base is main: refuse outright
+  - Base is main: integrate into it like any other base (ADR-0001)
   - An unverified HIL Story of the Feature: refuse outright, naming each one
     (PRD #69 — the physical gate now stands at the Feature boundary)
 """
@@ -289,25 +289,27 @@ class RebaseConflictOrRedGate(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# AC: The pass refuses a `main` base
+# AC: The pass integrates into a `main` base like any other
 # ---------------------------------------------------------------------------
-class RefuseMainBase(unittest.TestCase):
+class AcceptMainBase(unittest.TestCase):
 
-    def test_refuses_main(self):
-        plan = ralph_feature.feature_complete_plan(
-            prd_issue(), base="main",
+    def _plan(self, base):
+        return ralph_feature.feature_complete_plan(
+            prd_issue(), base=base,
             feature_pattern="feature/{issue}-{slug}",
             gating=[{"name": "test", "run": "make test"}])
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.steps, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
 
-    def test_refuses_main_case_insensitive(self):
-        plan = ralph_feature.feature_complete_plan(
-            prd_issue(), base="Main",
-            feature_pattern="feature/{issue}-{slug}",
-            gating=[{"name": "test", "run": "make test"}])
-        self.assertFalse(plan.ok)
+    def test_integrates_into_main(self):
+        plan = self._plan("main")
+        self.assertTrue(plan.ok, plan.errors)
+        rebase = next(s for s in plan.steps if s["name"] == "rebase")
+        self.assertEqual(rebase["commands"], [["git", "rebase", "main"]])
+        pr = next(s for s in plan.steps if s["name"] == "pr-create")
+        create = pr["commands"][0]
+        self.assertEqual(create[create.index("--base") + 1], "main")
+
+    def test_accepts_main_case_insensitive(self):
+        self.assertTrue(self._plan("Main").ok)
 
 
 # ---------------------------------------------------------------------------
@@ -416,14 +418,13 @@ class CliCompleteFeature(unittest.TestCase):
             self.assertNotIn("pr merge", calls)
             self.assertNotIn("issue close", calls)
 
-    def test_refuses_main_base_exits_two(self):
+    def test_main_base_is_not_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = self._mockbin(tmp)
             config = os.path.join(FIXTURES, "config", "valid", "base-main.yml")
             proc = self._run(prd_issue(), config, tmp, log)
-            self.assertEqual(proc.returncode, 2, proc.stdout)
-            self.assertIn("main", proc.stderr)
-            self.assertFalse(os.path.exists(log))
+            self.assertNotIn("refusing", proc.stderr)
+            self.assertTrue(os.path.exists(log))  # the plan ran
 
 
 if __name__ == "__main__":

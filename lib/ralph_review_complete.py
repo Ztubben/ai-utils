@@ -33,7 +33,6 @@ import ralph_review_render  # noqa: E402
 import ralph_review_round  # noqa: E402
 import ralph_story  # noqa: E402
 
-PROTECTED_BRANCH = "main"
 IN_REVIEW_LABEL = "state:in-review"
 AWAITING_BENCH_LABEL = "state:awaiting-bench"
 
@@ -255,7 +254,7 @@ def hold_plan(story, pull_request, protected, handle):
     ], head=head)
 
 
-def completion_plan(story, pull_request, comments, base="develop",
+def completion_plan(story, pull_request, comments, base=ralph_iterate.DEFAULT_BASE,
                     afk_merge="squash", prd=None, protected=(),
                     branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN,
                     feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
@@ -274,8 +273,6 @@ def completion_plan(story, pull_request, comments, base="develop",
     again; only the Story's bookkeeping is done.
     """
     errors = []
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to complete into main (ADR-0001)")
     if not ralph_review.is_managed_pr(pull_request):
         errors.append("pull_request: #%s is not Ralph-managed; refusing to "
                       "complete it" % (pull_request or {}).get("number", "?"))
@@ -434,7 +431,7 @@ def complete(story, pull_request, config, root, comments=None, prd=None,
             return 2
     branching = (config or {}).get("branching") or {}
     plan = completion_plan(
-        story, pull_request, comments, base=branching.get("base", "develop"),
+        story, pull_request, comments, base=branching.get("base", ralph_iterate.DEFAULT_BASE),
         afk_merge=branching.get("afk_merge", "squash"), prd=prd,
         protected=protected,
         branch_pattern=branching.get("branch_pattern",

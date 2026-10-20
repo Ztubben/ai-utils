@@ -22,10 +22,9 @@ import ralph_iterate  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_story  # noqa: E402
 
-PROTECTED_BRANCH = "main"
 IN_PROGRESS_LABEL = "state:in-progress"
 IN_REVIEW_LABEL = "state:in-review"
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 
 
 class Plan:
@@ -69,8 +68,6 @@ def implementation_green_plan(
     discovery belong to the CLI wrapper.
     """
     errors = []
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to open a PR into main (ADR-0001)")
 
     validation = ralph_story.validate_story(story)
     fields = validation.fields

@@ -68,8 +68,8 @@ class InitPlanBaseBranch(unittest.TestCase):
         plan = ralph_init.init_plan(base="develop", base_exists=True)
         self.assertFalse(any(c[:1] == ["git"] for c in plan))
 
-    def test_refuses_to_fabricate_main(self):
-        # Ralph never touches main (ADR-0001); init must not conjure it either.
+    def test_main_base_is_never_fabricated_even_if_reported_missing(self):
+        # `main` always exists; init must never push a branch over it.
         plan = ralph_init.init_plan(base="main", base_exists=False)
         self.assertFalse(any(c[:1] == ["git"] for c in plan))
         self.assertNotIn("main:refs/heads/main", _flat(plan))
