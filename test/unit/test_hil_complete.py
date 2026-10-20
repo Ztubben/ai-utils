@@ -116,16 +116,15 @@ class HilCompletePlan(unittest.TestCase):
                       if c[:3] == ["gh", "issue", "edit"])
         self.assertLess(create_i, edit_i)
 
-    def test_refuses_to_open_pr_into_main(self):
+    def test_opens_pr_into_main(self):
         plan = ralph_hil.hil_complete_plan(hil_story(), base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
+        create = next(c for c in plan.commands if c[:3] == ["gh", "pr", "create"])
+        self.assertEqual(create[create.index("--base") + 1], "main")
 
-    def test_refuses_main_case_insensitively(self):
+    def test_accepts_main_case_insensitively(self):
         plan = ralph_hil.hil_complete_plan(hil_story(), base="Main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
 
     def test_refuses_non_hil_story(self):
         plan = ralph_hil.hil_complete_plan(hil_story(type_="afk"), base="develop")
@@ -246,10 +245,9 @@ class HilCompletePlanFeatureStory(unittest.TestCase):
         self.assertEqual(plan.commands, [])
         self.assertTrue(any("sha" in e.lower() for e in plan.errors))
 
-    def test_refuses_main_base(self):
+    def test_accepts_main_base(self):
         plan = self._plan(base="main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
+        self.assertTrue(plan.ok, plan.errors)
 
     def test_refuses_non_hil_feature_story(self):
         plan = self._plan(story=feature_story(type_="afk"))
@@ -319,14 +317,13 @@ class CliCompleteHil(unittest.TestCase):
             self.assertNotIn("issue close", calls)
             self.assertNotIn("main", calls)
 
-    def test_refusal_to_touch_main_exits_two_and_runs_nothing(self):
+    def test_main_base_is_not_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = self._mockbin(tmp)
             config = os.path.join(FIXTURES, "config", "valid", "base-main.yml")
             proc = self._run(hil_story(), config, tmp, log)
-            self.assertEqual(proc.returncode, 2, proc.stdout)
-            self.assertIn("main", proc.stderr)
-            self.assertFalse(os.path.exists(log))
+            self.assertNotIn("refusing", proc.stderr)
+            self.assertTrue(os.path.exists(log))  # the plan ran
 
     def test_gh_failure_exits_one(self):
         with tempfile.TemporaryDirectory() as tmp:

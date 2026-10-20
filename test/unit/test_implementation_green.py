@@ -252,11 +252,9 @@ class ImplementationGreenPlan(unittest.TestCase):
         self.assertIn(["diff", "--no-ext-diff", "featuretip", "storyhead"],
                       calls)
 
-    def test_refuses_main(self):
+    def test_accepts_main_base(self):
         plan = ralph_implementation.implementation_green_plan(story(), base="Main")
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.commands, [])
-        self.assertTrue(any("main" in e for e in plan.errors))
+        self.assertTrue(plan.ok, plan.errors)
 
 
 class CliImplementationGreen(unittest.TestCase):

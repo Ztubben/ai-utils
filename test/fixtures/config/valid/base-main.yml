@@ -1,6 +1,5 @@
-# Schema-valid config that (mis)configures base as `main`. Ralph must refuse to
-# auto-merge here — it never touches main (ADR-0001) — even though the schema
-# permits any branch name.
+# Schema-valid config whose base is `main`: Ralph integrates straight into it
+# (ADR-0001). It still never commits on `main` itself.
 version: 1
 gating:
   - name: test

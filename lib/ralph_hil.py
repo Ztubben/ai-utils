@@ -29,10 +29,9 @@ import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_story  # noqa: E402
 
-PROTECTED_BRANCH = "main"
 AWAITING_BENCH_LABEL = "state:awaiting-bench"
 IN_PROGRESS_LABEL = "state:in-progress"
-DEFAULT_BASE = "develop"
+DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 
 
 class Plan:
@@ -66,8 +65,6 @@ def hil_complete_plan(story, base=DEFAULT_BASE,
     lacks `head_sha`. Never emits a merge or a close: the human bench-verifies.
     """
     errors = []
-    if (base or "").strip().lower() == PROTECTED_BRANCH:
-        errors.append("branching/base: refusing to open a PR into main (ADR-0001)")
 
     fields = ralph_story.validate_story(story).fields
     if fields.get("type") != "hil":
