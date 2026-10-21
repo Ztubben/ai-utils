@@ -81,8 +81,34 @@ Every finding must be **checkable by someone who trusts nothing you say**:
 
 Emit the versioned structured result (`ralph-review/v1`, see `docs/review-contract.md`
 and `schema/review.schema.json`) as **one JSON object** and nothing else of substance.
-It must carry the contract version, the exact head commit you reviewed, your model
-identity, the round number, a `summary`, a `verdict`, and `findings`.
+Use exactly these keys — no others, and no renamed variants such as `head_commit` or
+`contract_version`:
+
+- `contract` — the literal string `ralph-review/v1`.
+- `head` — the exact 40-character head commit you reviewed, as named in the bundle.
+- `model` — your own model identity.
+- `round` — the Negotiation Round number from the bundle, an integer.
+- `summary` — prose for the review body: what you reviewed and why the verdict follows.
+- `verdict` — `approve`, `request_changes`, or `comment`.
+- `findings` — a list (possibly empty) of objects, each with the evidence keys above
+  plus `blocking` and `category`; `location` is optional and holds `path`, `line` and,
+  for a range, `end_line`.
+
+```json
+{
+  "contract": "ralph-review/v1",
+  "head": "<40-character head commit>",
+  "model": "<your model identity>",
+  "round": 1,
+  "summary": "...",
+  "verdict": "request_changes",
+  "findings": [
+    {"id": "F-1", "blocking": true, "category": "defect",
+     "claim": "...", "evidence": "...", "requirement": "...", "verification": "...",
+     "location": {"path": "src/lib.rs", "line": 42}}
+  ]
+}
+```
 
 - `verdict` is `request_changes` **if and only if** at least one finding is blocking;
   otherwise it is `approve` (or `comment` when you have only non-blocking remarks).
