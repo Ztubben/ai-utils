@@ -504,6 +504,14 @@ ralph --lint-story path/to/story.json
 # or: gh issue view N --json number,title,labels,body | ralph --lint-story -
 ```
 
+The **`ralph-backlog-audit` skill** (`skills/ralph-backlog-audit/`) checks a backlog for
+drift: stories already implemented but still open, dependencies the Loop can never satisfy
+(or wrongly treats as satisfied), cycles, PRDs stuck without `state:ready`, stories that no
+longer match the code or ADRs, and anything `ralph --lint-story` rejects. Its read-only
+snapshot (`scripts/backlog_snapshot.py`) reuses the Loop's own lint and selection rules. The
+skill reports proposed fixes, rewritten to the `ralph-story` shape, and applies only the
+ones you approve.
+
 ## The `ralph` CLI
 
 `bin/ralph` is the entrypoint. Each subcommand does one thing; the loop
@@ -680,7 +688,8 @@ lib/*.py         Pure logic (Python 3, stdlib + jsonschema + PyYAML). No network
   ralph_memory.py   Nested AGENTS.md read/promotion.
 schema/          Shipped JSON-schemas (ralph.schema.json for .ralph.yml).
 prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drift-guarded by tests.
-skills/          Authoring skills shipped with the tool (ralph-story + examples).
+skills/          Authoring skills shipped with the tool (ralph-story + examples,
+                 ralph-backlog-audit).
 scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
 docs/adr/        Architecture Decision Records (0001–0005).
 test/            Green gate: test/run.sh, unit tests, fixtures, bats.

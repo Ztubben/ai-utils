@@ -1,0 +1,336 @@
+[
+ {
+  "number": 10,
+  "title": "PRD: Config v2",
+  "labels": [
+   {
+    "name": "prd"
+   }
+  ],
+  "body": "## Problem\nConfig v1 is untyped.\n\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 11,
+  "title": "Config v2 schema loads and validates",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:1"
+   }
+  ],
+  "body": "## What to build\n\nLoad config v2 with a JSON schema.\n\n## Acceptance Criteria\n\n- [ ] `load_config` rejects unknown keys\n- [ ] Tests pass\n\nParent: #10\nDepends on: None\n",
+  "state": "CLOSED",
+  "stateReason": "COMPLETED",
+  "updatedAt": "2026-09-01T10:00:00Z",
+  "closedAt": "2026-09-01T10:00:00Z"
+ },
+ {
+  "number": 12,
+  "title": "Config v2 migrates v1 files on load",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:2"
+   }
+  ],
+  "body": "## What to build\n\nA v1 file is migrated to v2 on load.\n\n## Acceptance Criteria\n\n- [ ] `load_config` migrates a v1 file and writes a .bak\n- [ ] Tests pass\n\nParent: #10\nDepends on: #11\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 13,
+  "title": "Config v2 errors name the offending key path",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:3"
+   }
+  ],
+  "body": "## What to build\n\nErrors name the key path.\n\n## Acceptance Criteria\n\n- [ ] an invalid value reports `section/key: ...`\n- [ ] Tests pass\n\nParent: #10\nDepends on: #11\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 20,
+  "title": "PRD: Motor control",
+  "labels": [
+   {
+    "name": "prd"
+   }
+  ],
+  "body": "## Problem\nNo closed-loop motor control.\n\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 21,
+  "title": "PWM driver exposes duty cycle",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:1"
+   }
+  ],
+  "body": "## What to build\n\nA PWM driver with duty-cycle API.\n\n## Acceptance Criteria\n\n- [ ] `pwm_set_duty` clamps to 0..100\n- [ ] Tests pass\n\nParent: #20\nDepends on: None\n",
+  "state": "CLOSED",
+  "stateReason": "COMPLETED",
+  "updatedAt": "2026-09-10T10:00:00Z",
+  "closedAt": "2026-09-10T10:00:00Z"
+ },
+ {
+  "number": 22,
+  "title": "Telemetry reports PWM duty cycle",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:2"
+   }
+  ],
+  "body": "## What to build\n\nTelemetry frame includes duty cycle.\n\n## Acceptance Criteria\n\n- [ ] telemetry frame field `duty` mirrors `pwm_get_duty`\n- [ ] Tests pass\n\nParent: None\nDepends on: #21\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 30,
+  "title": "Use YAML for config",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   }
+  ],
+  "body": "## What to build\n\nSwitch config to YAML.\n\n## Acceptance Criteria\n\n- [ ] YAML loads\n- [ ] Tests pass\n\nParent: None\nDepends on: None\n",
+  "state": "CLOSED",
+  "stateReason": "NOT_PLANNED",
+  "updatedAt": "2026-08-01T10:00:00Z",
+  "closedAt": "2026-08-01T10:00:00Z"
+ },
+ {
+  "number": 31,
+  "title": "YAML config supports anchors",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:4"
+   }
+  ],
+  "body": "## What to build\n\nSupport YAML anchors in config.\n\n## Acceptance Criteria\n\n- [ ] anchors resolve\n- [ ] Tests pass\n\nParent: None\nDepends on: #30\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 40,
+  "title": "Watchdog kicks from the main loop",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:3"
+   }
+  ],
+  "body": "## What to build\n\nKick the watchdog from main loop.\n\n## Acceptance Criteria\n\n- [ ] watchdog kicked every loop\n- [ ] Tests pass\n\nParent: None\nDepends on: #41\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 41,
+  "title": "Main loop has a fixed 10 ms period",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:3"
+   }
+  ],
+  "body": "## What to build\n\nFixed-period main loop.\n\n## Acceptance Criteria\n\n- [ ] period is 10 ms \u00b1 1\n- [ ] Tests pass\n\nParent: None\nDepends on: #40\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 50,
+  "title": "GPIO input is debounced",
+  "labels": [
+   {
+    "name": "state:in-progress"
+   },
+   {
+    "name": "type:hil"
+   },
+   {
+    "name": "prio:1"
+   }
+  ],
+  "body": "## What to build\n\nDebounce GPIO inputs in firmware.\n\n## Acceptance Criteria\n\n- [ ] `debounce()` filters pulses under 5 ms against the fake HAL\n- [ ] Tests pass\n\n## Bench Test Procedure\n\n1. Bounce the button with a scope attached; confirm one edge.\n\nParent: None\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 51,
+  "title": "Decide: CAN or UART for the telemetry link",
+  "labels": [
+   {
+    "name": "ready-for-human"
+   }
+  ],
+  "body": "## Question\n\nShould telemetry go over CAN or UART?\n\nParent: None\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 60,
+  "title": "Crash when sensor unplugged",
+  "labels": [],
+  "body": "The HITL bench crashed with a null deref in `read_sensor()` when the IMU was unplugged. Happens every time.\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 61,
+  "title": "Status LED blinks on fault",
+  "labels": [
+   {
+    "name": "state:in-review"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:2"
+   }
+  ],
+  "body": "## What to build\n\nBlink the status LED on fault.\n\n## Acceptance Criteria\n\n- [ ] `led_fault()` blinks at 2 Hz\n- [ ] Tests pass\n\nParent: None\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 62,
+  "title": "Log rotation keeps 5 files",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   },
+   {
+    "name": "prio:5"
+   }
+  ],
+  "body": "## What to build\n\nRotate logs in `logging/rotate.c` via `rotate_logs()`.\n\n## Acceptance Criteria\n\n- [ ] at most 5 log files kept\n- [ ] Tests pass\n\nParent: None\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-03-01T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 63,
+  "title": "Telemetry over UART at 115200",
+  "labels": [
+   {
+    "name": "type:afk"
+   }
+  ],
+  "body": "## What to build\n\nSend telemetry frames over UART.\n\n## Acceptance Criteria\n\n- [ ] frames sent at 115200 baud\n\nDepends on: #51\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 70,
+  "title": "PRD: Boot splash",
+  "labels": [
+   {
+    "name": "prd"
+   }
+  ],
+  "body": "## Problem\nNo boot splash.\n\nDepends on: None\n",
+  "state": "OPEN",
+  "stateReason": "",
+  "updatedAt": "2026-10-15T10:00:00Z",
+  "closedAt": null
+ },
+ {
+  "number": 71,
+  "title": "Boot splash shows version",
+  "labels": [
+   {
+    "name": "state:ready"
+   },
+   {
+    "name": "type:afk"
+   }
+  ],
+  "body": "## What to build\n\nShow firmware version on boot.\n\n## Acceptance Criteria\n\n- [ ] version string printed at boot\n- [ ] Tests pass\n\nParent: #70\nDepends on: None\n",
+  "state": "CLOSED",
+  "stateReason": "COMPLETED",
+  "updatedAt": "2026-09-20T10:00:00Z",
+  "closedAt": "2026-09-20T10:00:00Z"
+ }
+]
