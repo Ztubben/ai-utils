@@ -293,8 +293,9 @@ for the code it touches. Add a new learning here, in the file that owns it.
   to mask it: the new head was simply unreviewed.
 - Review **records** (#55) live in `lib/ralph_review.py`: `result_record`/`latest_result`
   and `response_record`/`latest_response` (marker + fenced JSON, keyed by head). Written to
-  the Story issue when a review publishes (`render_plan(..., story_number=)`) and to the
-  pull request when a response posts; `next_step` reads them to tell an unanswered
+  the Story issue when a review publishes (`render_plan(..., story_number=)`) and after
+  a response posts its replies and consolidated answer to the pull request; `next_step`
+  reads the Story records to tell an unanswered
   changes-requested head from a settled one. They exist because the response round runs in
   a *later process* than the review: recovering findings by parsing back rendered Markdown
   would make loop state depend on prose formatting.
