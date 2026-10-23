@@ -130,7 +130,7 @@ def respond_prompt(result, context, prompt_path=RESPOND_PROMPT):
     as the Markdown they were rendered into: the agent answers by identifier,
     and identifiers survive verbatim.
     """
-    with open(prompt_path) as fh:
+    with open(prompt_path, **ralph_review_context.TEXT) as fh:
         instructions = fh.read().rstrip()
     return "%s\n\n---\n\n## Open findings (round %s, commit %s)\n\n```json\n%s\n```\n\n---\n\n%s" % (
         instructions, result.get("round"), result.get("head"),
@@ -148,7 +148,7 @@ def validate_response(payload, result, schema_path=DEFAULT_SCHEMA):
     """
     if not isinstance(payload, dict):
         return ["(root): response payload must be an object"]
-    with open(schema_path) as fh:
+    with open(schema_path, **ralph_review_context.TEXT) as fh:
         schema = json.load(fh)
     errors = sorted(jsonschema.Draft7Validator(schema).iter_errors(payload),
                     key=lambda e: list(e.absolute_path))
@@ -361,7 +361,7 @@ class Checkout:
     def _git(self, args):
         return subprocess.run(["git"] + args, cwd=self.root,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True)
+                              **ralph_review_context.TEXT)
 
     def head(self):
         proc = self._git(["rev-parse", "--verify", self.ref()])
@@ -375,7 +375,7 @@ class Checkout:
 
 def _gh(args, cwd):
     proc = subprocess.run(["gh"] + list(args), cwd=cwd, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True)
+                          stderr=subprocess.STDOUT, **ralph_review_context.TEXT)
     if proc.returncode:
         raise RuntimeError(proc.stdout.strip() or "gh command failed")
     return proc.stdout
@@ -392,7 +392,7 @@ review_threads = ralph_review_round.review_threads
 def _load(path):
     if path == "-":
         return json.load(sys.stdin)
-    with open(path) as fh:
+    with open(path, **ralph_review_context.TEXT) as fh:
         return json.load(fh)
 
 

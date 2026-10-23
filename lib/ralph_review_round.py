@@ -130,7 +130,7 @@ def review_prompt(context, prompt_path=REVIEW_PROMPT):
     same way the iteration and handoff prompts are; only the per-round evidence
     is assembled at runtime.
     """
-    with open(prompt_path) as fh:
+    with open(prompt_path, **ralph_review_context.TEXT) as fh:
         return "%s\n\n---\n\n%s" % (fh.read().rstrip(), context)
 
 
@@ -192,7 +192,7 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
 def _load(path):
     if path == "-":
         return json.load(sys.stdin)
-    with open(path) as fh:
+    with open(path, **ralph_review_context.TEXT) as fh:
         return json.load(fh)
 
 
@@ -205,7 +205,7 @@ PR_FIELDS = ("number,body,state,baseRefOid,headRefOid,headRefName,"
 
 def _gh(args, cwd):
     proc = subprocess.run(["gh"] + list(args), cwd=cwd, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True)
+                          stderr=subprocess.STDOUT, **ralph_review_context.TEXT)
     if proc.returncode:
         raise RuntimeError(proc.stdout.strip() or "gh command failed")
     return proc.stdout

@@ -18,6 +18,14 @@ for the code it touches. Add a new learning here, in the file that owns it.
   own `baseRefOid..headRefOid`, so once the base is the Feature branch that range *is* the
   Story's change and a sibling's commits sit behind it. `bin/ralph.sh` calls `--implementation-green` for the
   done signal; the older AFK/HIL completion modules are no longer implementation-green paths.
+- **Decoding on the review path** (#110): every git/gh call and file read in
+  `ralph_review_context`, `ralph_review_round` and `ralph_review_respond` passes
+  `ralph_review_context.TEXT` (`encoding="utf-8", errors="replace"`), never `text=True` or a
+  bare `open()`. One GBK byte in a vendor STEP file in the diff made strict decoding abort
+  bundle assembly on every Tick, wedging the Story in review. A new call on this path uses
+  `TEXT` too. `ralph_review_result.changed_lines` splits the diff on `\n` only:
+  `str.splitlines()` also breaks on form feeds and the like, shifting the line numbers that
+  location checks compare against.
 - `lib/ralph_review_context.py` builds the diff-first, commit-bound evidence bundle for one
   Negotiation Round (#50, PRD #42): pure `build_context(...) -> ContextResult` plus the
   `--review-context STORY PR ROUND [ROOT]` CLI (exit 2 on incomplete evidence). It refuses

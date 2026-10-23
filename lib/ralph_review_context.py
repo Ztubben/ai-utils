@@ -184,8 +184,16 @@ def build_context(story, pull_request, diff, guidance, domain_decisions,
     return ContextResult(True, [], "\n".join(lines), head=head, round_no=round_no)
 
 
+# How the review path decodes everything it reads -- git and gh output, and the
+# repository files that become evidence (#110). Strict UTF-8 let one byte of a
+# vendor file in the diff abort every round, wedging the Story in review; with
+# replacement the byte reaches the reviewer as U+FFFD and the round goes on.
+# Shared by the round and respond modules, so the whole path decodes one way.
+TEXT = {"encoding": "utf-8", "errors": "replace"}
+
+
 def _read(path):
-    with open(path) as fh:
+    with open(path, **TEXT) as fh:
         return fh.read()
 
 
@@ -224,14 +232,14 @@ def repository_evidence(root, changed_paths):
 def _git(args, root):
     proc = subprocess.run(["git"] + list(args), cwd=root,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True)
+                          **TEXT)
     if proc.returncode:
         raise RuntimeError(proc.stdout.strip() or "git command failed")
     return proc.stdout
 
 
 def _load(path):
-    with open(path) as fh:
+    with open(path, **TEXT) as fh:
         return json.load(fh)
 
 

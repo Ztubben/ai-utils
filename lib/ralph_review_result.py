@@ -118,7 +118,13 @@ def changed_lines(diff):
     lines do not, because they no longer exist at the reviewed head.
     """
     lines, path, new_line = {}, None, None
-    for raw in (diff or "").splitlines():
+    # Split on newlines only: str.splitlines() also breaks on form feeds and
+    # other separators a source line may legitimately contain, which would
+    # shift every later line number in the hunk.
+    raws = (diff or "").split("\n")
+    if raws[-1] == "":
+        raws.pop()          # the newline that ends the diff starts no line
+    for raw in raws:
         if raw.startswith("+++ "):
             target = raw[4:].strip()
             path = None if target == "/dev/null" else re.sub(r"^b/", "", target)

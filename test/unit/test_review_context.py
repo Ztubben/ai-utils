@@ -1,5 +1,7 @@
 """Contract tests for the exact-head, diff-first Review Agent bundle (#50)."""
 import os
+import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -10,6 +12,9 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 import ralph_handoff  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_context  # noqa: E402
+import ralph_review_respond  # noqa: E402
+import ralph_review_result  # noqa: E402
+import ralph_review_round  # noqa: E402
 
 
 HEAD = "b" * 40
@@ -179,6 +184,65 @@ class ReviewContextBundle(unittest.TestCase):
             self.assertIn("domain language", joined)
             self.assertIn("decision", joined)
             self.assertNotIn("must not enter prompt", joined)
+
+
+class TolerantDecoding(unittest.TestCase):
+    """#110: one undecodable byte in a reviewed diff wedged a Story in review,
+    every Tick, until a human intervened. The review path decodes git and
+    gh output and repository evidence as UTF-8 with replacement instead."""
+
+    # GBK, as a CAD tool wrote it into a STEP file; a form feed, which
+    # str.splitlines() would also have treated as a line break.
+    GBK = b"PRODUCT ( '\xc8\xce\xba\xce' );\x0c tail\n"
+
+    def git(self, root, *args):
+        return subprocess.check_output(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=root, stderr=subprocess.STDOUT).decode("utf-8", "replace").strip()
+
+    def test_a_diff_with_invalid_utf8_builds_and_still_anchors_findings(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.git(root, "init", "-q")
+            with open(os.path.join(root, "a.txt"), "w") as fh:
+                fh.write("one\n")
+            self.git(root, "add", "-A")
+            self.git(root, "commit", "-q", "-m", "base")
+            base = self.git(root, "rev-parse", "HEAD")
+            with open(os.path.join(root, "part.step"), "wb") as fh:
+                fh.write(b"HEADER;\n" + self.GBK + b"ENDSEC;\n")
+            self.git(root, "add", "-A")
+            self.git(root, "commit", "-q", "-m", "vendor file")
+            head = self.git(root, "rev-parse", "HEAD")
+
+            diff, changed = ralph_review_context.head_diff(
+                {"baseRefOid": base, "headRefOid": head}, root)
+            self.assertIn("\ufffd", diff)
+            self.assertEqual(changed, ["part.step"])
+            self.assertEqual(ralph_review_result.changed_lines(diff),
+                             {"part.step": {1, 2, 3}})
+
+    def test_repository_evidence_with_invalid_utf8_is_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "AGENTS.md"), "wb") as fh:
+                fh.write(b"rules " + self.GBK)
+            guidance, _ = ralph_review_context.repository_evidence(root, [])
+            self.assertIn("\ufffd", guidance[0][1])
+
+    def test_gh_and_git_output_on_the_round_and_respond_paths_is_tolerant(self):
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("gh", "git"):
+                path = os.path.join(root, name)
+                with open(path, "w") as fh:
+                    fh.write("#!/usr/bin/env bash\nprintf 'x\\310\\316y'\n")
+                os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+            old = os.environ["PATH"]
+            os.environ["PATH"] = root + os.pathsep + old
+            try:
+                self.assertEqual(ralph_review_round._gh(["x"], root), "x\ufffd\ufffdy")
+                self.assertEqual(ralph_review_respond._gh(["x"], root), "x\ufffd\ufffdy")
+                self.assertEqual(ralph_review_respond.Checkout(root).head(), "x\ufffd\ufffdy")
+            finally:
+                os.environ["PATH"] = old
 
 
 if __name__ == "__main__":
