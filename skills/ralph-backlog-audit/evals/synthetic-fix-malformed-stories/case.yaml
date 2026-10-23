@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: synthetic-fix-malformed-stories
+expected_outcome: |
+  60.json and 63.json both pass `ralph --lint-story`; #60 says HIL not HITL and is either a canonical story with acceptance criteria or a ready-for-human Blocker with the decision named; #63 keeps its dependency on Blocker #51 and gains Parent: and a state: label; gh commands use --add-label/--remove-label and --body-file and are not executed.
+context:
+  scaffold_script: place-files.sh

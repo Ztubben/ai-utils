@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: synthetic-backlog-drift
+expected_outcome: |
+  backlog-audit.md proposes closing finished AFK work (#61 with merged PR, #12 with a commit) but not HIL #50 (at most awaiting-bench) and not red-first #13; flags the #40/#41 cycle, #22's unreachable cross-Feature dependency on #21, #31's dependency on not-planned #30, PRD #70 stuck without state:ready, malformed #60/#63 with lint-passing proposed fixes, and #62 referencing a renamed function/file. No issue is edited.
+context:
+  scaffold_script: place-files.sh
