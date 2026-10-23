@@ -235,6 +235,26 @@ def needs_a_human(context):
             % (NEEDS_HUMAN_MARKER, context["story"]))
 
 
+def hand_off_unchanged(context):
+    """Hand off again and change nothing (#111).
+
+    autopilot_controller #162: every software criterion of a HIL Story was
+    done, only a bench measurement was left, and each resume posted another
+    near-identical Handoff through `ralph --checkpoint` -- 22 in 40 minutes.
+    """
+    issue = str(context["story"])
+    story = run(["gh", "issue", "view", issue, "--json",
+                 "number,title,labels,body,state,comments"])
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        fh.write(story)
+    config = os.environ.get("RALPH_CONFIG", ".ralph.yml")
+    run([RALPH, "--checkpoint", fh.name,
+         "Physical HIL measurements required; software-only resumes cannot "
+         "satisfy the remaining criterion.", config])
+    os.unlink(fh.name)
+    return "Handed off: only the bench measurement is left."
+
+
 def noop_review(context):
     """A review that judges nothing: a comment verdict with no findings."""
     result = {"contract": "ralph-review/v1", "verdict": "comment", "head": context["head"],
@@ -286,6 +306,7 @@ PROFILES = {
     "literal-noop": {"iteration": noop_iteration, "review": noop_review,
                      "response": noop_response, "arbitration": noop_arbitration},
     "needs-human": {"iteration": needs_a_human},
+    "idle-handoff": {"iteration": hand_off_unchanged},
     "empty-usage": every_phase(empty),
     "invalid-output": dict(every_phase(malformed), iteration=claims_done_without_work),
     "session-limit": every_phase(session_limited),

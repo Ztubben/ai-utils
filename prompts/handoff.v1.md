@@ -48,8 +48,12 @@ RALPH-NEEDS-HUMAN: restate AC 3 with a tolerance the hardware can reach
 
 Ralph then parks the story on `needs-human` and tags the human with that line. It is
 not an Attempt, the story is never `state:blocked`, and the loop goes on with other
-work until the human removes the label. Do not use it for anything the next
-iteration could do itself.
+work until the human removes the label or answers it in a comment. Do not use it for
+anything the next iteration could do itself.
+
+A Handoff that changes nothing on the story branch is counted as **idle**. After
+`limits.max_attempts` idle Handoffs in a row, Ralph parks the story on `needs-human`
+itself, quoting your latest Handoff — so say plainly in it what is missing.
 
 ## Resuming
 

@@ -38,6 +38,8 @@
 #   ralph --complete-feature PRD [CONFIG]  Integrate a complete Feature into base (ADR-0006).
 #   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Demote a blocked Feature story, naming its branch.
 #   ralph --park-story STORY NEED [CONFIG]  Park a story on needs-human: no Attempt, never blocked.
+#   ralph --record-idle-handoff STORY BRANCH [CONFIG]  Count a Handoff that changed nothing; park at the limit.
+#   ralph --unpark-stories [BACKLOG]  Release parked stories a human has answered.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
 #   ralph --needs-freshness ISSUE# [BACKLOG]  Print yes/no: does this Feature story need a base merge?
 #   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
@@ -83,6 +85,8 @@ usage: ralph --init [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
        ralph --reset-on-block STORY REASON [CONFIG] [PRD]
        ralph --park-story STORY NEED [CONFIG]
+       ralph --record-idle-handoff STORY BRANCH [CONFIG]
+       ralph --unpark-stories [BACKLOG]
        ralph --check-breaker [BACKLOG] [CONFIG]
        ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
@@ -437,6 +441,16 @@ usage: ralph --init [CONFIG]
                           circuit breaker; removing the label resumes it. A story
                           already on needs-human is left untouched. Exits 0 on
                           success, 1 on a gh failure, 2 on bad config.
+  --record-idle-handoff   Count a Handoff that left BRANCH unchanged (STORY in gh
+       STORY BRANCH       --json shape with comments; - for stdin). At
+       [CONFIG]           limits.max_attempts in a row the story is parked on
+                          needs-human, quoting its latest Handoff; never an
+                          Attempt. Exits 0 on success, 1 on a gh failure, 2 on
+                          bad config.
+  --unpark-stories        Remove needs-human from every parked story (not the
+       [BACKLOG]          breaker's) whose latest parking comment a human has
+                          answered. Reads BACKLOG (or - for stdin), else scans
+                          live via gh. Exits 0 on success, 1 on a gh failure.
   --check-breaker         Trip the circuit breaker if limits.circuit_breaker stories
        [BACKLOG] [CONFIG] are state:blocked: apply needs-human and tag the configured
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
@@ -615,6 +629,14 @@ main() {
     --park-story)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_failure.py" park-story "$@"
+      ;;
+    --record-idle-handoff)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" record-idle-handoff "$@"
+      ;;
+    --unpark-stories)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" unpark-stories "$@"
       ;;
     --check-breaker)
       shift

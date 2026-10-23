@@ -191,6 +191,73 @@ class ParkPlan(unittest.TestCase):
         self.assertFalse(plan.tripped)
 
 
+def _c(body):
+    return {"body": body}
+
+
+class IdleHandoffs(unittest.TestCase):
+    """#111: a Handoff that changed nothing, repeated, parks the Story."""
+
+    def idle(self):
+        return [_c("<!-- ralph:handoff -->\n\nbench run required"),
+                _c(ralph_failure.IDLE_HANDOFF_MARKER + "\n\nIdle Handoff")]
+
+    def test_counts_idle_handoffs_in_a_row_skipping_ralph_bookkeeping(self):
+        comments = self.idle() + [_c("<!-- ralph-usage-ledger:v1 -->\nledger")] + self.idle()
+        self.assertEqual(ralph_failure.count_idle_handoffs(comments), 2)
+
+    def test_a_human_comment_or_an_attempt_ends_the_run(self):
+        self.assertEqual(ralph_failure.count_idle_handoffs(
+            self.idle() + [_c("Measured: R=0.4")] + self.idle()), 1)
+        self.assertEqual(ralph_failure.count_idle_handoffs(
+            self.idle() + [_c(ralph_failure.ATTEMPT_MARKER + " x")] + self.idle()), 1)
+
+    def test_below_the_limit_counts_with_one_terse_comment(self):
+        plan = ralph_failure.idle_handoff_plan(
+            story(comments=self.idle()), "ralph/9-x", "octocat", limit=3)
+        self.assertEqual(len(plan.commands), 1)
+        self.assertIn("Idle Handoff 2/3", plan.commands[0][-1])
+        self.assertNotIn("needs-human", plan.commands[0][:4])
+
+    def test_at_the_limit_parks_quoting_the_latest_handoff(self):
+        plan = ralph_failure.idle_handoff_plan(
+            story(comments=self.idle() * 2), "ralph/9-x", "octocat", limit=3)
+        body = plan.commands[0][-1]
+        self.assertIn(ralph_failure.PARKED_MARKER, body)
+        self.assertIn("bench run required", body)
+        self.assertIn(["--add-label", "needs-human"], [c[4:] for c in plan.commands])
+        self.assertNotIn("state:blocked", _flat(plan.commands))
+
+
+class Unpark(unittest.TestCase):
+    """#111: a human's answer to a parking makes the Story eligible again."""
+
+    def parked(self, *after):
+        s = story(comments=[_c(ralph_failure.PARKED_MARKER + "\n\nrestate AC 3")] + list(after))
+        s["labels"].append({"name": "needs-human"})
+        return s
+
+    def test_a_human_answer_removes_needs_human(self):
+        plan = ralph_failure.unpark_plan(self.parked(_c("AC 3 is now 0.5 degrees")))
+        self.assertEqual(plan.commands,
+                         [["gh", "issue", "edit", "9", "--remove-label", "needs-human"]])
+
+    def test_ralph_comments_alone_are_no_answer(self):
+        self.assertEqual(ralph_failure.unpark_plan(
+            self.parked(_c("<!-- ralph-usage-ledger:v1 -->\nledger"))).commands, [])
+        self.assertEqual(ralph_failure.unpark_plan(self.parked()).commands, [])
+
+    def test_only_the_latest_parking_counts(self):
+        s = self.parked(_c("old answer"),
+                        _c(ralph_failure.PARKED_MARKER + "\n\nparked again"))
+        self.assertEqual(ralph_failure.unpark_plan(s).commands, [])
+
+    def test_a_story_not_parked_by_ralph_is_left_alone(self):
+        s = story(comments=[_c("## Ralph cannot proceed"), _c("a reply")])
+        s["labels"].append({"name": "needs-human"})
+        self.assertEqual(ralph_failure.unpark_plan(s).commands, [])
+
+
 class CircuitBreakerPlan(unittest.TestCase):
     def _blocked(self, number):
         return story(number=number, state="blocked")

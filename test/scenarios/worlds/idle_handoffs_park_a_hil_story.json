@@ -1,0 +1,91 @@
+{
+  "description": "autopilot_controller #162 (#111): a HIL Story with only a bench measurement left is resumed and hands off again without changing anything. After limits.max_attempts such idle Handoffs it is parked on needs-human -- not blocked, no Attempt -- and the ready AFK Story behind it is worked instead.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    },
+    "limits": {
+      "max_attempts": 2,
+      "circuit_breaker": 2
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Measure the motor constants",
+        "labels": [
+          "type:hil",
+          "prio:1",
+          "state:in-progress"
+        ],
+        "body": "## What to build\nMotor constants.\n\n## Acceptance Criteria\n- [x] the estimator is implemented and tested off-target\n- [ ] Measured R, L and Kt are recorded\n\n## Bench Test Procedure\n1. Measure R, L and Kt on the bench.\n\nParent: None\nDepends on: None\n"
+      },
+      {
+        "number": 2,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:2",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative",
+    "stories": {
+      "1": {
+        "iteration": "idle-handoff"
+      }
+    }
+  },
+  "ticks": 2,
+  "expect": {
+    "1": "parked",
+    "2": "passing"
+  }
+}

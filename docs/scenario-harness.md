@@ -109,6 +109,7 @@ Each profile is a behaviour per phase in `PROFILES` in `fakes/agent`:
 | `dispute-all` | Answers a review by changing nothing and disputing every Finding, with evidence. |
 | `literal-noop` | Follows the most restrictive instruction it was given and changes nothing: no commit, every Finding `unresolved`, a review with no findings. |
 | `needs-human` | Iteration only: says what a human must do and ends with the `RALPH-NEEDS-HUMAN:` signal, changing nothing. |
+| `idle-handoff` | Iteration only: writes another Handoff through `ralph --checkpoint` and changes nothing else, as autopilot_controller #162 did over a bench measurement. |
 | `empty-usage` | Exits cleanly with no output and zero tokens. |
 | `invalid-output` | Malformed contract JSON; an iteration that signals done without doing the work. |
 | `session-limit` | The provider's own session-limit line, exit 1, no transcript. |

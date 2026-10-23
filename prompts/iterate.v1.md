@@ -120,7 +120,9 @@ explicit machine-readable signal to know implementation is locally green and may
 enter review. When — and **only** when — **both** hold:
 
 - `ralph --run-gating` passed (every gating step green, changes committed), and
-- **every** box in the story's `## Acceptance Criteria` is checked,
+- **every** box in the story's `## Acceptance Criteria` is checked — except, for a
+  **HIL story**, a criterion only the physical bench can verify (a measurement, an
+  observed hardware behavior),
 
 print the done-signal marker on a line **by itself** as the final line of your
 output:
@@ -129,10 +131,17 @@ output:
 RALPH-STORY-COMPLETE
 ```
 
+A HIL story's bench-only criteria are not yours to check and never block the
+done-signal: leave their boxes unchecked, make sure the `## Bench Test Procedure`
+says how to verify each one, and signal done once everything else is green. The
+story then enters Awaiting Bench Verification, where the human runs the bench.
+Handing off instead only resumes the story to hand off again.
+
 If the story can go on only once a **human** acts (a decision, an acceptance
-criterion that cannot be met as written, a bench run), do not hand off again and
-again: end with `RALPH-NEEDS-HUMAN: <what the human must do>` as the final line
-instead (see the handoff prompt). It parks the story without spending an Attempt.
+criterion that cannot be met as written, a bench run that *this* iteration's work
+depends on), do not hand off again and again: end with
+`RALPH-NEEDS-HUMAN: <what the human must do>` as the final line instead (see the
+handoff prompt). It parks the story without spending an Attempt.
 
 Do **not** print the done-signal for partial progress, a red gate, or a context-full Handoff —
 in those cases commit/terminate and the orchestrator resumes the story next pass.

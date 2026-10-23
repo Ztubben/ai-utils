@@ -133,7 +133,7 @@ cross_feature_world() {
   [ "$(git -C "$SP" rev-list --merges "$STORY_BRANCH" | wc -l)" -eq 0 ]
 }
 
-@test "a conflicting freshness merge is aborted and the agent is not launched (#121)" {
+@test "a conflicting freshness merge is aborted and the Story parked on a human (#121, #114)" {
   cross_feature_world stale
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ ! -e "$SP/.git/MERGE_HEAD" ]
@@ -141,9 +141,12 @@ cross_feature_world() {
   [ -z "$(git -C "$SP" status --porcelain --untracked-files=no)" ]
   ! grep -q '^claude ' "$RALPH_LOG"
   [[ "$output" == *"shared.txt"* ]]
-  # The conflict is recorded on the Story as a failed Attempt that names it.
+  # Only a human can merge it: the Story is parked, naming the paths -- not an
+  # Attempt, so it is never blocked and never counts toward the breaker.
   grep -q '^gh issue comment 183 ' "$RALPH_LOG"
-  grep -q '^Attempt 1/.*conflicts in: shared.txt' "$RALPH_LOG"
+  grep -q 'conflicts in shared.txt' "$RALPH_LOG"
+  grep -q '^gh issue edit 183 --add-label needs-human' "$RALPH_LOG"
+  ! grep -q 'ralph:attempt' "$RALPH_LOG"
   [ "$(git -C "$SP" rev-parse ralph/65-story)" = "$PREVIOUS_HEAD" ]
 }
 

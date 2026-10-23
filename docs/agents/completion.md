@@ -57,7 +57,22 @@ for the code it touches. Add a new learning here, in the file that owns it.
   marks a blocked story, so a breaker halt and a park cannot be confused. Removing the label
   resumes the story in the state it kept. `#132` replays as
   `test/scenarios/worlds/needs_human_parks_one_story.json`, whose fake agent gives one Story
-  its own profile via `agents.stories`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
+  its own profile via `agents.stories`.
+  **Idle Handoffs and unparking** (#111). The tick records the Story branch's **tree**
+  before an iteration (`refs/heads/$STORY_BRANCH^{tree}`; needs #121's resolution). A clean
+  exit that wrote a Handoff but left the tree unchanged is an idle Handoff: `ralph
+  --record-idle-handoff` posts an `<!-- ralph:idle-handoff -->` count, and at
+  `limits.max_attempts` in a row (`count_idle_handoffs` reads newest first, passes over
+  Ralph bookkeeping, and stops at a human comment, an Attempt or a parking) it parks the
+  Story via `park_plan`, quoting the latest Handoff. GOTCHA: compare trees, not commits:
+  `ralph --checkpoint` always commits (`--allow-empty`), so a do-nothing Handoff still
+  moves the head. `ralph --unpark-stories` runs at the end of every tick: a parked Story
+  (not the breaker's mark) whose latest `<!-- ralph:parked -->` comment is followed by a
+  comment without a `<!-- ralph` prefix -- a human's answer -- loses `needs-human`. Ralph posts
+  with the operator's credential, so the author cannot tell them apart; the marker can.
+  A conflicting freshness merge (#121) parks the Story too, naming the paths, instead of
+  spending Attempts on a conflict only a human can resolve. #162 replays as
+  `idle_handoffs_park_a_hil_story.json` (red: 25 relaunches in one tick). The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
   state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
   `prompts/failure.v1.md` (drift-guarded). `reset_on_block_plan` no longer rewinds
   anything (#75, PRD #69): with per-Story branches a blocked Story's work is quarantined

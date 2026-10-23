@@ -304,6 +304,17 @@ park_story() {
     | "$RALPH_BIN" --park-story - "$need" "$RALPH_CONFIG"
 }
 
+# Count a Handoff that left the Story branch unchanged (#111); at the limit the
+# Story is parked on needs-human, quoting its latest Handoff. Best-effort: an
+# uncounted idle Handoff only delays the parking.
+record_idle_handoff() {
+  local issue="$1"
+  log "#$issue handed off without changing $STORY_BRANCH; counting an idle Handoff"
+  gh issue view "$issue" --json number,title,labels,body,state,comments \
+    | "$RALPH_BIN" --record-idle-handoff - "$STORY_BRANCH" "$RALPH_CONFIG" \
+    || log "could not record the idle Handoff for #$issue; continuing"
+}
+
 # Move a freshly-selected story from state:ready to state:in-progress before its
 # first iteration. This is the `start` edge of the state machine that the rest of
 # the loop assumes exists: a mid-iteration checkpoint then resumes it (resume-first
@@ -518,7 +529,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story; do
+  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -550,6 +561,9 @@ tick() {
   completion_pass
   # --- arbitration pass: act on human decisions made between ticks (#58) ---
   arbitration_pass
+  # --- unpark pass: a human answered a parked Story between ticks (#111) ---
+  "$RALPH_BIN" --unpark-stories 2>/dev/null \
+    || log "could not check parked Stories for a human answer; continuing"
   return "$rc"
 }
 
@@ -656,13 +670,21 @@ work_backlog() {
           log "could not check out $STORY_BRANCH for #$issue; ending tick (next tick retries)"
           return 1
         elif [[ "$fresh" == "yes" ]] && ! freshness_merge "$issue" "$base_branch"; then
-          # Deterministic: the same merge conflicts again next pass, so this is
-          # a failed Attempt -- bounded, and it blocks the Story for a human.
-          record_failed_attempt "$issue" "the freshness merge of origin/$base_branch into $STORY_BRANCH conflicts in: ${FRESHNESS_CONFLICTS:-(no paths reported)}; a human must merge it"
+          # Deterministic: the same merge conflicts again next pass, and only a
+          # human can resolve it -- waiting on a human, not a failure (#114).
+          if ! park_story "$issue" "Merge origin/$base_branch into \`$STORY_BRANCH\` by hand: the freshness merge conflicts in ${FRESHNESS_CONFLICTS:-(no paths reported)}. Push the merged branch, then remove needs-human."; then
+            log "could not park #$issue; ending tick (next tick retries)"
+            return 0
+          fi
           n=$(( n + 1 ))
           continue
         fi
-        local rc=0 handoffs_before
+        # The Story branch's tree before the iteration: a Handoff that leaves it
+        # unchanged is an idle one (#111). Empty when the branch is unresolved.
+        local rc=0 handoffs_before tree_before=""
+        if [[ -n "$STORY_BRANCH" ]]; then
+          tree_before="$(git rev-parse -q --verify "refs/heads/$STORY_BRANCH^{tree}" 2>/dev/null || true)"
+        fi
         handoffs_before="$(story_handoffs "$issue")"
         run_iteration "$kind" "$issue" || rc=$?
         case "$rc" in
@@ -671,8 +693,17 @@ work_backlog() {
               # Otherwise it is a failed Attempt: treating every clean exit as
               # progress relaunched autopilot_controller #72 41 times over two
               # ticks with nothing recorded (#95).
-            if [[ -n "$handoffs_before" && "$(story_handoffs "$issue")" == "$handoffs_before" ]]; then
+            local handoffs_after
+            handoffs_after="$(story_handoffs "$issue")"
+            if [[ -n "$handoffs_before" && "$handoffs_after" == "$handoffs_before" ]]; then
               record_failed_attempt "$issue" "the iteration ended without the done-signal or a Handoff"
+            elif [[ -n "$tree_before" && -n "$handoffs_after" ]] && \
+                 [[ "$(git rev-parse -q --verify "refs/heads/$STORY_BRANCH^{tree}" 2>/dev/null || true)" == "$tree_before" ]]; then
+              # A Handoff that changed nothing is not progress either: resumed
+              # as-is it writes the same Handoff again, which is how
+              # autopilot_controller #162 handed off 22 times in 40 minutes.
+              # Counted, and at the limit the Story is parked on a human (#111).
+              record_idle_handoff "$issue"
             fi
             ;;
           "$RC_INFRA_FAILURE")  # the provider ran and died; no progress to promote

@@ -52,6 +52,10 @@ NEEDS_HUMAN_MARKER = "<!-- ralph:needs-human -->"
 # Marks the one comment that parks a Story on a human (#114) -- distinct from
 # the breaker's NEEDS_HUMAN_MARKER, which halts the whole loop.
 PARKED_MARKER = "<!-- ralph:parked -->"
+# Marks a Handoff that changed nothing on the Story branch (#111).
+IDLE_HANDOFF_MARKER = "<!-- ralph:idle-handoff -->"
+# Every comment Ralph writes starts with one of these; any other is a human's.
+RALPH_COMMENT_PREFIX = "<!-- ralph"
 
 
 class Plan:
@@ -217,6 +221,80 @@ def park_plan(story, need, github_handle):
     return Plan(True, [], commands)
 
 
+def count_idle_handoffs(comments):
+    """Idle Handoffs in a row at the end of the Story's comments (#111).
+
+    Read newest first: an idle marker counts, the Handoff it belongs to (and
+    any other Ralph bookkeeping, such as the token ledger) is passed over, and
+    anything else -- a human's comment, an Attempt, a parking -- ends the run,
+    because after it the next Handoff may well have something new to say.
+    """
+    count = 0
+    for comment in reversed(comments or []):
+        body = ralph_handoff._comment_body(comment)
+        if IDLE_HANDOFF_MARKER in body:
+            count += 1
+        elif (not body.lstrip().startswith(RALPH_COMMENT_PREFIX)
+              or ATTEMPT_MARKER in body or PARKED_MARKER in body):
+            break
+    return count
+
+
+def idle_handoff_plan(story, branch, github_handle, limit=DEFAULT_MAX_ATTEMPTS):
+    """Record a Handoff that left the Story branch unchanged (#111).
+
+    Pure. A Handoff is a normal boundary because the next iteration carries on
+    from it; one that changed nothing, repeated, is a Story that cannot move
+    without someone else -- autopilot_controller #162 handed off 22 times in 40
+    minutes over a bench measurement. The `limit`-th in a row parks the Story on
+    a human, quoting its latest Handoff as what is needed; before that, one
+    terse marker comment counts it.
+    """
+    number = story["number"]
+    comments = story.get("comments", [])
+    idle_no = count_idle_handoffs(comments) + 1
+    if idle_no >= limit:
+        latest = ralph_handoff.latest_handoff(comments) or ""
+        latest = latest.replace(ralph_handoff.HANDOFF_MARKER, "").strip()
+        need = ("The last %d iterations each handed off without changing `%s`, so "
+                "another one will not either. Their latest Handoff:\n\n> %s"
+                % (idle_no, branch, latest.replace("\n", "\n> ") or "(empty)"))
+        plan = park_plan(story, need, github_handle)
+        plan.attempt_no, plan.max_attempts, plan.blocked = idle_no, limit, False
+        return plan
+    body = ("%s\n\nIdle Handoff %d/%d: the iteration handed off without changing "
+            "`%s`. At %d in a row the Story is parked on needs-human."
+            % (IDLE_HANDOFF_MARKER, idle_no, limit, branch, limit))
+    plan = Plan(True, [], [["gh", "issue", "comment", str(number), "--body", body]])
+    plan.attempt_no, plan.max_attempts = idle_no, limit
+    return plan
+
+
+def unpark_plan(story):
+    """Release a parked Story once a human has answered it (#111).
+
+    Pure. A Story Ralph parked (`PARKED_MARKER`) becomes eligible again when a
+    comment without a Ralph marker follows the latest parking -- the human's
+    answer -- by removing `needs-human`; its state label was never touched, so
+    it resumes where it stopped. Removing the label by hand does the same and
+    needs nothing from here. A Story parked some other way, or not answered
+    yet, gets no commands.
+    """
+    if NEEDS_HUMAN_LABEL not in ralph_story._label_names(story):
+        return Plan(True, [], [])
+    comments = story.get("comments", [])
+    parked = [i for i, c in enumerate(comments)
+              if PARKED_MARKER in ralph_handoff._comment_body(c)]
+    if not parked:
+        return Plan(True, [], [])
+    answered = any(not ralph_handoff._comment_body(c).lstrip().startswith(RALPH_COMMENT_PREFIX)
+                   for c in comments[parked[-1] + 1:])
+    if not answered:
+        return Plan(True, [], [])
+    return Plan(True, [], [["gh", "issue", "edit", str(story["number"]),
+                            "--remove-label", NEEDS_HUMAN_LABEL]])
+
+
 def circuit_breaker_plan(raw_backlog, github_handle,
                          circuit_breaker=DEFAULT_CIRCUIT_BREAKER):
     """Build the plan to trip the circuit breaker, if enough stories are blocked.
@@ -361,6 +439,60 @@ def _cmd_park(rest):
                        "OK: #%s is parked on needs-human" % story["number"])
 
 
+def _cmd_idle_handoff(rest):
+    if len(rest) < 2 or not rest[0] or not rest[1]:
+        sys.stderr.write(
+            "ralph: --record-idle-handoff requires STORY (path or -) and its BRANCH\n")
+        return 2
+    story_path, branch = rest[0], rest[1]
+    config_path = rest[2] if len(rest) > 2 and rest[2] else ".ralph.yml"
+    config = _load_config(config_path)
+    if config is None:
+        return 2
+    try:
+        story = _load_json(story_path)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+    plan = idle_handoff_plan(story, branch, config["notify"]["github"],
+                             limit=config["limits"]["max_attempts"])
+    parked = plan.attempt_no >= plan.max_attempts
+    return _report_run(
+        run_plan(plan.commands, cwd=os.getcwd()),
+        "OK: idle Handoff %d/%d for #%s%s" % (
+            plan.attempt_no, plan.max_attempts, story["number"],
+            "; parked on needs-human" if parked else ""))
+
+
+def _cmd_unpark(rest):
+    try:
+        backlog = (_load_json(rest[0]) if rest and rest[0]
+                   else ralph_select._scan_gh())
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        sys.stderr.write("ralph: could not read the backlog: %s\n" % exc)
+        return 2
+    parked = [s["number"] for s in ralph_select.normalize(backlog)
+              if not s.get("closed") and s.get("needs_human")
+              and not ralph_select.breaker_tripped(s) and s["number"] is not None]
+    rc = 0
+    for number in parked:
+        proc = subprocess.run(
+            ["gh", "issue", "view", str(number), "--json",
+             "number,title,labels,body,state,comments"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if proc.returncode != 0:
+            sys.stderr.write("ralph: could not read #%s: %s\n" % (number, proc.stdout.strip()))
+            rc = 1
+            continue
+        plan = unpark_plan(json.loads(proc.stdout))
+        if plan.commands:
+            if _report_run(run_plan(plan.commands, cwd=os.getcwd()),
+                           "OK: #%s was answered by a human; needs-human removed"
+                           % number):
+                rc = 1
+    return rc
+
+
 def _cmd_reset_on_block(rest):
     if len(rest) < 2 or not rest[0] or rest[1] is None:
         sys.stderr.write(
@@ -430,6 +562,7 @@ def main(argv):
             "usage: ralph_failure.py {record-attempt <story> <reason> "
             "| reset-on-block <story> <reason> [config] [prd] "
             "| park-story <story> <need> "
+            "| record-idle-handoff <story> <branch> | unpark-stories [backlog] "
             "| check-breaker [backlog]} [config]\n")
         return 2
     mode, rest = argv[0], argv[1:]
@@ -439,6 +572,10 @@ def main(argv):
         return _cmd_reset_on_block(rest)
     if mode == "park-story":
         return _cmd_park(rest)
+    if mode == "record-idle-handoff":
+        return _cmd_idle_handoff(rest)
+    if mode == "unpark-stories":
+        return _cmd_unpark(rest)
     if mode == "check-breaker":
         return _cmd_check_breaker(rest)
     sys.stderr.write("ralph_failure.py: unknown mode: %s\n" % mode)
