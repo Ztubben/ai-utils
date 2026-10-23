@@ -443,13 +443,37 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(len(resumes), 1, proc.stdout)
 
     def test_halt_on_needs_human(self):
-        # AC: the loop halts (needs-human) without launching an iteration.
+        # AC: the loop halts (the breaker's needs-human, on a blocked story)
+        # without launching an iteration.
         h = self.harness()
-        h.set_backlogs([story(9, "ready", needs_human=True)])
+        h.set_backlogs([story(9, "blocked", needs_human=True), story(10, "ready")])
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(h.agent_calls(), [], h.log_lines())
         self.assertIn("halt", proc.stdout.lower())
+
+    def test_a_story_parked_on_a_human_neither_runs_nor_halts(self):
+        # #114: needs-human on a story that is not blocked parks it alone.
+        h = self.harness()
+        h.set_backlogs([story(9, "in-progress", needs_human=True)])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(h.agent_calls(), [], h.log_lines())
+        self.assertNotIn("halt", proc.stdout.lower())
+        self.assertIn("no eligible work", proc.stdout)
+
+    def test_the_needs_human_signal_parks_the_story_without_an_attempt(self):
+        h = self.harness()
+        h.set_backlogs([story(9, "in-progress")], [story(9, "in-progress")])
+        h.set_view_story(story(9, "in-progress"))
+        proc = h.run(agent_emit="AC 3 is unmeetable.\nRALPH-NEEDS-HUMAN: restate AC 3")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = "\n".join(h.log_lines())
+        self.assertIn("gh issue edit 9 --add-label needs-human", log)
+        self.assertIn("restate AC 3", log)
+        self.assertNotIn("ralph:attempt", log)
+        self.assertNotIn("state:blocked", log)
+        self.assertEqual(len(h.agent_calls()), 1, log)
 
     def test_no_work_empty_backlog_ends_cleanly(self):
         h = self.harness()

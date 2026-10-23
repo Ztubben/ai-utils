@@ -51,6 +51,7 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 # RALPH_SESSION_LIMIT_MARKER) are read from the environment there; no defaults
 # are pinned here.
 : "${RALPH_STORY_COMPLETE_MARKER:=RALPH-STORY-COMPLETE}"  # iteration's green/done-signal (prompts/iterate.v1.md)
+: "${RALPH_NEEDS_HUMAN_MARKER:=RALPH-NEEDS-HUMAN:}"       # iteration's "only a human can unblock this" signal (#114)
 # The identity every token-usage event of this tick is stamped with (#62), so a
 # later script can group one run's invocations across the Stories it worked.
 : "${RALPH_RUN_ID:=tick-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
@@ -195,6 +196,10 @@ RC_INFRA_FAILURE=12
 # Not part of that contract: the launcher never got as far as running an agent,
 # so the same call will fail identically on the next pass. This one ends the tick.
 RC_LAUNCH_UNAVAILABLE=13
+# Neither: the iteration ended on the needs-human signal (#114). NEEDS_HUMAN
+# holds what it said the human must do.
+RC_NEEDS_HUMAN=20
+NEEDS_HUMAN=""
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -229,6 +234,14 @@ run_iteration() {
   # and returned RC_SESSION_LIMIT (10) on exhaustion, so the tick just reads it.
   if [[ "$rc" -eq "$RC_SESSION_LIMIT" ]]; then
     return "$RC_SESSION_LIMIT"
+  fi
+  # Waiting on a human outranks the done-signal: an iteration that says both
+  # is unsure, and a human looking costs less than a promotion nobody checked.
+  NEEDS_HUMAN="$(printf '%s\n' "$out" | grep -F -- "$RALPH_NEEDS_HUMAN_MARKER" | tail -n1 || true)"
+  if [[ -n "$NEEDS_HUMAN" ]]; then
+    NEEDS_HUMAN="${NEEDS_HUMAN#*"$RALPH_NEEDS_HUMAN_MARKER"}"
+    NEEDS_HUMAN="${NEEDS_HUMAN#"${NEEDS_HUMAN%%[![:space:]]*}"}"
+    return "$RC_NEEDS_HUMAN"
   fi
   if printf '%s' "$out" | grep -qF "$RALPH_STORY_COMPLETE_MARKER"; then
     return "$RC_STORY_COMPLETE"
@@ -278,6 +291,17 @@ checkpoint_story() {
   gh issue view "$issue" \
      --json number,title,labels,body,comments,state \
    | "$RALPH_BIN" --checkpoint - "Session limit reached; resume next tick." "$RALPH_CONFIG"
+}
+
+# Park the story on a human (#114): it said it can only go on once a human acts.
+# No Attempt is spent and the story is never state:blocked, so one Story waiting
+# correctly on a human can no longer trip the circuit breaker and halt the loop.
+# Selection skips it from here on; removing needs-human resumes it.
+park_story() {
+  local issue="$1" need="$2"
+  log "#$issue is waiting on a human; parking it on needs-human"
+  gh issue view "$issue" --json number,title,labels,body,state \
+    | "$RALPH_BIN" --park-story - "$need" "$RALPH_CONFIG"
 }
 
 # Move a freshly-selected story from state:ready to state:in-progress before its
@@ -494,7 +518,7 @@ tick() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker; do
+  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -672,6 +696,14 @@ work_backlog() {
               || { promo_failed[$issue]=1
                    log "promotion of #$issue failed (see above); leaving it in-progress"
                    record_failed_attempt "$issue" "the iteration signalled done but its work could not be promoted into review"; }
+            ;;
+          "$RC_NEEDS_HUMAN")
+            # Unparked, resume-first would relaunch it at once to hear the
+            # same thing again, so a failure here ends the tick instead.
+            if ! park_story "$issue" "$NEEDS_HUMAN"; then
+              log "could not park #$issue; ending tick (next tick retries)"
+              return 0
+            fi
             ;;
           "$RC_SESSION_LIMIT")
             checkpoint_story "$issue"

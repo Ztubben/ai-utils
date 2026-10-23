@@ -19,6 +19,7 @@ import tempfile
 
 RALPH = os.environ.get("SCENARIO_RALPH", "ralph")
 DONE_MARKER = os.environ.get("RALPH_STORY_COMPLETE_MARKER", "RALPH-STORY-COMPLETE")
+NEEDS_HUMAN_MARKER = "RALPH-NEEDS-HUMAN:"
 
 
 PHASES = {"# Ralph Iteration Prompt": "iteration",
@@ -223,6 +224,17 @@ def noop_iteration(context):
     return "I found no instruction that permits a change here, so I changed nothing."
 
 
+def needs_a_human(context):
+    """An iteration that can only go on once a human acts, and says so (#114).
+
+    autopilot_controller #132: one acceptance criterion was physically
+    unmeetable, and the agent asked a human to restate it.
+    """
+    return ("AC 1, 2, 4 and 5 are met. AC 3 cannot be met as written.\n"
+            "%s restate AC 3 of #%s with a tolerance the hardware can reach"
+            % (NEEDS_HUMAN_MARKER, context["story"]))
+
+
 def noop_review(context):
     """A review that judges nothing: a comment verdict with no findings."""
     result = {"contract": "ralph-review/v1", "verdict": "comment", "head": context["head"],
@@ -273,6 +285,7 @@ PROFILES = {
     "strict": {"review": requesting_changes},
     "literal-noop": {"iteration": noop_iteration, "review": noop_review,
                      "response": noop_response, "arbitration": noop_arbitration},
+    "needs-human": {"iteration": needs_a_human},
     "empty-usage": every_phase(empty),
     "invalid-output": dict(every_phase(malformed), iteration=claims_done_without_work),
     "session-limit": every_phase(session_limited),
@@ -313,9 +326,13 @@ def main(argv):
     phase = phase_of(prompt)
     # A phase may be given its own profile (a responder that misbehaves only
     # when answering a review); otherwise the role's profile covers it.
-    profile = profiles.get(phase) or profiles.get(role, "cooperative")
     context = dict(told(prompt), prompt=prompt, model=model_of(argv), argv=argv,
                    provider=provider)
+    # `stories` gives one Story its own profiles, by phase or role, so a world
+    # can mix a Story that waits on a human with one that fails.
+    own = profiles.get("stories", {}).get(str(context["story"]), {})
+    profile = (own.get(phase) or own.get(role) or profiles.get(phase)
+               or profiles.get(role, "cooperative"))
     entry = {"tool": provider, "role": role, "phase": phase, "profile": profile,
              "argv": argv, "model": context["model"], "prompt": prompt,
              "story": context["story"], "head": context["head"],

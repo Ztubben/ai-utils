@@ -34,6 +34,23 @@ branch, never on `main`):
 A context-full checkpoint is a normal boundary, **not** a failed **Attempt** — it does
 not count against the story's attempt budget or trip the circuit breaker.
 
+## When only a human can unblock the story
+
+A Handoff is for work the *next iteration* can continue. If the story can go on only
+once a human acts — a decision, an acceptance criterion restated (one that cannot be
+met as written), a bench run — another iteration would just write the same Handoff
+again. Commit and push what you have, then end the iteration with the needs-human
+signal as the **last line** of your output, saying exactly what the human must do:
+
+```
+RALPH-NEEDS-HUMAN: restate AC 3 with a tolerance the hardware can reach
+```
+
+Ralph then parks the story on `needs-human` and tags the human with that line. It is
+not an Attempt, the story is never `state:blocked`, and the loop goes on with other
+work until the human removes the label. Do not use it for anything the next
+iteration could do itself.
+
 ## Resuming
 
 The next iteration runs `ralph --resume`: it checks out the story branch and surfaces

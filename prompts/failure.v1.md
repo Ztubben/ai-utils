@@ -17,6 +17,10 @@ A context-full **checkpoint** (Handoff) is **not** an Attempt and must never be
 recorded as one. If you are running low on context, write a Handoff and terminate
 instead (see the handoff prompt); that does not spend the Attempt budget.
 
+Waiting on a human is not failing either. If the story can go on only once a human
+acts, end with the needs-human signal (see the handoff prompt): the story is parked on
+`needs-human`, spends no Attempt, and is never `state:blocked`.
+
 ## Blocking a story
 
 After `limits.max_attempts` (default 3) failed Attempts, `--record-attempt` moves
@@ -29,9 +33,10 @@ selection engine will hand the loop the next active (`state:in-progress` or
 
 Systemic failure shows up as *several* stories blocking. When a second story blocks,
 `limits.circuit_breaker` (default 2) trips: run `ralph --check-breaker`, which halts
-the whole loop, applies the **needs-human** label, and tags the configured handle so
-the human investigates and resets. Once needs-human is present the loop halts — do
-not start new work.
+the whole loop, applies the **needs-human** label to a blocked story, and tags the
+configured handle so the human investigates and resets. Once a blocked story carries
+needs-human the loop halts — do not start new work. (`needs-human` on a story that is
+not blocked only parks that story; the loop goes on.)
 
 ## Re-attempting a kicked-back story
 

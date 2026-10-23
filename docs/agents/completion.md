@@ -42,9 +42,22 @@ for the code it touches. Add a new learning here, in the file that owns it.
   normalizes the backlog via `ralph_select.normalize`, counts open `state:blocked`
   stories, and when `>= limits.circuit_breaker` applies `needs-human` to the highest-
   numbered blocked story + tags `notify.github` — which halts the loop because
-  `ralph_select` treats needs-human anywhere as HALT (tie AC "loop halts" back to
-  select). CLI: `--record-attempt STORY REASON [CONFIG]`, `--check-breaker [BACKLOG]
-  [CONFIG]`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
+  `ralph_select.breaker_tripped` treats needs-human **on a `state:blocked` story** as HALT
+  (tie AC "loop halts" back to select). CLI: `--record-attempt STORY REASON [CONFIG]`,
+  `--check-breaker [BACKLOG] [CONFIG]`. **Parking** (#114): needs-human on any *other*
+  story parks it alone — selection drops it from resume and start and goes on; it spends
+  no Attempt and the breaker never counts it (it is not `state:blocked`). The iteration
+  asks for it with a final `RALPH-NEEDS-HUMAN: <what the human must do>` line
+  (`RALPH_NEEDS_HUMAN_MARKER`), which `run_iteration` reads as `RC_NEEDS_HUMAN` (20, ahead
+  of the done-signal) and the tick turns into `ralph --park-story` (`park_plan`: a
+  `<!-- ralph:parked -->` comment tagging `notify.github`, then the label; a story already
+  on needs-human gets nothing, so the human is tagged once per parking). A park that fails
+  ends the tick, because resume-first would relaunch the story at once. GOTCHA: the split
+  is read from labels alone, so selection stays one backlog read — the breaker only ever
+  marks a blocked story, so a breaker halt and a park cannot be confused. Removing the label
+  resumes the story in the state it kept. `#132` replays as
+  `test/scenarios/worlds/needs_human_parks_one_story.json`, whose fake agent gives one Story
+  its own profile via `agents.stories`. The judgment-heavy "fail fast, don't thrash; re-attempt a kicked-back
   state:ready HIL story with a NEW failing test on a fresh PR" discipline lives in
   `prompts/failure.v1.md` (drift-guarded). `reset_on_block_plan` no longer rewinds
   anything (#75, PRD #69): with per-Story branches a blocked Story's work is quarantined

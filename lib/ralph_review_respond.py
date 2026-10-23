@@ -98,7 +98,7 @@ def no_answer_errors(answer, head, new_head):
 
 
 def escalation_plan(story, answer, errors, handle=None):
-    """Explain on the Story, then halt the loop on it with needs-human.
+    """Explain on the Story, then park it on needs-human (#114: only this Story waits).
 
     The notice goes first: a halt nobody can see the reason for is worse than
     a reason posted a moment before the halt.

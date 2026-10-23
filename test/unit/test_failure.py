@@ -161,6 +161,36 @@ class AttemptPlan(unittest.TestCase):
         self.assertNotIn("main", _flat(plan.commands))
 
 
+class ParkPlan(unittest.TestCase):
+    """#114: a Story waiting on a human is parked, never blocked."""
+
+    def test_explains_tags_once_then_labels_and_leaves_the_state(self):
+        plan = ralph_failure.park_plan(story(), "restate AC 3", "@octocat")
+        self.assertEqual([c[:3] for c in plan.commands],
+                         [["gh", "issue", "comment"], ["gh", "issue", "edit"]])
+        body = plan.commands[0][-1]
+        self.assertIn(ralph_failure.PARKED_MARKER, body)
+        self.assertIn("restate AC 3", body)
+        self.assertIn("@octocat", body)
+        self.assertNotIn(ralph_failure.NEEDS_HUMAN_MARKER, body)
+        self.assertNotIn(ralph_failure.ATTEMPT_MARKER, body)
+        self.assertEqual(plan.commands[1][4:], ["--add-label", "needs-human"])
+        self.assertNotIn("state:blocked", _flat(plan.commands))
+        self.assertNotIn("--remove-label", _flat(plan.commands))
+
+    def test_an_already_parked_story_is_left_alone(self):
+        s = story()
+        s["labels"].append({"name": "needs-human"})
+        self.assertEqual(ralph_failure.park_plan(s, "again", "octocat").commands, [])
+
+    def test_a_parked_story_does_not_count_toward_the_breaker(self):
+        parked = story(number=10, state="in-progress")
+        parked["labels"].append({"name": "needs-human"})
+        backlog = [parked, story(number=12, state="blocked")]
+        plan = ralph_failure.circuit_breaker_plan(backlog, "octocat", circuit_breaker=2)
+        self.assertFalse(plan.tripped)
+
+
 class CircuitBreakerPlan(unittest.TestCase):
     def _blocked(self, number):
         return story(number=number, state="blocked")

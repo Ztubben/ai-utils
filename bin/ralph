@@ -37,6 +37,7 @@
 #   ralph --record-attempt STORY REASON [CONFIG]  Record a failed Attempt; block the story at the limit.
 #   ralph --complete-feature PRD [CONFIG]  Integrate a complete Feature into base (ADR-0006).
 #   ralph --reset-on-block STORY REASON [CONFIG] [PRD]  Demote a blocked Feature story, naming its branch.
+#   ralph --park-story STORY NEED [CONFIG]  Park a story on needs-human: no Attempt, never blocked.
 #   ralph --check-breaker [BACKLOG] [CONFIG]  Trip the circuit breaker (needs-human + tag) if enough stories are blocked.
 #   ralph --needs-freshness ISSUE# [BACKLOG]  Print yes/no: does this Feature story need a base merge?
 #   ralph --read-learnings DIR [ROOT]  Print the nested AGENTS.md learnings to read at story start.
@@ -81,6 +82,7 @@ usage: ralph --init [CONFIG]
        ralph --resume STORY [CONFIG]
        ralph --record-attempt STORY REASON [CONFIG]
        ralph --reset-on-block STORY REASON [CONFIG] [PRD]
+       ralph --park-story STORY NEED [CONFIG]
        ralph --check-breaker [BACKLOG] [CONFIG]
        ralph --needs-freshness ISSUE# [BACKLOG]
        ralph --read-learnings DIR [ROOT]
@@ -427,6 +429,14 @@ usage: ralph --init [CONFIG]
                           never rewound. Orphan Stories are unchanged (exits 0,
                           no commands). Exits 0 on success, 1 on a git/gh
                           failure, 2 on bad config or refusal.
+  --park-story STORY      Park a story on a human (gh --json shape; - for stdin):
+       NEED [CONFIG]      post NEED -- what the human must do -- tagging
+                          notify.github, then apply needs-human. Spends no
+                          Attempt and leaves the state label alone, so the story
+                          is never state:blocked and never counts toward the
+                          circuit breaker; removing the label resumes it. A story
+                          already on needs-human is left untouched. Exits 0 on
+                          success, 1 on a gh failure, 2 on bad config.
   --check-breaker         Trip the circuit breaker if limits.circuit_breaker stories
        [BACKLOG] [CONFIG] are state:blocked: apply needs-human and tag the configured
                           handle, halting the loop. Reads a JSON backlog from BACKLOG
@@ -601,6 +611,10 @@ main() {
     --reset-on-block)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_failure.py" reset-on-block "$@"
+      ;;
+    --park-story)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_failure.py" park-story "$@"
       ;;
     --check-breaker)
       shift

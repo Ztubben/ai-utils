@@ -31,8 +31,10 @@ Rules (ADR-0002, CONTEXT.md):
     a same-Feature story -- from another Feature's story or an Orphan Story it
     is never satisfied. Deps on Orphan Stories and PRDs keep closed-means-
     satisfied (a closed PRD means the whole Feature merged into base).
-  - A `needs-human` label anywhere in the open backlog means the circuit breaker
-    tripped: the loop halts.
+  - `needs-human` on a `state:blocked` story is the circuit breaker's mark:
+    the loop halts. On any other story it parks that story alone (#114): it is
+    waiting on a human, so it is neither resumed nor started, and selection
+    goes on with the rest of the backlog.
 """
 import json
 import os
@@ -166,12 +168,24 @@ def needs_freshness_merge(story, stories):
     return False
 
 
+def breaker_tripped(story):
+    """True for the circuit breaker's halt mark: needs-human on a blocked story.
+
+    The breaker applies `needs-human` only to a story it counted as
+    `state:blocked`; a story parked on a human keeps its own state label.
+    Telling them apart from labels alone keeps selection one backlog read.
+    """
+    return bool(story.get("needs_human")) and story.get("state") == "blocked"
+
+
 def select_next(stories):
     """Pure selection over a normalized story list. Returns an Action."""
     open_stories = [s for s in stories if not s.get("closed")]
 
-    if any(s.get("needs_human") for s in open_stories):
+    if any(breaker_tripped(s) for s in open_stories):
         return Action(HALT, reason="needs-human: loop halted, awaiting human")
+    # Parked on a human (#114): theirs to release, so not this loop's work.
+    open_stories = [s for s in open_stories if not s.get("needs_human")]
 
     # A prd-labeled issue is never work (ADR-0002): whatever state:* it
     # carries, it must not come back as a start or resume action.

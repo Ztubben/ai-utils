@@ -10,9 +10,16 @@ carrying a distinct `ATTEMPT_MARKER`.
 
 When a second story also blocks, `limits.circuit_breaker` (default 2) trips: the
 loop halts, the `needs-human` label is applied to the most recently blocked story
-and the configured GitHub handle is tagged in a comment. `ralph_select` treats a
-`needs-human` label anywhere in the open backlog as a HALT, so applying the label
-is exactly what stops the loop.
+and the configured GitHub handle is tagged in a comment. `ralph_select` treats
+`needs-human` on a `state:blocked` story as a HALT, so applying the label there is
+exactly what stops the loop.
+
+Waiting on a human is not failing (#114). An iteration that can only go on once a
+human acts -- a decision, an acceptance criterion restated, a bench run -- ends
+with the needs-human signal, and `park_plan` applies `needs-human` to that Story
+alone, leaving its state label as it was. It spends no Attempt, is never
+`state:blocked`, and so never counts toward the circuit breaker; selection skips
+it and goes on with other work until a human removes the label.
 
 The deterministic seams mirror the completion stages (AFK/HIL/Handoff): pure
 command *plans* (`attempt_plan` / `circuit_breaker_plan`) return the ordered gh
@@ -42,6 +49,9 @@ DEFAULT_CIRCUIT_BREAKER = 2
 # counter also filters checkpoints out explicitly via non_handoff_comments.
 ATTEMPT_MARKER = "<!-- ralph:attempt -->"
 NEEDS_HUMAN_MARKER = "<!-- ralph:needs-human -->"
+# Marks the one comment that parks a Story on a human (#114) -- distinct from
+# the breaker's NEEDS_HUMAN_MARKER, which halts the whole loop.
+PARKED_MARKER = "<!-- ralph:parked -->"
 
 
 class Plan:
@@ -179,6 +189,34 @@ def reset_on_block_plan(story, reason, prd=None,
     return Plan(True, [], commands)
 
 
+def park_plan(story, need, github_handle):
+    """Build the plan to park one Story on a human (#114).
+
+    Pure. Explains on the Story what the human must do, tagging
+    `github_handle`, then applies `needs-human`. The notice goes first, as with
+    every escalation: a parked Story nobody can see the reason for is worse
+    than a reason posted a moment before the label. The Story's state label is
+    left alone -- it is waiting, not blocked -- so removing `needs-human` puts
+    it back exactly where it was. A Story already carrying the label is left
+    untouched, so the human is tagged once per parking, not once per Tick.
+    """
+    number = story["number"]
+    if NEEDS_HUMAN_LABEL in ralph_story._label_names(story):
+        return Plan(True, [], [])
+    handle = (github_handle or "").lstrip("@")
+    body = ("%s\n\n## Waiting on a human\n\n%s\n\n%sThe Ralph Loop has parked "
+            "this Story and goes on with other work. It spends no Attempt and "
+            "does not count toward the circuit breaker. Remove `%s` once this "
+            "is done and the Story resumes where it stopped."
+            % (PARKED_MARKER, (need or "").strip() or "The iteration did not say what is needed.",
+               "@%s " % handle if handle else "", NEEDS_HUMAN_LABEL))
+    commands = [
+        ["gh", "issue", "comment", str(number), "--body", body],
+        ["gh", "issue", "edit", str(number), "--add-label", NEEDS_HUMAN_LABEL],
+    ]
+    return Plan(True, [], commands)
+
+
 def circuit_breaker_plan(raw_backlog, github_handle,
                          circuit_breaker=DEFAULT_CIRCUIT_BREAKER):
     """Build the plan to trip the circuit breaker, if enough stories are blocked.
@@ -298,6 +336,31 @@ def _cmd_record_attempt(rest):
         % (plan.attempt_no, plan.max_attempts, story["number"], state))
 
 
+def _cmd_park(rest):
+    if len(rest) < 2 or not rest[0] or rest[1] is None:
+        sys.stderr.write(
+            "ralph: --park-story requires STORY (path or -) and what the human must do\n")
+        return 2
+    story_path, need = rest[0], rest[1]
+    config_path = rest[2] if len(rest) > 2 and rest[2] else ".ralph.yml"
+
+    config = _load_config(config_path)
+    if config is None:
+        return 2
+    try:
+        story = _load_json(story_path)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("ralph: could not read story: %s\n" % exc)
+        return 2
+
+    plan = park_plan(story, need, config["notify"]["github"])
+    if not plan.commands:
+        print("OK: #%s is already waiting on a human" % story["number"])
+        return 0
+    return _report_run(run_plan(plan.commands, cwd=os.getcwd()),
+                       "OK: #%s is parked on needs-human" % story["number"])
+
+
 def _cmd_reset_on_block(rest):
     if len(rest) < 2 or not rest[0] or rest[1] is None:
         sys.stderr.write(
@@ -366,6 +429,7 @@ def main(argv):
         sys.stderr.write(
             "usage: ralph_failure.py {record-attempt <story> <reason> "
             "| reset-on-block <story> <reason> [config] [prd] "
+            "| park-story <story> <need> "
             "| check-breaker [backlog]} [config]\n")
         return 2
     mode, rest = argv[0], argv[1:]
@@ -373,6 +437,8 @@ def main(argv):
         return _cmd_record_attempt(rest)
     if mode == "reset-on-block":
         return _cmd_reset_on_block(rest)
+    if mode == "park-story":
+        return _cmd_park(rest)
     if mode == "check-breaker":
         return _cmd_check_breaker(rest)
     sys.stderr.write("ralph_failure.py: unknown mode: %s\n" % mode)

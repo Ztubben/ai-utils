@@ -1,0 +1,105 @@
+{
+  "description": "autopilot_controller #132 (#114): Story 1 can only go on once a human restates an acceptance criterion and says so; Story 2 blocks through its Attempts. Waiting on a human is not a failure: Story 1 is parked on needs-human without state:blocked, only Story 2 counts toward the circuit breaker (2), and the Loop goes on to finish Story 3.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "develop",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    },
+    "limits": {
+      "max_attempts": 1,
+      "circuit_breaker": 2
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Hold the heading",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      },
+      {
+        "number": 2,
+        "title": "Add the farewell",
+        "labels": [
+          "type:afk",
+          "prio:2",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      },
+      {
+        "number": 3,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:3",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative",
+    "stories": {
+      "1": {
+        "iteration": "needs-human"
+      },
+      "2": {
+        "iteration": "literal-noop"
+      }
+    }
+  },
+  "ticks": 3,
+  "expect": {
+    "1": "parked",
+    "2": "blocked",
+    "3": "passing"
+  }
+}

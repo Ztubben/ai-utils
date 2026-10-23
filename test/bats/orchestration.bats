@@ -202,7 +202,8 @@ EOF
 }
 
 @test "halt on needs-human without launching an iteration" {
-  printf '[{"number":9,"title":"S","labels":[{"name":"type:afk"},{"name":"prio:1"},{"name":"state:ready"},{"name":"needs-human"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"}]' > "$SP/ghq/0.json"
+  # The circuit breaker's mark: needs-human on a state:blocked story (#114).
+  printf '[{"number":9,"title":"S","labels":[{"name":"type:afk"},{"name":"prio:1"},{"name":"state:blocked"},{"name":"needs-human"}],"body":"## Acceptance Criteria\\n- [ ] x\\n\\nParent: None\\nDepends on: None\\n","state":"OPEN"},%s]' "$(story 10 ready)" > "$SP/ghq/0.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
   [[ "$output" == *"halt"* ]]
@@ -306,7 +307,8 @@ MKEOF
 }
 
 @test "a halted tick still runs the completion pass (#120)" {
-  echo "[$(story 5 ready | sed 's/{"name":"prio:1"}/{"name":"prio:1"},{"name":"needs-human"}/')]" > "$SP/ghq/0.json"
+  # The breaker's halt: needs-human on a state:blocked story (#114).
+  echo "[$(story 5 blocked | sed 's/{"name":"prio:1"}/{"name":"prio:1"},{"name":"needs-human"}/')]" > "$SP/ghq/0.json"
   eligible_prd_backlog > "$SP/ghq/1.json"   # --ready-features
   eligible_prd_backlog > "$SP/ghq/2.json"   # --complete-feature's HIL check
   prd 10 > "$SP/ghq/story.json"

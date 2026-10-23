@@ -550,6 +550,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 | `ralph --resume STORY [CONFIG]` | Resume a checkpointed in-progress story (check out its branch, surface the latest Handoff). |
 | `ralph --record-attempt STORY REASON [CONFIG]` | Record a failed Attempt; block the story at `max_attempts`. |
 | `ralph --reset-on-block STORY REASON [CONFIG] [PRD]` | Demote a blocked Feature Story and say where its work is. Every story works on its own branch, so the work is already quarantined from its siblings: this pushes that branch, comments the reason and the branch name, and moves the story to `state:blocked`. The Feature branch is never rewound. An Orphan Story is unchanged (no commands). |
+| `ralph --park-story STORY NEED [CONFIG]` | Park a story on `needs-human`: post what the human must do, tag the handle, apply the label. No Attempt, never `state:blocked`, not counted by the breaker. |
 | `ralph --check-breaker [BACKLOG] [CONFIG]` | Trip the circuit breaker (apply `needs-human`, tag the handle) if enough stories are blocked. |
 | `ralph --read-learnings DIR [ROOT]` | Print the nested `AGENTS.md` learnings to read at story start (nearest-first). |
 | `ralph --learn-target PATH [ROOT]` | Print the nearest `AGENTS.md` to promote a learning to. |
@@ -579,10 +580,17 @@ fail-fast. No plan ever commits on `main` itself; `main` may be the base.
   context-full checkpoint (Handoff) is **not** an Attempt.
 - After `limits.max_attempts` failed Attempts, the story moves to
   `state:blocked`.
+- An iteration that can go on only once a human acts (a decision, a restated
+  acceptance criterion, a bench run) ends with the needs-human signal. Ralph
+  parks that story alone on `needs-human`, tagging the configured handle with
+  what is needed. It spends no Attempt, is never `state:blocked` and never
+  counts toward the circuit breaker; the loop goes on with other work, and
+  removing the label resumes the story. `needs-human` = waiting on a human;
+  `state:blocked` = Ralph failed.
 - When `limits.circuit_breaker` stories are blocked, the **circuit breaker**
-  trips: Ralph applies the `needs-human` label, tags the configured GitHub
-  handle, and the loop **halts** (the selector returns `halt`) until a human
-  intervenes and resets.
+  trips: Ralph applies the `needs-human` label to a blocked story, tags the
+  configured GitHub handle, and the loop **halts** (the selector returns
+  `halt`) until a human intervenes and resets.
 
 ## Memory & learnings
 

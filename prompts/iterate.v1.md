@@ -129,7 +129,12 @@ output:
 RALPH-STORY-COMPLETE
 ```
 
-Do **not** print it for partial progress, a red gate, or a context-full Handoff —
+If the story can go on only once a **human** acts (a decision, an acceptance
+criterion that cannot be met as written, a bench run), do not hand off again and
+again: end with `RALPH-NEEDS-HUMAN: <what the human must do>` as the final line
+instead (see the handoff prompt). It parks the story without spending an Attempt.
+
+Do **not** print the done-signal for partial progress, a red gate, or a context-full Handoff —
 in those cases commit/terminate and the orchestrator resumes the story next pass.
 Stopping short is only a normal boundary when you wrote a Handoff: ending without
 the marker **and** without a Handoff is recorded as a failed **Attempt**, and after

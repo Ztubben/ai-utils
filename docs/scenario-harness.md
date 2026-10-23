@@ -68,11 +68,15 @@ adds a test; no harness code is needed.
 - `agents` names a behaviour profile per **role** (`implementation`, `review`)
   or per **phase** (`iteration`, `review`, `response`, `arbitration`); a phase
   entry wins, so a Story can iterate cooperatively and then answer a review
-  badly.
+  badly. `agents.stories` gives one Story its own profiles the same way
+  (`{"stories": {"1": {"iteration": "needs-human"}}}`), so a world can mix a
+  Story that waits on a human with one that fails.
 - `ticks` is the budget; the runner stops early once every Story in `expect`
   has reached its state.
-- `expect` maps a Story to `passing`, `blocked`, `needs-human` or
-  `awaiting-bench` — or, only when that is the point of the scenario, to a
+- `expect` maps a Story to `passing`, `blocked`, `needs-human`, `parked`
+  (`needs-human` without `state:blocked`: waiting on a human, not the circuit
+  breaker's halt) or `awaiting-bench` — or, only when that is the point of the
+  scenario, to a
   state that is not finished (`ready`, `in-progress`, `in-review`), which
   exempts that Story from the terminal invariant.
 - `tick_exit` is the exit code a Tick is expected to end with (default 0), for
@@ -104,6 +108,7 @@ Each profile is a behaviour per phase in `PROFILES` in `fakes/agent`:
 | `strict-once` / `strict` | Review only: request changes in round one then approve / request changes every round. The Finding anchors on the diff the reviewer was actually given. |
 | `dispute-all` | Answers a review by changing nothing and disputing every Finding, with evidence. |
 | `literal-noop` | Follows the most restrictive instruction it was given and changes nothing: no commit, every Finding `unresolved`, a review with no findings. |
+| `needs-human` | Iteration only: says what a human must do and ends with the `RALPH-NEEDS-HUMAN:` signal, changing nothing. |
 | `empty-usage` | Exits cleanly with no output and zero tokens. |
 | `invalid-output` | Malformed contract JSON; an iteration that signals done without doing the work. |
 | `session-limit` | The provider's own session-limit line, exit 1, no transcript. |

@@ -351,7 +351,8 @@ for the code it touches. Add a new learning here, in the file that owns it.
 - **A no-op answer is refused and escalated** (#94): `ralph_review_respond.no_answer_errors` --
   head unchanged **and every** disposition `unresolved` -> `NO_ANSWER` (exit `EXIT_NO_ANSWER`, 18,
   not retryable). The live path runs `escalation_plan` (Story notice first, then `needs-human`,
-  which halts the loop via selection). A dispute with no commit stays an answer. `conduct`
+  which since #114 parks that Story alone: it is In Review, not blocked, so selection skips
+  it and the loop goes on). A dispute with no commit stays an answer. `conduct`
   overwrites `answer["model"]` with the **launched** `outcome.model` before validation, so the
   Story record, the PR comment and the ledger name one model (PR #94 recorded the agent's
   self-reported `gpt-5`). The scripted responder self-reports a wrong model on purpose.

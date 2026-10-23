@@ -48,6 +48,10 @@ TERMINAL = {
     "passing": lambda issue: issue["state"] == "CLOSED",
     "blocked": lambda issue: "state:blocked" in issue["labels"],
     "needs-human": lambda issue: "needs-human" in issue["labels"],
+    # Waiting on a human, and nothing else: needs-human without state:blocked,
+    # which is what the circuit breaker's own halt carries (#114).
+    "parked": lambda issue: ("needs-human" in issue["labels"]
+                             and "state:blocked" not in issue["labels"]),
     "awaiting-bench": lambda issue: "state:awaiting-bench" in issue["labels"],
     # Declared expectations that a Story is *not* finished -- a provider out of
     # session budget makes no progress by design. Exempt from the terminal

@@ -426,11 +426,43 @@ class NoWorkAndHalt(unittest.TestCase):
         self.assertEqual(act.kind, ralph_select.NO_WORK)
 
     def test_needs_human_label_halts_the_loop(self):
+        # On a blocked story it is the circuit breaker's mark.
         act = action_for(
             story(1, state="ready", type_="afk", prio=1),
             story(2, state="blocked", type_="afk", prio=2, needs_human=True),
         )
         self.assertEqual(act.kind, ralph_select.HALT)
+
+
+class ParkedOnAHuman(unittest.TestCase):
+    """#114: needs-human on a story that is not blocked parks that story only."""
+
+    def test_a_parked_story_is_not_resumed_and_does_not_halt(self):
+        act = action_for(
+            story(1, state="in-progress", type_="afk", prio=1, needs_human=True),
+            story(2, state="ready", type_="afk", prio=2),
+        )
+        self.assertEqual((act.kind, act.number), (ralph_select.START, 2))
+
+    def test_a_parked_story_is_not_started(self):
+        act = action_for(story(1, state="ready", type_="afk", prio=1, needs_human=True))
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_a_parked_review_is_not_resumed(self):
+        act = action_for(story(1, state="in-review", type_="afk", prio=1, needs_human=True))
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
+
+    def test_removing_the_label_resumes_it_where_it_stopped(self):
+        act = action_for(story(1, state="in-progress", type_="afk", prio=1),
+                         story(2, state="ready", type_="afk", prio=2))
+        self.assertEqual((act.kind, act.number), (ralph_select.RESUME, 1))
+
+    def test_a_dependent_of_a_parked_story_still_waits(self):
+        act = action_for(
+            story(1, state="in-progress", type_="afk", prio=1, needs_human=True),
+            story(2, state="ready", type_="afk", prio=2, depends=[1]),
+        )
+        self.assertEqual(act.kind, ralph_select.NO_WORK)
 
 
 class PureOverNormalizedList(unittest.TestCase):
