@@ -817,6 +817,19 @@ class ReviewPromptV1(unittest.TestCase):
                           "review.v1 prompt missing evidence field: %s" % field)
         self.assertIn(ralph_review_result.CONTRACT_VERSION, self.text)
 
+    def test_names_every_schema_key_literally(self):
+        # The reviewer never sees the schema, so a key the prompt only
+        # paraphrases ("the exact head commit") gets guessed (`head_commit`)
+        # and the whole result is refused (#112).
+        with open(ralph_review_result.DEFAULT_SCHEMA) as fh:
+            schema = json.load(fh)
+        finding = schema["properties"]["findings"]["items"]
+        location = finding["properties"]["location"]
+        for node in (schema, finding, location):
+            for key in node["properties"]:
+                self.assertIn("`%s`" % key, self.text,
+                              "review.v1 prompt does not name key: %s" % key)
+
     def test_scopes_a_later_round_to_adjudicating_what_came_before(self):
         low = " ".join(self.text.lower().split())
         self.assertIn("adjudicate", low)
