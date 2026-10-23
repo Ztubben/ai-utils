@@ -50,7 +50,13 @@ for the code it touches. Add a new learning here, in the file that owns it.
   labels `ralph_story`/`ralph_select` consume — plus a `prio:0..N` starter range) and, when
   `base` is missing, create it off the default branch (never fabricating `main`, which always exists).
   The CLI detects live state (`_remote_has_branch`, `_default_branch`) then runs the plan.
-  Idempotent by construction (`--force`, skip-if-present). Covered by `test/unit/test_init.py`.
+  Idempotent by construction (`--force`, skip-if-present). It also links every shipped
+  skill (`skills/<name>/SKILL.md`) into the project's `.claude/skills/<name>` — that is the only
+  place Claude Code discovers project skills (the `skills/` folder they ship in is not one of
+  them), which is how a skill added after the hand-made links (`ralph-backlog-audit`) went
+  unloaded. Links are
+  relative (they survive a clone) and any name already present is skipped, so a project's
+  own skill is never clobbered and a re-run links only new ones. Covered by `test/unit/test_init.py`.
 - `scheduler/` ships the sample schedulers (US-012, ADR-0001): systemd `ralph.service`
   (`Type=oneshot`, `ExecStart=.../bin/ralph.sh`) + `ralph.timer` (`OnCalendar=*-*-* 00/5:00:00`,
   i.e. every 5h) and a `ralph.cron` one-liner (`0 */5 * * *`). Both just fire the flock-guarded

@@ -7,6 +7,12 @@ and an iteration cannot branch off a `base` that does not exist. `ralph --init`
 creates both, idempotently, so onboarding is one command instead of a pile of
 manual `gh label create` calls.
 
+Init also links each skill shipped under `skills/` into the project's
+`.claude/skills/`, the only place Claude Code discovers project skills (the
+`skills/` folder they ship in is not one of them). Links are relative, so they survive a fresh clone
+of the superproject; a name the project already has is left alone, so re-running
+init after an ai-utils bump links only the newly shipped skills.
+
 The deterministic seam mirrors the completion stages: `init_plan` is a pure
 function that returns the ordered git/gh commands (as argv lists) without running
 anything, so the canonical label set and the base-branch policy are unit-testable.
@@ -51,6 +57,10 @@ FIXED_LABELS = [
 
 PRIO_COLOR = "c5def5"
 
+SKILLS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+SKILL_LINK_DIR = os.path.join(".claude", "skills")
+
 
 def prio_labels(prio_max=DEFAULT_PRIO_MAX):
     """The starter prio:0..prio:N labels (optional per story; lower = higher)."""
@@ -92,16 +102,38 @@ def _base_commands(base, base_exists, default_branch):
     ]
 
 
+def skill_link_commands(skills, skills_dir, project_root, existing=()):
+    """Commands to link each shipped skill into `<project_root>/.claude/skills/`.
+
+    `skills` are the shipped skill names, `existing` the entry names already in
+    the link directory (any kind, dangling links included). An existing name is
+    never touched: it is either a previous init's link or the project's own skill.
+    Targets are relative to the link directory, so the links stay valid wherever
+    the superproject is cloned.
+    """
+    link_dir = os.path.join(project_root, SKILL_LINK_DIR)
+    missing = [name for name in skills if name not in set(existing)]
+    if not missing:
+        return []
+    commands = [["mkdir", "-p", link_dir]]
+    for name in missing:
+        target = os.path.relpath(os.path.join(skills_dir, name), link_dir)
+        commands.append(["ln", "-s", target, os.path.join(link_dir, name)])
+    return commands
+
+
 def init_plan(base=None, base_exists=True, default_branch=PROTECTED_BRANCH,
-              prio_max=DEFAULT_PRIO_MAX):
+              prio_max=DEFAULT_PRIO_MAX, skill_links=()):
     """Build the ordered command plan to bootstrap a superproject.
 
     Pure: computes commands, runs nothing. Creates (or force-updates) the whole
     canonical label vocabulary, then, if `base` is missing, creates it off the
-    default branch. Idempotent by construction.
+    default branch, then appends `skill_links` (see `skill_link_commands`).
+    Idempotent by construction.
     """
     commands = [label_command(*lbl) for lbl in canonical_labels(prio_max)]
     commands += _base_commands(base, base_exists, default_branch)
+    commands += list(skill_links)
     return commands
 
 
@@ -154,6 +186,18 @@ def _default_branch(cwd=None):
     return name or PROTECTED_BRANCH
 
 
+def _shipped_skills(skills_dir=SKILLS_DIR):
+    if not os.path.isdir(skills_dir):
+        return []
+    return sorted(name for name in os.listdir(skills_dir)
+                  if os.path.isfile(os.path.join(skills_dir, name, "SKILL.md")))
+
+
+def _existing_skill_entries(project_root):
+    link_dir = os.path.join(project_root, SKILL_LINK_DIR)
+    return os.listdir(link_dir) if os.path.isdir(link_dir) else []
+
+
 def _cmd_init(rest):
     config_path = rest[0] if rest and rest[0] else ".ralph.yml"
 
@@ -170,8 +214,11 @@ def _cmd_init(rest):
     base_exists = _remote_has_branch(base, cwd=cwd)
     default_branch = _default_branch(cwd=cwd)
 
+    skill_links = skill_link_commands(_shipped_skills(), SKILLS_DIR, cwd,
+                                      _existing_skill_entries(cwd))
+
     plan = init_plan(base=base, base_exists=base_exists,
-                     default_branch=default_branch)
+                     default_branch=default_branch, skill_links=skill_links)
     run = run_plan(plan, cwd=cwd)
     if run.ok:
         n_labels = len(canonical_labels())
@@ -179,7 +226,9 @@ def _cmd_init(rest):
             base_note = "base branch %r already present" % base
         else:
             base_note = "created base branch %r off %r" % (base, default_branch)
-        print("OK: initialized %d labels; %s" % (n_labels, base_note))
+        n_links = sum(1 for cmd in skill_links if cmd[0] == "ln")
+        print("OK: initialized %d labels; %s; linked %d new skills into %s"
+              % (n_labels, base_note, n_links, SKILL_LINK_DIR))
         return 0
     sys.stderr.write("FAILED: init (exit %d): %s\n"
                      % (run.failed.returncode, " ".join(run.failed.args)))
