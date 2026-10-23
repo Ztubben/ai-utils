@@ -75,6 +75,43 @@ class InitPlanBaseBranch(unittest.TestCase):
         self.assertNotIn("main:refs/heads/main", _flat(plan))
 
 
+class InitPlanSkillLinks(unittest.TestCase):
+    def test_links_each_skill_relative_to_the_link_dir(self):
+        cmds = ralph_init.skill_link_commands(
+            ["ralph-story", "tdd"], "/sp/ai-utils/skills", "/sp")
+        self.assertEqual(cmds[0], ["mkdir", "-p", "/sp/.claude/skills"])
+        self.assertEqual(cmds[1:], [
+            ["ln", "-s", "../../ai-utils/skills/ralph-story",
+             "/sp/.claude/skills/ralph-story"],
+            ["ln", "-s", "../../ai-utils/skills/tdd", "/sp/.claude/skills/tdd"],
+        ])
+
+    def test_self_hosting_links_into_its_own_skills(self):
+        cmds = ralph_init.skill_link_commands(["tdd"], "/ai-utils/skills", "/ai-utils")
+        self.assertIn(["ln", "-s", "../../skills/tdd", "/ai-utils/.claude/skills/tdd"], cmds)
+
+    def test_existing_names_are_never_touched(self):
+        # A previous init's link, or the project's own skill of the same name.
+        cmds = ralph_init.skill_link_commands(
+            ["ralph-story", "tdd"], "/sp/ai-utils/skills", "/sp", existing=["tdd"])
+        linked = [c[3] for c in cmds if c[0] == "ln"]
+        self.assertEqual(linked, ["/sp/.claude/skills/ralph-story"])
+
+    def test_nothing_to_do_when_all_linked(self):
+        self.assertEqual(ralph_init.skill_link_commands(
+            ["tdd"], "/sp/ai-utils/skills", "/sp", existing=["tdd"]), [])
+
+    def test_plan_appends_skill_links_after_labels(self):
+        links = ralph_init.skill_link_commands(["tdd"], "/sp/ai-utils/skills", "/sp")
+        plan = ralph_init.init_plan(base="main", skill_links=links)
+        self.assertEqual(plan[-len(links):], links)
+
+    def test_every_shipped_skill_is_found(self):
+        shipped = ralph_init._shipped_skills()
+        self.assertIn("ralph-story", shipped)
+        self.assertIn("ralph-backlog-audit", shipped)
+
+
 class InitCli(unittest.TestCase):
     def _mockbin(self, tmp, base_exists=False, default_branch="main",
                  gh_exit=0, git_exit=0):
@@ -126,6 +163,24 @@ class InitCli(unittest.TestCase):
                 calls = fh.read()
             self.assertIn("gh label create state:ready", calls)
             self.assertNotIn("git push", calls)  # base already there
+
+    def test_links_shipped_skills_and_relinks_only_new_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._mockbin(tmp, base_exists=True)
+            config = os.path.join(FIXTURES, "config", "valid", "full.yml")
+            link_dir = os.path.join(tmp, ".claude", "skills")
+            os.makedirs(os.path.join(link_dir, "tdd"))  # the project's own skill
+            proc = self._run(tmp, log, config)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            story = os.path.join(link_dir, "ralph-story")
+            self.assertTrue(os.path.islink(story))
+            self.assertFalse(os.path.isabs(os.readlink(story)))
+            self.assertTrue(os.path.isfile(os.path.join(story, "SKILL.md")))
+            self.assertFalse(os.path.islink(os.path.join(link_dir, "tdd")))
+
+            proc = self._run(tmp, log, config)  # re-run: nothing new to link
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("linked 0 new skills", proc.stdout)
 
     def test_bad_config_exits_two(self):
         with tempfile.TemporaryDirectory() as tmp:

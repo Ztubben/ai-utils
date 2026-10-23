@@ -193,9 +193,11 @@ scheduler (every ~5h)
    ai-utils/bin/ralph --check-config
    ```
 
-4. **Initialize the repo** — create the canonical labels and the base branch
-   (idempotent; safe to re-run). Do this once per superproject, before authoring
-   stories, or `gh issue edit --add-label state:…` will fail with `not found`:
+4. **Initialize the repo** — create the canonical labels and the base branch,
+   and link the shipped skills into `.claude/skills/` so Claude Code discovers
+   them (idempotent; safe to re-run). Do this once per superproject, before
+   authoring stories, or `gh issue edit --add-label state:…` will fail with
+   `not found`. Re-run it after bumping ai-utils to link newly shipped skills:
 
    ```sh
    ai-utils/bin/ralph --init
@@ -520,7 +522,7 @@ orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 
 | Command | What it does |
 | --- | --- |
-| `ralph --init [CONFIG]` | Bootstrap the superproject: idempotently create the canonical labels and, if missing, the base branch (off the default branch). Run once per repo before authoring stories. |
+| `ralph --init [CONFIG]` | Bootstrap the superproject: idempotently create the canonical labels, the base branch if missing (off the default branch), and relative `.claude/skills/<name>` links to the shipped skills (existing names are left alone). Run once per repo before authoring stories, and again after an ai-utils bump. |
 | `ralph --check-config [PATH]` | Validate `.ralph.yml` (default `./.ralph.yml`) against the schema. |
 | `ralph --lint-story PATH` | Validate a story issue (gh JSON shape; `-` for stdin) against the canonical format. |
 | `ralph --dry-run [PATH]` | Scan the backlog and print the next action (`resume #N` / `start #N` / `no-work` / `halt`), changing nothing. Reads a JSON backlog from `PATH`, or scans live via `gh`. |
