@@ -69,7 +69,7 @@ class HappyPathIsReallyDriven(unittest.TestCase):
         (pr,) = self.state["pulls"].values()
         self.assertEqual(pr["state"], "MERGED")
         base = subprocess.run(
-            ["git", "--git-dir", self.world.remote, "rev-parse", "refs/heads/develop"],
+            ["git", "--git-dir", self.world.remote, "rev-parse", "refs/heads/main"],
             stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
         self.assertEqual(base, pr["mergeCommit"])
 
@@ -257,7 +257,7 @@ class FakeGhContract(unittest.TestCase):
 
         git("checkout", "-qb", "topic")
         first = commit_and_push("one\n")
-        self.gh("pr", "create", "--base", "develop", "--head", "topic",
+        self.gh("pr", "create", "--base", "main", "--head", "topic",
                 "--title", "t", "--body", "b")
         view = lambda: json.loads(self.gh("pr", "view", "2", "--json", "headRefOid"))
         self.assertEqual(view()["headRefOid"], first)

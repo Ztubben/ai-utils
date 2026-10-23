@@ -1,4 +1,4 @@
 schema_version: "1.1"
 name: live-ai-utils-backlog
 expected_outcome: |
-  backlog-audit.md identifies the PRD #85 stories with commits on master as close candidates with commit evidence and acceptance-criteria checks, flags #109-#114 as missing state:/Parent:/Depends on: (and #111 missing everything) with lint-passing proposed fixes, shows what the Loop would select before and after, and makes no GitHub edits.
+  backlog-audit.md identifies the PRD #85 stories with commits on main as close candidates with commit evidence and acceptance-criteria checks, flags #109-#114 as missing state:/Parent:/Depends on: (and #111 missing everything) with lint-passing proposed fixes, shows what the Loop would select before and after, and makes no GitHub edits.

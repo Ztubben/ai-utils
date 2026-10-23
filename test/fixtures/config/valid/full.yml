@@ -5,7 +5,7 @@ gating:
   - name: test
     run: make test
 branching:
-  base: develop
+  base: main
   branch_pattern: "ralph/{issue}-{slug}"
   afk_merge: squash
 limits:

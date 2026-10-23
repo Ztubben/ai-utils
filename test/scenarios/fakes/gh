@@ -41,7 +41,7 @@ class Refused(Exception):
 # --- state -------------------------------------------------------------------
 
 def empty_state():
-    return {"repo": {"owner": "acme", "name": "target", "defaultBranch": "develop"},
+    return {"repo": {"owner": "acme", "name": "target", "defaultBranch": "main"},
             "labels": [], "issues": {}, "pulls": {}, "statuses": {}, "ci": [],
             "next_number": 1, "next_id": 1000, "clock": 0}
 

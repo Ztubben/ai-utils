@@ -248,7 +248,8 @@ class CliBranchName(unittest.TestCase):
     def test_base_flag_reports_the_base_branch_for_an_orphan(self):
         proc = self._run({"number": 7, "title": "Wire up the ADC",
                           "body": "Parent: None\nDepends on: None\n"},
-                         os.path.join(FIXTURES, "config", "valid", "full.yml"),
+                         # Not the default, so only the config can have named it.
+                         os.path.join(FIXTURES, "config", "valid", "non-default-base.yml"),
                          "", "--base")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertEqual(proc.stdout.strip(), "develop")

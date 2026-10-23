@@ -315,7 +315,7 @@ class CliCompleteHil(unittest.TestCase):
             self.assertIn("state:awaiting-bench", calls)
             self.assertNotIn("pr merge", calls)
             self.assertNotIn("issue close", calls)
-            self.assertNotIn("main", calls)
+            self.assertIn("--base main", calls)  # the configured base
 
     def test_main_base_is_not_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

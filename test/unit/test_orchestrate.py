@@ -807,8 +807,8 @@ class OrchestrationTest(unittest.TestCase):
         self.assertIn("--squash", merge[0])
         self.assertTrue(any("issue close 7" in ln for ln in log), log)
         self.assertEqual(h.agent_calls(), [], log)
-        # It never targets main.
-        self.assertFalse(any("main" in ln for ln in log), log)
+        # It integrates into the configured base, main.
+        self.assertTrue(any("merged into main" in ln for ln in log), log)
 
     def test_an_approved_hil_story_parks_at_awaiting_bench_unmerged(self):
         # AC (#59): the whole HIL flow -- same approvals, no merge, still open.
@@ -966,7 +966,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        self.assertTrue(any("git push origin origin/develop:refs/heads/%s"
+        self.assertTrue(any("git push origin origin/main:refs/heads/%s"
                             % FEATURE_BRANCH in ln for ln in log), log)
         self.assertTrue(any("git push origin refs/heads/ralph/20-story-20:refs/heads/ralph/20-story-20" in ln
                             for ln in log), log)
@@ -1048,7 +1048,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         self.assertTrue(any("Refs #21" in ln for ln in log), log)
         # The Feature branch already carries its predecessor, so nothing
         # recreates it off the base branch under the second Story's feet.
-        self.assertFalse(any("origin/develop:refs/heads/" in ln for ln in log), log)
+        self.assertFalse(any("origin/main:refs/heads/" in ln for ln in log), log)
 
     def test_the_second_storys_first_round_is_round_one(self):
         """The bug PRD #69 was written for, reproduced at the tick.
@@ -1127,7 +1127,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         create = next(ln for ln in log if "pr create" in ln)
-        self.assertIn("--base develop", create)
+        self.assertIn("--base main", create)
         self.assertIn("--head %s" % FEATURE_BRANCH, create)
         merge = next(ln for ln in log if "pr merge" in ln)
         self.assertIn("--rebase", merge)
@@ -1145,7 +1145,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         create = next(ln for ln in log if "pr create" in ln)
-        self.assertIn("--base develop", create)
+        self.assertIn("--base main", create)
         self.assertIn("--head ralph/7-story-7", create)
         # No Feature, so origin is never asked about one and none is created.
         self.assertFalse(any("ls-remote" in ln for ln in log), log)

@@ -327,8 +327,9 @@ class FreshnessOrchestration(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(tmp + "-origin.git", ignore_errors=True))
         return FreshnessTickHarness(tmp, config)
 
-    def test_freshness_merges_main_when_base_is_main(self):
-        h = self.harness(os.path.join(os.path.dirname(FULL_CONFIG), "base-main.yml"))
+    def test_freshness_merges_the_configured_base_not_the_default(self):
+        # A base other than the default, so only the config can have named it.
+        h = self.harness(os.path.join(os.path.dirname(FULL_CONFIG), "non-default-base.yml"))
         backlog = [
             story(10, prio=None, prd=True),
             story(4, type_="afk", prio=9, closed=True),
@@ -339,14 +340,14 @@ class FreshnessOrchestration(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
         merge_idx = next((i for i, ln in enumerate(log)
-                          if "git merge" in ln and "main" in ln), None)
-        self.assertIsNotNone(merge_idx, "expected 'git merge main' in log: %s" % log)
+                          if "git merge" in ln and "origin/develop" in ln), None)
+        self.assertIsNotNone(merge_idx, "expected 'git merge origin/develop' in log: %s" % log)
         claude_idx = next(i for i, ln in enumerate(log) if ln.startswith("claude "))
         self.assertLess(merge_idx, claude_idx)
 
     def test_start_with_out_of_feature_dep_merges_base(self):
         """Starting a Feature story that depends on a closed Orphan #4 must
-        merge origin/develop into its branch before the iteration."""
+        merge origin/main into its branch before the iteration."""
         h = self.harness()
         backlog = [
             story(10, prio=None, prd=True),                                  # PRD
@@ -359,11 +360,11 @@ class FreshnessOrchestration(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        # Must see a git merge of the base branch (develop) before claude runs.
-        merge_lines = [ln for ln in log if "git merge" in ln and "develop" in ln]
-        self.assertTrue(merge_lines, "expected 'git merge develop' in log: %s" % log)
+        # Must see a git merge of the base branch (main) before claude runs.
+        merge_lines = [ln for ln in log if "git merge" in ln and "origin/main" in ln]
+        self.assertTrue(merge_lines, "expected 'git merge origin/main' in log: %s" % log)
         # The merge must come before the claude call.
-        merge_idx = next(i for i, ln in enumerate(log) if "git merge" in ln and "develop" in ln)
+        merge_idx = next(i for i, ln in enumerate(log) if "git merge" in ln and "origin/main" in ln)
         claude_idx = next(i for i, ln in enumerate(log) if ln.startswith("claude "))
         self.assertLess(merge_idx, claude_idx,
                         "merge must precede iteration: %s" % log)
@@ -418,7 +419,7 @@ class FreshnessOrchestration(unittest.TestCase):
         proc = h.run()
         self.assertEqual(proc.returncode, 0, proc.stdout)
         log = h.log_lines()
-        merge_lines = [ln for ln in log if "git merge" in ln and "develop" in ln]
+        merge_lines = [ln for ln in log if "git merge" in ln and "origin/main" in ln]
         self.assertTrue(merge_lines, "expected freshness merge on resume: %s" % log)
 
 

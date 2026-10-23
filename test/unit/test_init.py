@@ -142,7 +142,8 @@ class InitCli(unittest.TestCase):
     def test_creates_labels_and_missing_base(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = self._mockbin(tmp, base_exists=False, default_branch="main")
-            config = os.path.join(FIXTURES, "config", "valid", "full.yml")  # base: develop
+            # A base other than the default branch, so there is one to create.
+            config = os.path.join(FIXTURES, "config", "valid", "non-default-base.yml")
             proc = self._run(tmp, log, config)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             with open(log) as fh:

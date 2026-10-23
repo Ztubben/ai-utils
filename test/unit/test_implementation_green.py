@@ -335,7 +335,7 @@ class CliImplementationGreen(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("git ls-remote --exit-code --heads origin "
                       "feature/42-provider-neutral-review", calls)
-        self.assertIn("git push origin origin/develop:refs/heads/"
+        self.assertIn("git push origin origin/main:refs/heads/"
                       "feature/42-provider-neutral-review", calls)
         self.assertIn("--base feature/42-provider-neutral-review", calls)
 
@@ -350,7 +350,7 @@ class CliImplementationGreen(unittest.TestCase):
         proc, calls = self._run([])
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("ls-remote", calls)
-        self.assertIn("--base develop", calls)
+        self.assertIn("--base main", calls)
 
     def test_cli_discovers_and_updates_existing_marked_pr(self):
         proc, calls = self._run([

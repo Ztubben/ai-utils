@@ -63,7 +63,8 @@ def _commit_refs(git_dir):
 
     Only the subject counts: squash bodies list every issue the branch touched,
     which buries the one the commit is for. A subject seen on several refs
-    (a squash on develop, the same change on master) is listed once.
+    (a commit on its story branch, the same change squashed onto main) is
+    listed once.
     """
     try:
         out = subprocess.run(

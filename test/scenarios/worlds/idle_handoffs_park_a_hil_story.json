@@ -3,7 +3,7 @@
   "config": {
     "version": 1,
     "branching": {
-      "base": "develop",
+      "base": "main",
       "afk_merge": "squash"
     },
     "gating": [

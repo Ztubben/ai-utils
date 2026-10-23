@@ -71,7 +71,7 @@ class ValidConfigTests(unittest.TestCase):
     def test_summary_mentions_key_settings(self):
         result = ralph_config.load_and_validate(valid("full.yml"))
         summary = result.summary()
-        self.assertIn("develop", summary)
+        self.assertIn("base branch: main", summary)
         self.assertIn("build", summary)
         self.assertIn("test", summary)
 

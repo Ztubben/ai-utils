@@ -1,0 +1,19 @@
+# Schema-valid config whose base is NOT the default (`main`). Only for tests
+# whose point is that the *configured* base is used -- a base equal to the
+# default could not tell configured from defaulted (#119). Everything else
+# uses full.yml, whose base is `main`, as Ralph's own default.
+version: 1
+gating:
+  - name: build
+    run: make build
+  - name: test
+    run: make test
+branching:
+  base: develop
+  branch_pattern: "ralph/{issue}-{slug}"
+  afk_merge: squash
+limits:
+  max_attempts: 5
+  circuit_breaker: 3
+notify:
+  github: octocat

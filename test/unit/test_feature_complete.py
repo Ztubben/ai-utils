@@ -476,7 +476,7 @@ class CliCompleteFeature(unittest.TestCase):
                 calls = fh.read()
             self.assertIn("pr merge", calls)
             self.assertIn("issue close 18", calls)
-            self.assertNotIn("main", calls)
+            self.assertIn("--base main", calls)  # the configured base
 
     def test_an_unverified_hil_story_refuses_the_integration(self):
         with tempfile.TemporaryDirectory() as tmp:

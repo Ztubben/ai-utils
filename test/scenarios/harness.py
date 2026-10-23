@@ -156,7 +156,7 @@ def initial_state(spec):
     added and any `issues`/`ci` the scenario declares layered on top.
     """
     github = spec.get("github", {})
-    base = spec["config"].get("branching", {}).get("base", "develop")
+    base = spec["config"].get("branching", {}).get("base", "main")
     canonical = [{"name": name, "color": color, "description": desc}
                  for name, color, desc in ralph_init.canonical_labels()]
     if github.get("capture"):
@@ -252,7 +252,7 @@ class World:
         for adapter in ralph_agent.PROVIDERS.values():
             os.symlink(os.path.join(FAKES, "agent"),
                        os.path.join(self.bin, adapter.default_binary))
-        base = self.spec["config"].get("branching", {}).get("base", "develop")
+        base = self.spec["config"].get("branching", {}).get("base", "main")
         _git(["init", "-q", "--bare", "-b", base, self.remote], self.root, self.env)
         _git(["clone", "-q", self.remote, self.checkout], self.root, self.env)
         _git(["checkout", "-q", "-b", base], self.checkout, self.env)
@@ -333,7 +333,7 @@ class World:
                 self.checkout, self.env) == "":
             refs.append("%s:refs/heads/%s" % (base_oid, pr["baseRefName"]))
         _git(["push", "-q", "origin"] + refs, self.checkout, self.env)
-        base = self.spec["config"].get("branching", {}).get("base", "develop")
+        base = self.spec["config"].get("branching", {}).get("base", "main")
         _git(["checkout", "-q", "--detach", base_oid], self.checkout, self.env)
         _git(["checkout", "-q", "-B", base, base_oid], self.checkout, self.env)
         return mapping

@@ -249,7 +249,7 @@ class CliCompleteAfk(unittest.TestCase):
                 calls = fh.read()
             self.assertIn("pr merge", calls)
             self.assertIn("issue close 6", calls)
-            self.assertNotIn("main", calls)
+            self.assertIn("--base main", calls)  # the configured base
 
     def test_main_base_runs_the_merge(self):
         with tempfile.TemporaryDirectory() as tmp:
