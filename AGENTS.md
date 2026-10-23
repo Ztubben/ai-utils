@@ -3,7 +3,7 @@
 The tool being built here is the **issue/label-driven Ralph Loop** shipped from
 ai-utils. (The snarktank-style loop in `ralph/` is only the *build harness* that
 drives construction — don't confuse the two.) Honor `CONTEXT.md` terminology (HIL,
-not HITL) and `docs/adr/0001–0005`.
+not HITL) and `docs/adr/0001–0007`.
 
 ## Layout
 - `bin/ralph` — bash CLI entrypoint; dispatches subcommands, delegates logic to `lib/`.

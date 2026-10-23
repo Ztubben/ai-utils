@@ -5,7 +5,7 @@
 # its own credentials, and its own protected paths (ADR-0001).
 #
 # The job is named `test` so its check matches the `test` step in .ralph.yml's
-# gating, which is the context `develop` requires in branch protection. Ralph's
+# gating, which is the context `main` requires in branch protection. Ralph's
 # model review runs concurrently with it and reports separately, on
 # `ralph/model-review`. Every review fix commit is a new head, and this is what
 # re-verifies it.
@@ -16,9 +16,9 @@ name: test
 
 on:
   pull_request:
-    branches: [develop]
+    branches: [main]
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read

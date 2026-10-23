@@ -4,9 +4,9 @@
 version: 1
 
 branching:
-  # Ralph integrates into develop; promoting develop -> master (squash) is
-  # human-owned. Ralph never touches the default branch directly.
-  base: develop
+  # Ralph integrates into main and may auto-merge there; there is no promotion
+  # step. A superproject's submodule pointer bump is the release (ADR-0007).
+  base: main
 
 gating:
   - name: test
