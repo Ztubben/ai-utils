@@ -1,0 +1,15 @@
+[
+ {
+  "number": 5,
+  "title": "Status LED blinks on fault",
+  "body": "Closes #61",
+  "state": "MERGED",
+  "headRefName": "ralph/61-status-led",
+  "mergedAt": "2026-10-10T10:00:00Z",
+  "closingIssuesReferences": [
+   {
+    "number": 61
+   }
+  ]
+ }
+]
