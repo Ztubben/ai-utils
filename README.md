@@ -604,11 +604,11 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 | --- | --- | --- |
 | Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`claude-opus-5`) implements, `codex-sol` (`gpt-6.1-sol`) reviews, alternating |
 | Quality gate | `.ralph.yml` `gating` | one step, `test`, running `test/run.sh` |
-| CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `develop`; job named `test` so its check matches the gating step |
+| CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `main` and pushes to it; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
-| Base branch | `.ralph.yml` `branching.base` | `develop`; promoting `develop` → `master` is human-owned, and is a fast-forward (`git push origin develop:master`), never a merge |
+| Base branch | `.ralph.yml` `branching.base` | `main`; Ralph may auto-merge into it, and there is no promotion step — a superproject's submodule pointer bump is the release (ADR-0007) |
 
-**Branch protection on `develop`.** Two checks are required — `test` (CI) and
+**Branch protection on `main`.** Two checks are required — `test` (CI) and
 `ralph/model-review` (the verdict Ralph publishes) — and **no** approving reviews
 are. Ralph opens its pull requests with the operator's own credential and cannot
 approve them, so requiring an approval would turn every AFK Story into a
@@ -620,13 +620,12 @@ own. A **feature branch needs no protection of its own** — every Story that
 merges into one was reviewed and CI-checked on its own pull request first, and
 the base branch is where the gate has to hold. **Linear history is required**
 (and merge commits are disabled for the repository): Stories squash-merge and a
-Feature integrates by rebase, so `develop` never carries a merge commit and
-`master` can simply be fast-forwarded to it. A merged pull request's head
-branch is deleted automatically, so squash-merged branches do not pile up on
-the remote. To reproduce the settings:
+Feature integrates by rebase, so `main` never carries a merge commit. A merged
+pull request's head branch is deleted automatically, so squash-merged branches
+do not pile up on the remote. To reproduce the settings:
 
 ```sh
-gh api -X PUT repos/OWNER/REPO/branches/develop/protection \
+gh api -X PUT repos/OWNER/REPO/branches/main/protection \
   --input - <<'JSON'
 {
   "required_status_checks": {
@@ -691,7 +690,7 @@ prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drif
 skills/          Authoring skills shipped with the tool (ralph-story + examples,
                  ralph-backlog-audit).
 scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
-docs/adr/        Architecture Decision Records (0001–0005).
+docs/adr/        Architecture Decision Records (0001–0007).
 test/            Green gate: test/run.sh, unit tests, fixtures, bats.
 .github/workflows/  ai-utils' own CI (self-hosting only — not inherited by a submodule mount).
 .ralph.yml.sample  Documented sample config (a test asserts it validates).

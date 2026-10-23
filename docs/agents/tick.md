@@ -63,8 +63,8 @@ for the code it touches. Add a new learning here, in the file that owns it.
   never a default a submodule mount inherits: `.ralph.yml` (profiles, defaults, protected
   paths, `notify`), `.github/workflows/test.yml` (CI — the same `test/run.sh` the gating
   step runs, job named `test` so the check name matches the gating step name), and
-  `develop`'s branch protection. README's *Self-hosting* section carries the protection
-  settings as a reproducible `gh api` call. GOTCHAS: (1) `develop` requires the `test` and
+  `main`'s branch protection. README's *Self-hosting* section carries the protection
+  settings as a reproducible `gh api` call. GOTCHAS: (1) `main` requires the `test` and
   `ralph/model-review` contexts but **no approving reviews** — Ralph opens its pull requests
   with the operator's own credential and cannot approve them, so a required approval would
   human-gate every AFK Story; the approvals that matter (protected path, deadlock, override)
