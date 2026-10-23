@@ -88,8 +88,8 @@
             "maxLength": 2000
           },
           "location": {
-            "description": "Where the finding applies, when it applies to changed lines. Omitted for a cross-cutting finding, which is rendered in the review body instead of an inline thread.",
-            "type": "object",
+            "description": "Where the finding applies, when it applies to changed lines. Omitted (or null, which means the same) for a cross-cutting finding, which is rendered in the review body instead of an inline thread.",
+            "type": ["object", "null"],
             "additionalProperties": false,
             "required": ["path", "line"],
             "properties": {

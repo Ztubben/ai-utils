@@ -107,6 +107,14 @@ class ValidPayloads(unittest.TestCase):
         result = validate(fixture("cross-cutting.json"), reviewed_diff())
         self.assertTrue(result.ok, result.errors)
 
+    def test_a_null_location_is_a_cross_cutting_finding(self):
+        # The contract says to omit `location`; a reviewer that writes null
+        # means the same thing, and refusing it threw a whole round away (#109).
+        payload = fixture("cross-cutting.json")
+        payload["findings"][0]["location"] = None
+        result = validate(payload, reviewed_diff())
+        self.assertTrue(result.ok, result.errors)
+
     def test_non_blocking_suggestions_may_accompany_an_approval(self):
         result = validate(fixture("non-blocking.json"), reviewed_diff())
         self.assertTrue(result.ok, result.errors)

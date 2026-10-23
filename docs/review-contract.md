@@ -53,7 +53,10 @@ no blocker would block a pull request for a preference.
 as an inline review thread. A cross-cutting finding — one about the change as a
 whole, or about something absent from it — carries no location and is rendered
 in the review body instead. Both are first-class; a reviewer must not invent a
-location to make a cross-cutting point fit an inline thread.
+location to make a cross-cutting point fit an inline thread. An explicit
+`"location": null` is equivalent to omitting it: the finding is cross-cutting.
+The prompt still asks for omission, but a whole round is not thrown away over
+the difference.
 
 Given the reviewed base/head diff, the validator checks each location against
 it: the path must be one the diff touched, and the line (and `end_line`) must be

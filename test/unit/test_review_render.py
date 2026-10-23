@@ -42,6 +42,14 @@ class ReviewBody(unittest.TestCase):
         self.assertIn("missing_tests", body)
 
 
+    def test_a_null_location_renders_in_the_summary_not_inline(self):
+        result = fixture("cross-cutting.json")
+        result["findings"][0]["location"] = None
+        self.assertIn("No test exercises an oversized payload",
+                      ralph_review_render.review_body(result))
+        self.assertEqual(ralph_review_render.inline_comments(result), [])
+
+
 class AdjudicatingEarlierFindings(unittest.TestCase):
     """A later round says, by identifier, what became of each open finding."""
 
