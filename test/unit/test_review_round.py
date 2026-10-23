@@ -64,8 +64,8 @@ class Recorder:
 
     def launch(self, prompt):
         self.prompts.append(prompt)
-        return ralph_agent.Outcome(self.kind, "claude", "claude-opus-5", 0,
-                                   self.output), []
+        return ralph_agent.Outcome(self.kind, "claude", "claude-opus-5",
+                                   getattr(self, "exit_code", 0), self.output), []
 
     def publish(self, result, usage_event=None):
         self.published.append(result)
@@ -174,6 +174,32 @@ class ConductRound(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.kind, ralph_agent.INFRASTRUCTURE_FAILURE)
         self.assertEqual(agent.published, [])
+
+    def test_a_provider_that_died_leaves_its_exit_code_and_output_tail(self):
+        # #112: two launches exited 1 with no usage and nothing was kept, so
+        # the cause could never be diagnosed. The failure now carries the exit
+        # code and the last lines the provider wrote, bounded.
+        output = "\n".join("line %d" % n for n in range(100)) + "\nAPI Error: socket hang up"
+        agent = Recorder(output=output, kind=ralph_agent.INFRASTRUCTURE_FAILURE)
+        agent.exit_code = 1
+
+        result = ralph_review_round.conduct(
+            story(), pull_request(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish)
+
+        text = "\n".join(result.errors)
+        self.assertIn("(exit 1)", text)
+        self.assertIn("API Error: socket hang up", text)
+        self.assertIn("line 99", text)
+        self.assertNotIn("line 0\n", text + "\n")
+        self.assertLessEqual(len(text), 2500)
+
+    def test_a_provider_that_died_silently_says_so(self):
+        agent = Recorder(output="", kind=ralph_agent.INFRASTRUCTURE_FAILURE)
+        result = ralph_review_round.conduct(
+            story(), pull_request(), "# Ralph Review Context v1\n",
+            launch=agent.launch, publish=agent.publish)
+        self.assertIn("no output", "\n".join(result.errors))
 
     def test_an_exhausted_session_is_distinguishable_from_a_crash(self):
         agent = Recorder(output="", kind=ralph_agent.SESSION_EXHAUSTED)

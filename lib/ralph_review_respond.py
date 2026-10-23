@@ -306,8 +306,8 @@ def conduct(story, pull_request, result, context, launch, publish, checkout):
         story=story.get("number"), pull_request=pull_request.get("number"),
         round_no=(result or {}).get("round"), head=head)
     if outcome.kind != ralph_agent.NORMAL:
-        return RespondResult(False, ["implementation agent %s (exit %s)"
-                                     % (outcome.kind, outcome.exit_code)],
+        return RespondResult(False, ralph_agent.failure_report(
+                                 "implementation agent", outcome),
                              outcome.kind, head=head, usage_event=event)
     answer = ralph_review_round.extract_result(outcome.output)
     if isinstance(answer, dict):

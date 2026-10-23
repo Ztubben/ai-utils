@@ -161,8 +161,7 @@ def conduct(story, pull_request, context, launch, publish, changed=None,
         # The reviewer never finished, so there is no judgement to reject.
         # Reporting the provider outcome verbatim keeps that distinction
         # available to the caller deciding whether a round was consumed.
-        return RoundResult(False, ["review agent %s (exit %s)"
-                                   % (outcome.kind, outcome.exit_code)],
+        return RoundResult(False, ralph_agent.failure_report("review agent", outcome),
                            outcome.kind, head=head, invocations=1,
                            usage_event=event)
     payload = extract_result(outcome.output)

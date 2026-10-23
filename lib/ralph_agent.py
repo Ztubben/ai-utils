@@ -95,6 +95,21 @@ def _run_process(argv, prompt, env):
     return proc.returncode, proc.stdout
 
 
+def failure_report(who, outcome, lines=20, chars=2000):
+    """The lines that explain a launch that did not finish (#112).
+
+    The exit code and the tail of what the provider wrote -- bounded, because
+    it lands in the Tick's log -- or an explicit note that it wrote nothing.
+    Without them a provider that exited 1 with no usage left nothing to
+    diagnose once the Tick was over.
+    """
+    report = ["%s %s (exit %s)" % (who, outcome.kind, outcome.exit_code)]
+    tail = (outcome.output or "").rstrip()[-chars:].splitlines()[-lines:]
+    if not tail:
+        return report + ["the provider wrote no output"]
+    return report + ["output tail:"] + ["  | " + line for line in tail]
+
+
 class Outcome:
     """What one agent launch produced."""
 

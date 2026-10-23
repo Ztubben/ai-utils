@@ -26,6 +26,12 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `TEXT` too. `ralph_review_result.changed_lines` splits the diff on `\n` only:
   `str.splitlines()` also breaks on form feeds and the like, shifting the line numbers that
   location checks compare against.
+- **A launch that did not finish explains itself** (#112): `ralph_agent.failure_report(who,
+  outcome)` is what `ralph_review_round.conduct` and `ralph_review_respond` return as the
+  errors of a non-normal outcome: the exit code plus the last 20 lines (≤ 2000 chars) of what
+  the provider wrote, or "the provider wrote no output". They reach the Tick's log through
+  `FAILED: review-round (...)`. Before this, two `infrastructure-failure` launches (Claude CLI
+  exit 1, no usage) left nothing to diagnose once the Tick ended.
 - `lib/ralph_review_context.py` builds the diff-first, commit-bound evidence bundle for one
   Negotiation Round (#50, PRD #42): pure `build_context(...) -> ContextResult` plus the
   `--review-context STORY PR ROUND [ROOT]` CLI (exit 2 on incomplete evidence). It refuses
