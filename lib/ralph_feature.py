@@ -1,12 +1,14 @@
 """Feature completion pass for the Ralph Loop (US-028, ADR-0006).
 
 When a Feature is complete (all stories closed, PRD open + state:ready), the
-completion pass integrates the feature branch into base: (1) autosquash-collapse
-fixup! commits into their story commits — on rebase conflict, abort and keep the
+completion pass integrates the feature branch into base: (0) check the feature
+branch out as origin has it, whatever HEAD was; (1) autosquash-collapse fixup!
+commits into their story commits — on rebase conflict, abort and keep the
 linear history (cosmetic fallback only); (2) rebase the cleaned feature branch
-onto the current base branch; (3) run the full gating steps; (4) create the
+onto `origin/<base>`; (3) run the full gating steps; (4) push the rebased,
+gated branch with lease, so what merges is what was gated; (5) create the
 Feature's single PR and **rebase**-merge it (never a merge commit, never squash),
-then close the PRD with a comment. The base branch requires linear history, so
+then (6) close the PRD with a comment and (7) delete the remote branch. The base branch requires linear history, so
 GitHub refuses a merge commit; a squash would collapse every Story's commit into
 one.
 
@@ -111,11 +113,19 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
     branch = ralph_iterate.branch_name(prd, feature_pattern)
     prd_number = prd["number"]
 
+    remote_base = "origin/" + base
+    ref = "refs/heads/" + branch
+    # Publication names both refs (AGENTS.md): the checkout's HEAD is not
+    # evidence of which branch is the Feature's, and `-u` must not move its
+    # upstream. With lease, so a branch someone pushed to since the sync step
+    # fetched it is never overwritten.
+    push = ["git", "push", "--force-with-lease=" + ref, "origin", "%s:%s" % (ref, ref)]
+
     # Blocker commands: push the branch, comment on PRD, label ready-for-human.
     # These are shared by the rebase and gating failure paths.
     def _blocker_commands(reason_placeholder):
         return [
-            ["git", "push", "-u", "origin", "HEAD:" + branch],
+            push,
             ["gh", "issue", "comment", str(prd_number),
              "--body", "Feature completion blocked: %s on `%s`. "
              "Branch pushed as-is for human triage." % (reason_placeholder, branch)],
@@ -124,22 +134,36 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
         ]
 
     steps = [
+        # Step 0: put the checkout on the Feature branch as origin has it
+        # (#120). Inside a tick HEAD is whatever the last iteration left, and
+        # the pass used to rebase, gate and push *that*.
+        {
+            "name": "sync",
+            "commands": [
+                ["git", "fetch", "origin"],
+                ["git", "checkout", "-q", "--no-track", "-B", branch, "origin/" + branch],
+            ],
+        },
         # Step 1: autosquash-collapse fixup! commits
         {
             "name": "autosquash",
             "commands": [
-                ["git", "rebase", "--autosquash", base],
+                # Interactive with a no-op editor: before git 2.44 a plain
+                # `rebase --autosquash` ignores the flag and squashes nothing.
+                ["git", "-c", "sequence.editor=:", "rebase", "-i", "--autosquash",
+                 remote_base],
             ],
             "fallback_ok": True,  # conflict -> keep linear history, continue
             "abort_on_fail": [
                 ["git", "rebase", "--abort"],
             ],
         },
-        # Step 2: rebase onto current base
+        # Step 2: rebase onto the base as origin has it -- the local base
+        # branch is never fetched into and may be arbitrarily stale.
         {
             "name": "rebase",
             "commands": [
-                ["git", "rebase", base],
+                ["git", "rebase", remote_base],
             ],
             "on_fail": _blocker_commands("rebase conflict"),
             "abort_on_fail": [
@@ -153,7 +177,16 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
             "gating_steps": gating or [],
             "on_fail": _blocker_commands("gating failure"),
         },
-        # Step 4: create PR and rebase-merge it (linear history, per-Story commits)
+        # Step 4: publish what was gated, so that is what the PR merges (#120).
+        # Without it the PR merged the remote branch as it was, and the
+        # autosquashed fixups were lost.
+        {
+            "name": "push",
+            "commands": [push],
+        },
+        # Step 5: create PR and rebase-merge it (linear history, per-Story
+        # commits). No --delete-branch: the branch is checked out here, and
+        # gh deletes the local branch too, which fails after the merge.
         {
             "name": "pr-create",
             "commands": [
@@ -161,10 +194,10 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
                  "--title", prd.get("title", "Feature #%d" % prd_number),
                  "--body", "Merges Feature #%d into %s.\n\nCloses #%d"
                  % (prd_number, base, prd_number)],
-                ["gh", "pr", "merge", branch, "--rebase", "--delete-branch"],
+                ["gh", "pr", "merge", branch, "--rebase"],
             ],
         },
-        # Step 5: close the PRD
+        # Step 6: close the PRD
         {
             "name": "prd-close",
             "commands": [
@@ -172,6 +205,15 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
                  "--comment", "Feature integrated into %s via rebase; "
                  "PRD closed." % base],
             ],
+        },
+        # Step 7: delete the remote Feature branch by name. Best-effort: the
+        # repository may already have deleted it on merge.
+        {
+            "name": "cleanup",
+            "commands": [
+                ["git", "push", "origin", "--delete", ref],
+            ],
+            "fallback_ok": True,
         },
     ]
 

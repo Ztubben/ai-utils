@@ -52,6 +52,20 @@ for the code it touches. Add a new learning here, in the file that owns it.
   unresolvable branch leaves git untouched and the iteration resolves it itself. (4) The
   freshness tick tests and `test/bats/story_branch.bats` run on **real git**: a logging mock
   answers "already an ancestor" to everything and cannot show which branch a merge hit.
+- **Reconciliation runs however the story loop ends** (#120). `tick()` validates, then calls
+  `work_backlog` (the story loop; every early end of the tick -- a Story left in review, a
+  session limit, a failed promotion, a halt, a launcher refusal -- is a `return` from it), and
+  *then* `completion_pass` and `arbitration_pass`, returning the loop's code. They used to sit
+  after a clean `no-work` exit only, so with story work in the backlog a finished Feature never
+  integrated. They still run *after* the loop, not before it: the queue-driven tick harnesses
+  count `gh issue list` reads, and a pass at the start would shift every test's queue.
+  `ralph_feature.feature_complete_plan` (same issue) is now sync → autosquash → rebase → gating
+  → **push** → pr-create → prd-close → cleanup: it checks out `feature/...` hard-synced to
+  origin whatever `HEAD` was, autosquashes and rebases onto **`origin/<base>`** (the local base
+  is never fetched into), and pushes the gated branch `--force-with-lease` by full ref name
+  before `gh pr create`, so what merges is what was gated. The blocker path pushes the same
+  way (never `HEAD:`, never `-u`). `gh pr merge` no longer passes `--delete-branch` (the
+  branch is checked out here); `cleanup` deletes the remote branch by name, best-effort.
 - `lib/ralph_pointer.py` is the **Superproject pointer check** (#96): `ralph --check-pointer
   [CONFIG]` (dispatched with `$RALPH_HOME`) compares the running ai-utils `HEAD` with the gitlink
   in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index) and

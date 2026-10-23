@@ -157,49 +157,57 @@ class FeatureCompletePlanHappyPath(unittest.TestCase):
         plan = self._plan()
         self.assertTrue(plan.ok, plan.errors)
 
-    def test_autosquash_comes_first(self):
-        plan = self._plan()
-        first = plan.steps[0]
-        self.assertEqual(first["name"], "autosquash")
-        tokens = _flat(first["commands"])
-        self.assertIn("--autosquash", tokens)
+    def test_steps_run_in_order(self):
+        # #120: the pass syncs the Feature branch first and pushes what it
+        # gated before the pull request is opened, so what merges was gated.
+        self.assertEqual([step["name"] for step in self._plan().steps],
+                         ["sync", "autosquash", "rebase", "gating", "push",
+                          "pr-create", "prd-close", "cleanup"])
 
-    def test_rebase_onto_base_comes_second(self):
-        plan = self._plan()
-        step = plan.steps[1]
-        self.assertEqual(step["name"], "rebase")
-        tokens = _flat(step["commands"])
-        self.assertIn("develop", tokens)
+    def _step(self, name, **kwargs):
+        return next(s for s in self._plan(**kwargs).steps if s["name"] == name)
 
-    def test_gating_comes_third(self):
-        plan = self._plan()
-        step = plan.steps[2]
-        self.assertEqual(step["name"], "gating")
+    def test_sync_checks_out_the_feature_branch_from_origin_whatever_head_was(self):
+        branch = "feature/18-per-feature-integration-branches"
+        self.assertEqual(self._step("sync")["commands"], [
+            ["git", "fetch", "origin"],
+            ["git", "checkout", "-q", "--no-track", "-B", branch, "origin/" + branch],
+        ])
 
-    def test_pr_create_comes_fourth(self):
-        plan = self._plan()
-        step = plan.steps[3]
-        self.assertEqual(step["name"], "pr-create")
-        tokens = _flat(step["commands"])
-        self.assertIn("pr", tokens)
+    def test_autosquash_and_rebase_target_the_remote_base(self):
+        self.assertIn("--autosquash", _flat(self._step("autosquash")["commands"]))
+        self.assertEqual(self._step("autosquash")["commands"][0][-1], "origin/develop")
+        self.assertEqual(self._step("rebase")["commands"], [["git", "rebase", "origin/develop"]])
+
+    def test_the_gated_branch_is_pushed_with_lease_by_name(self):
+        branch = "feature/18-per-feature-integration-branches"
+        ref = "refs/heads/%s" % branch
+        self.assertEqual(self._step("push")["commands"], [
+            ["git", "push", "--force-with-lease=%s" % ref, "origin", "%s:%s" % (ref, ref)],
+        ])
+
+    def test_pr_create_then_rebase_merge(self):
+        tokens = _flat(self._step("pr-create")["commands"])
         self.assertIn("create", tokens)
         self.assertIn("--rebase", tokens)
+        # The local branch is checked out here, so gh must not try to delete
+        # it; the remote branch goes in the best-effort cleanup step instead.
+        self.assertNotIn("--delete-branch", tokens)
 
-    def test_prd_close_comes_fifth(self):
-        plan = self._plan()
-        step = plan.steps[4]
-        self.assertEqual(step["name"], "prd-close")
-        tokens = _flat(step["commands"])
-        self.assertIn("issue", tokens)
+    def test_prd_close_then_best_effort_remote_cleanup(self):
+        tokens = _flat(self._step("prd-close")["commands"])
         self.assertIn("close", tokens)
         self.assertIn("18", tokens)
+        cleanup = self._step("cleanup")
+        self.assertTrue(cleanup.get("fallback_ok"))
+        self.assertEqual(cleanup["commands"], [
+            ["git", "push", "origin", "--delete",
+             "refs/heads/feature/18-per-feature-integration-branches"]])
 
     def test_merge_rebases_never_a_merge_commit_never_squash(self):
         # develop requires linear history, so GitHub refuses a merge commit;
         # a squash would collapse the Feature's per-Story commits into one.
-        plan = self._plan()
-        pr_step = plan.steps[3]
-        merge = pr_step["commands"][1]
+        merge = self._step("pr-create")["commands"][1]
         self.assertIn("--rebase", merge)
         self.assertNotIn("--merge", merge)
         self.assertNotIn("--squash", merge)
@@ -207,10 +215,6 @@ class FeatureCompletePlanHappyPath(unittest.TestCase):
     def test_branch_resolves_from_prd(self):
         plan = self._plan()
         self.assertEqual(plan.branch, "feature/18-per-feature-integration-branches")
-
-    def test_step_count(self):
-        plan = self._plan()
-        self.assertEqual(len(plan.steps), 5)
 
     def test_never_mentions_main(self):
         plan = self._plan()
@@ -233,7 +237,7 @@ class AutosquashFallback(unittest.TestCase):
             prd_issue(), base="develop",
             feature_pattern="feature/{issue}-{slug}",
             gating=[{"name": "test", "run": "make test"}])
-        autosquash = plan.steps[0]
+        autosquash = next(s for s in plan.steps if s["name"] == "autosquash")
         self.assertTrue(autosquash.get("fallback_ok"),
                         "autosquash step must tolerate failure (cosmetic fallback)")
 
@@ -250,9 +254,12 @@ class RebaseConflictOrRedGate(unittest.TestCase):
             feature_pattern="feature/{issue}-{slug}",
             gating=[{"name": "test", "run": "make test"}])
 
+    def _blocking(self, plan):
+        return [s for s in plan.steps if s["name"] in ("rebase", "gating")]
+
     def test_rebase_step_has_blocker_commands(self):
         plan = self._plan()
-        rebase = plan.steps[1]
+        rebase = self._blocking(plan)[0]
         self.assertIn("on_fail", rebase)
         fail_cmds = rebase["on_fail"]
         tokens = _flat(fail_cmds)
@@ -262,7 +269,7 @@ class RebaseConflictOrRedGate(unittest.TestCase):
 
     def test_gating_step_has_blocker_commands(self):
         plan = self._plan()
-        gating = plan.steps[2]
+        gating = self._blocking(plan)[1]
         self.assertIn("on_fail", gating)
         fail_cmds = gating["on_fail"]
         tokens = _flat(fail_cmds)
@@ -272,15 +279,24 @@ class RebaseConflictOrRedGate(unittest.TestCase):
 
     def test_blocker_commands_comment_on_prd(self):
         plan = self._plan()
-        for step in plan.steps[1:3]:
+        for step in self._blocking(plan):
             fail_cmds = step["on_fail"]
             self.assertTrue(
                 any(c[:3] == ["gh", "issue", "comment"] for c in fail_cmds),
                 "%s on_fail must comment on the PRD" % step["name"])
 
+    def test_blocker_push_names_the_feature_branch_never_head(self):
+        # AGENTS.md: publication names both refs; HEAD is not evidence of
+        # which branch is the Feature's, and -u must not move the upstream.
+        ref = "refs/heads/feature/18-per-feature-integration-branches"
+        for step in self._blocking(self._plan()):
+            push = next(c for c in step["on_fail"] if c[:2] == ["git", "push"])
+            self.assertEqual(push, ["git", "push", "--force-with-lease=%s" % ref,
+                                    "origin", "%s:%s" % (ref, ref)])
+
     def test_blocker_commands_label_prd_ready_for_human(self):
         plan = self._plan()
-        for step in plan.steps[1:3]:
+        for step in self._blocking(plan):
             fail_cmds = step["on_fail"]
             self.assertTrue(
                 any(c[:3] == ["gh", "issue", "edit"] and "ready-for-human" in c
@@ -303,7 +319,7 @@ class AcceptMainBase(unittest.TestCase):
         plan = self._plan("main")
         self.assertTrue(plan.ok, plan.errors)
         rebase = next(s for s in plan.steps if s["name"] == "rebase")
-        self.assertEqual(rebase["commands"], [["git", "rebase", "main"]])
+        self.assertEqual(rebase["commands"], [["git", "rebase", "origin/main"]])
         pr = next(s for s in plan.steps if s["name"] == "pr-create")
         create = pr["commands"][0]
         self.assertEqual(create[create.index("--base") + 1], "main")
@@ -354,6 +370,72 @@ class RunFeaturePlan(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.failed_step, "gating")
         self.assertTrue(result.on_fail_ran)
+
+
+class TheGatedBranchIsWhatMerges(unittest.TestCase):
+    """#120 on real git: whatever HEAD and the local base were, the pass
+    rebases the Feature branch from origin onto origin/<base>, autosquashes
+    its fixups and pushes that before any pull request is opened."""
+
+    def git(self, *args, cwd=None):
+        return subprocess.check_output(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=cwd or self.repo, stderr=subprocess.STDOUT, text=True).strip()
+
+    def test_feature_is_rebased_on_origin_base_and_pushed(self):
+        with tempfile.TemporaryDirectory() as root:
+            remote = os.path.join(root, "remote.git")
+            self.repo = os.path.join(root, "repo")
+            other = os.path.join(root, "other")
+            self.git("init", "-q", "--bare", "-b", "develop", remote, cwd=root)
+            self.git("clone", "-q", remote, self.repo, cwd=root)
+            self.git("commit", "-q", "--allow-empty", "-m", "base")
+            self.git("push", "-q", "origin", "HEAD:develop")
+            plan = ralph_feature.feature_complete_plan(
+                prd_issue(), base="develop", gating=[{"name": "t", "run": "true"}])
+            branch = plan.branch
+            self.git("switch", "-q", "-c", branch)
+            with open(os.path.join(self.repo, "f.txt"), "w") as fh:
+                fh.write("story\n")
+            self.git("add", "f.txt")
+            self.git("commit", "-q", "-m", "feat: story")
+            with open(os.path.join(self.repo, "f.txt"), "a") as fh:
+                fh.write("fix\n")
+            self.git("commit", "-q", "-am", "fixup! feat: story")
+            self.git("push", "-q", "origin", branch)
+            # Someone else moves origin/develop on; the local develop is stale.
+            self.git("clone", "-q", remote, other, cwd=root)
+            self.git("commit", "-q", "--allow-empty", "-m", "base moves on", cwd=other)
+            self.git("push", "-q", "origin", "HEAD:develop", cwd=other)
+            moved = self.git("rev-parse", "HEAD", cwd=other)
+            # The previous Story left the checkout somewhere else entirely.
+            self.git("switch", "-q", "-c", "ralph/99-unrelated", "develop")
+            self.git("commit", "-q", "--allow-empty", "-m", "unrelated")
+
+            git_only = ralph_feature.Plan(True, [], [
+                dict(step, commands=[c for c in step["commands"] if c[0] == "git"])
+                for step in plan.steps if step["name"] not in ("pr-create", "prd-close", "cleanup")
+            ], branch=branch, base="develop")
+            # The plan's own git calls need an identity to rebase with; CI
+            # has no global one.
+            identity = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+            saved = {k: os.environ.get(k) for k in identity}
+            os.environ.update(identity)
+            try:
+                result = ralph_feature.run_feature_plan(git_only, cwd=self.repo)
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            self.assertTrue(result.ok, result.failed_step)
+
+            pushed = self.git("rev-parse", "refs/heads/" + branch, cwd=remote)
+            self.assertEqual(self.git("rev-parse", pushed + "^", cwd=remote), moved)
+            self.assertEqual(self.git("log", "--format=%s", "%s..%s" % (moved, pushed),
+                                      cwd=remote), "feat: story")
 
 
 # ---------------------------------------------------------------------------

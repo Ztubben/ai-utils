@@ -514,9 +514,25 @@ tick() {
   fi
 
   # --- read the base branch once (for freshness merges) ---
-  local base_branch
+  local base_branch rc=0
   base_branch="$(read_base_branch)"
 
+  # --- story work, then reconciliation, however the story work ends ---
+  # The story loop ends early far more often than it runs dry -- a Story left
+  # in review, a session limit, a halt -- and the passes below used to follow a
+  # clean exit only, so a finished Feature starved behind story work for as
+  # long as there was any (#120). The tick's exit code is still the loop's.
+  work_backlog "$base_branch" || rc=$?
+  completion_pass
+  # --- arbitration pass: act on human decisions made between ticks (#58) ---
+  arbitration_pass
+  return "$rc"
+}
+
+# Work eligible stories in sequence, resume-first via the engine. Returns what
+# the tick should exit with; every early end of the tick is a return from here.
+work_backlog() {
+  local base_branch="$1"
   # --- work eligible stories in sequence (resume-first via the engine) ---
   # promo_failed bounds promotion retries: a green story whose promotion fails
   # stays in-progress, so resume-first would re-select it forever within this
@@ -676,22 +692,20 @@ tick() {
         ;;
     esac
   done
+  return 0
+}
 
-  # --- completion pass: scan for Features ready to integrate (ADR-0006, US-029) ---
-  # Each tick scans for eligible PRDs (all stories closed, PRD open + state:ready)
-  # and runs the completion pass for each. This fires even when the final story
-  # close was a human bench act between ticks.
+# Completion pass: scan for Features ready to integrate (ADR-0006, US-029).
+# Each tick scans for eligible PRDs (all stories closed, PRD open + state:ready)
+# and runs the completion pass for each. This fires even when the final story
+# close was a human bench act between ticks.
+completion_pass() {
   local prd_number
   while IFS= read -r prd_number; do
     [[ -z "$prd_number" ]] && continue
     complete_feature "$prd_number" \
       || log "completion pass for PRD #$prd_number failed (see above); continuing"
   done < <("$RALPH_BIN" --ready-features 2>/dev/null)
-
-  # --- arbitration pass: act on human decisions made between ticks (#58) ---
-  arbitration_pass
-
-  return 0
 }
 
 tick "$@"

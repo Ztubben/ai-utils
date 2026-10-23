@@ -289,6 +289,49 @@ MKEOF
   grep -q 'gh issue close 10' "$RALPH_LOG"
 }
 
+# #120: the story loop ends early far more often than it runs dry (a Story
+# left in review, a session limit, a halt), and the completion pass used to
+# sit only after a clean exit -- so a finished Feature starved behind story work.
+eligible_prd_backlog() {
+  echo "[$(prd 10),$(story 11 ready afk | sed 's/"state":"OPEN"/"state":"CLOSED"/;s/Parent: None/Parent: #10/')]"
+}
+
+mock_make() {
+  cat >"$MB/make" <<'MKEOF'
+#!/usr/bin/env bash
+echo "make $*" >> "$RALPH_LOG"
+exit 0
+MKEOF
+  chmod +x "$MB/make"
+}
+
+@test "a halted tick still runs the completion pass (#120)" {
+  echo "[$(story 5 ready | sed 's/{"name":"prio:1"}/{"name":"prio:1"},{"name":"needs-human"}/')]" > "$SP/ghq/0.json"
+  eligible_prd_backlog > "$SP/ghq/1.json"   # --ready-features
+  eligible_prd_backlog > "$SP/ghq/2.json"   # --complete-feature's HIL check
+  prd 10 > "$SP/ghq/story.json"
+  mock_make
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"loop halted"* ]]
+  [[ "$output" == *"completion pass"* ]]
+  grep -q 'gh pr merge' "$RALPH_LOG"
+  grep -q 'gh issue close 10' "$RALPH_LOG"
+}
+
+@test "a tick ended by a session limit still runs the completion pass (#120)" {
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
+  echo "[$(story 5 in-progress)]" > "$SP/ghq/1.json"   # --needs-freshness
+  eligible_prd_backlog > "$SP/ghq/2.json"
+  eligible_prd_backlog > "$SP/ghq/3.json"
+  story 5 in-progress > "$SP/ghq/story.json"
+  mock_make
+  run bash -c "cd '$SP' && RALPH_AGENT_EXIT=91 '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"session limit"* ]]
+  [[ "$output" == *"eligible PRD #10"* ]]
+}
+
 @test "tick with no eligible PRD behaves exactly as today" {
   # Queue 0: no stories (dry-run → no-work)
   echo "[]" > "$SP/ghq/0.json"
