@@ -49,13 +49,20 @@ substituted, slug lowercased and **truncated to 50 chars** — defaults
 resume, review, and completion) recomputes these *same* names, so a branch named any other
 way will not be found.
 
-Create the working branch off the resolved base if it does not exist. If it already exists
-(a resume), check it out and continue from the prior state instead of recreating it.
+The orchestrator normally has the checkout on this branch already: it resolves the same
+names, hard-syncs the branch from origin (or cuts it from the resolved base), and, for a
+Feature story that needs it, merges the base branch into it before launching you. If
+`git rev-parse --abbrev-ref HEAD` already prints the working branch, continue from there
+and **do not reset it** — a reset would discard that merge.
+
+Only if the checkout is on some other branch: create the working branch off the resolved
+base if it does not exist, or, if it already exists (a resume), check it out and continue
+from the prior state instead of recreating it.
 
 ### Hard-sync from origin
 
-Before starting any work, hard-sync the working branch from origin so that the
-iteration always starts from the latest pushed state:
+In that case only, hard-sync the working branch from origin before starting any work, so
+that the iteration starts from the latest pushed state:
 
 ```sh
 git fetch origin

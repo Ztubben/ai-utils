@@ -69,28 +69,109 @@ print(r.config['branching']['base'] if r.ok else 'main')
 "
 }
 
-# Freshness merge (ADR-0006): when a Feature story has out-of-Feature deps
-# (closed Orphan Stories or PRDs whose code landed in the base branch after
-# the feature branch forked), merge the base branch into the feature branch
-# before the iteration. A merge, never a rebase, so bench anchors survive.
-freshness_merge() {
-  local issue="$1" base="$2" answer
-  answer="$("$RALPH_BIN" --needs-freshness "$issue")" || return 0
-  if [[ "$answer" == "yes" ]]; then
-    log "freshness merge: merging $base into feature branch for #$issue"
-    git merge "$base" --no-edit \
-      || { log "freshness merge failed for #$issue; continuing"; return 0; }
+# Resolve the selected Story's working branch and what it is cut from (#121),
+# with the same CLI the iterate prompt uses, so the names cannot drift. Sets
+# STORY_BRANCH and STORY_CUT_FROM; returns non-zero when either cannot be named
+# (the Story or its PRD cannot be fetched), and the caller then leaves git alone.
+STORY_BRANCH="" STORY_CUT_FROM=""
+resolve_story_branch() {
+  local issue="$1" story_file prd_file="" parent rc=0
+  STORY_BRANCH="" STORY_CUT_FROM=""
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    rm -f "$story_file"
+    return 1
+  fi
+  parent="$(grep -oE 'Parent:[[:space:]]*#[0-9]+' "$story_file" \
+    | head -n1 | grep -oE '[0-9]+' || true)"
+  if [[ -n "$parent" ]]; then
+    prd_file="$(mktemp)"
+    gh issue view "$parent" --json number,title,labels,body,state >"$prd_file" 2>/dev/null || rc=1
+  fi
+  if (( rc == 0 )); then
+    STORY_BRANCH="$("$RALPH_BIN" --branch-name "$story_file" "$RALPH_CONFIG" ${prd_file:+"$prd_file"})" \
+      && STORY_CUT_FROM="$("$RALPH_BIN" --branch-name "$story_file" "$RALPH_CONFIG" ${prd_file:+"$prd_file"} --base)" \
+      || rc=1
+  fi
+  rm -f "$story_file" ${prd_file:+"$prd_file"}
+  return "$rc"
+}
+
+# Put the checkout on the Story's own branch before anything else touches git
+# (#121). The tick used to sync and merge into whatever HEAD the previous
+# iteration left behind -- another Story's branch, of another Feature -- and a
+# conflict there left markers in the .ralph.yml every later tick validates.
+#   - origin has the branch: check it out hard-synced to origin, so a human
+#     rewrite wins (ADR-0006) -- unless the local branch is origin plus commits
+#     nobody pushed yet, which are kept;
+#   - only the local branch exists: continue on it;
+#   - neither: cut it from origin/<what it is cut from>, falling back to
+#     origin/<base> while a Feature branch does not exist yet.
+# Uncommitted changes to tracked files are discarded, as the hard sync always
+# did, but named first. Returns non-zero when the checkout could not be moved.
+checkout_story_branch() {
+  local branch="$1" cut_from="$2" base="$3" dirty from
+  git fetch -q origin || log "could not fetch origin; working from the local refs"
+  dirty="$(git status --porcelain --untracked-files=no)"
+  if [[ -n "$dirty" ]]; then
+    log "discarding uncommitted changes left in the checkout: $(cut -c4- <<<"$dirty" | paste -sd' ' -)"
+    git reset -q --hard || return 1
+  fi
+  if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+    if git rev-parse -q --verify "refs/heads/$branch" >/dev/null \
+       && git merge-base --is-ancestor "origin/$branch" "refs/heads/$branch"; then
+      git checkout -q "$branch" || return 1
+    else
+      git checkout -q --no-track -B "$branch" "origin/$branch" || return 1
+    fi
+  elif git rev-parse -q --verify "refs/heads/$branch" >/dev/null; then
+    log "origin has no $branch; continuing from the local branch"
+    git checkout -q "$branch" || return 1
+  else
+    from="origin/$cut_from"
+    git rev-parse -q --verify "refs/remotes/$from" >/dev/null || from="origin/$base"
+    log "creating $branch from $from"
+    git checkout -q --no-track -b "$branch" "$from" || return 1
   fi
 }
 
-# Hard-sync the working branch from origin before an iteration starts, so that
-# human history rewrites (allowed on feature branches) never collide with a
-# stale local checkout (ADR-0006, US-029).
-sync_branch() {
-  local branch
-  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
-  git fetch origin || return 0
-  git reset --hard "origin/$branch" 2>/dev/null || true
+# Freshness merge (ADR-0006): a Feature story with out-of-Feature deps (closed
+# Orphan Stories or PRDs whose code landed in the base branch after the feature
+# branch forked) gets origin/<base> merged into its branch -- the Story branch,
+# cut from the Feature tip -- before the iteration. A merge, never a rebase, so
+# bench anchors survive. Skipped when the branch already contains the base: the
+# decision is graph-only, and some graphs answer yes for every Story of a
+# Feature. A conflict is aborted, never left in the tree; the conflicted paths
+# are left in FRESHNESS_CONFLICTS and the function returns non-zero.
+FRESHNESS_CONFLICTS=""
+freshness_merge() {
+  local issue="$1" base="$2"
+  FRESHNESS_CONFLICTS=""
+  if git merge-base --is-ancestor "origin/$base" HEAD; then
+    log "freshness merge: $STORY_BRANCH already contains origin/$base; nothing to merge for #$issue"
+    return 0
+  fi
+  log "freshness merge: merging origin/$base into $STORY_BRANCH for #$issue"
+  git merge -q --no-edit "origin/$base" && return 0
+  FRESHNESS_CONFLICTS="$(git diff --name-only --diff-filter=U | paste -sd' ' -)"
+  git merge --abort 2>/dev/null || git reset -q --hard
+  log "freshness merge for #$issue conflicts in: ${FRESHNESS_CONFLICTS:-(no paths reported)}; aborted"
+  return 1
+}
+
+# Refuse to tick on a checkout that an earlier run left mid-operation (#121):
+# a conflicted .ralph.yml would otherwise surface as an unrelated INVALID
+# CONFIG, on every tick, until a human looked.
+checkout_mid_operation() {
+  local git_dir
+  git_dir="$(git rev-parse --git-dir 2>/dev/null)" || return 1
+  [[ -n "$git_dir" ]] || return 1
+  if [[ -e "$git_dir/MERGE_HEAD" ]]; then echo "mid-merge"
+  elif [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then echo "mid-rebase"
+  elif [[ -e "$git_dir/CHERRY_PICK_HEAD" ]]; then echo "mid-cherry-pick"
+  elif [[ -n "$(git ls-files -u 2>/dev/null)" ]]; then echo "left with unmerged paths"
+  else return 1
+  fi
 }
 
 # Launch one fresh-context Implementation Agent iteration for the selected story.
@@ -392,6 +473,12 @@ tick() {
     return 0
   fi
 
+  local mid
+  if mid="$(checkout_mid_operation)"; then
+    log "the checkout is $mid; refusing to tick until a human finishes or aborts it"
+    return 2
+  fi
+
   # --- config validation at tick start (ADR-0001: fail loud) ---
   if ! "$RALPH_BIN" --check-config "$RALPH_CONFIG" >/dev/null; then
     log "invalid or missing $RALPH_CONFIG; refusing to tick"
@@ -519,8 +606,22 @@ tick() {
           begin_story "$issue"
         fi
         assign_story_models "$issue"
-        sync_branch
-        freshness_merge "$issue" "$base_branch"
+        # Asked before anything else so every Story consumes the same backlog
+        # reads whether or not its branch resolves.
+        local fresh
+        fresh="$("$RALPH_BIN" --needs-freshness "$issue" 2>/dev/null || true)"
+        if ! resolve_story_branch "$issue"; then
+          log "cannot resolve the branch for #$issue; leaving the checkout to the iteration"
+        elif ! checkout_story_branch "$STORY_BRANCH" "$STORY_CUT_FROM" "$base_branch"; then
+          log "could not check out $STORY_BRANCH for #$issue; ending tick (next tick retries)"
+          return 1
+        elif [[ "$fresh" == "yes" ]] && ! freshness_merge "$issue" "$base_branch"; then
+          # Deterministic: the same merge conflicts again next pass, so this is
+          # a failed Attempt -- bounded, and it blocks the Story for a human.
+          record_failed_attempt "$issue" "the freshness merge of origin/$base_branch into $STORY_BRANCH conflicts in: ${FRESHNESS_CONFLICTS:-(no paths reported)}; a human must merge it"
+          n=$(( n + 1 ))
+          continue
+        fi
         local rc=0 handoffs_before
         handoffs_before="$(story_handoffs "$issue")"
         run_iteration "$kind" "$issue" || rc=$?

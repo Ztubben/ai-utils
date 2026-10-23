@@ -92,6 +92,37 @@ class ImplementationGreenPlan(unittest.TestCase):
             self.assertEqual(git("rev-parse", "refs/heads/" + plan.branch, cwd=remote),
                              expected)
 
+    def test_a_story_branch_with_nothing_ahead_of_its_target_is_refused(self):
+        # The tick creates the Story branch before the iteration (#121), so a
+        # done-signal over an untouched branch must not open an empty PR.
+        plan = ralph_implementation.implementation_green_plan(story(), commits_ahead=0)
+        self.assertFalse(plan.ok)
+        self.assertTrue(any("nothing to review" in e for e in plan.errors), plan.errors)
+        self.assertEqual(plan.commands, [])
+        self.assertTrue(ralph_implementation.implementation_green_plan(
+            story(), commits_ahead=None).ok, "unknown is never treated as empty")
+
+    def test_commits_ahead_counts_against_the_remote_target(self):
+        with tempfile.TemporaryDirectory() as root:
+            remote = os.path.join(root, "remote.git")
+            repo = os.path.join(root, "repo")
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                    cwd=repo if args[0] != "init" else root,
+                    stderr=subprocess.STDOUT, text=True).strip()
+            git("init", "-q", "--bare", remote)
+            git("init", "-q", "-b", "main", repo)
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            git("remote", "add", "origin", remote)
+            git("push", "-q", "origin", "main")
+            git("switch", "-q", "-c", "ralph/49-story")
+            count = ralph_implementation.count_commits_ahead
+            self.assertEqual(count("ralph/49-story", ["feature/42-x", "main"], cwd=repo), 0)
+            git("commit", "-q", "--allow-empty", "-m", "work")
+            self.assertEqual(count("ralph/49-story", ["main"], cwd=repo), 1)
+            self.assertIsNone(count("ralph/49-story", ["nowhere"], cwd=repo))
+
     def test_afk_opens_marked_pr_and_enters_review_without_completing(self):
         plan = ralph_implementation.implementation_green_plan(story("afk"))
         self.assertTrue(plan.ok, plan.errors)

@@ -11,6 +11,7 @@ orchestrator (`bin/ralph.sh`) acts on it by running `git merge <base>`.
 """
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -172,25 +173,70 @@ def _write_exec(path, contents):
     os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
+REAL_GIT = shutil.which("git")
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
 class FreshnessTickHarness:
-    """A throwaway superproject with mock CLIs that logs git merge calls."""
+    """A throwaway superproject on real git, with mock gh/claude, whose `git`
+    logs every call before running the real one.
+
+    Real git because the merge now lands on the Story's own branch, and only
+    when that branch does not already contain origin/<base> (#121) -- answers a
+    logging mock cannot give. The world: Feature #10's branch forked from the
+    base, and the base moved on after it, so a freshness merge has work to do.
+    """
 
     def __init__(self, tmp, config=None):
         self.tmp = tmp
         self.log = os.path.join(tmp, "ralph.log")
         self.queue = os.path.join(tmp, "ghq")
         os.makedirs(self.queue)
-        os.makedirs(os.path.join(tmp, ".git"))
         os.makedirs(os.path.join(tmp, "mockbin"))
         with open(config or FULL_CONFIG) as fh:
             with open(os.path.join(tmp, ".ralph.yml"), "w") as out:
                 out.write(fh.read())
         self._write_mocks()
+        self._build_world()
+
+    def _git(self, *args, cwd=None):
+        subprocess.run([REAL_GIT] + list(args), cwd=cwd or self.tmp, check=True,
+                       env=dict(os.environ, **GIT_ENV),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _commit(self, path, text, message):
+        with open(os.path.join(self.tmp, path), "w") as fh:
+            fh.write(text)
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", message)
+
+    def _build_world(self):
+        import yaml
+        with open(os.path.join(self.tmp, ".ralph.yml")) as fh:
+            base = yaml.safe_load(fh)["branching"]["base"]
+        origin = self.tmp + "-origin.git"
+        self._git("init", "-q", "--bare", "-b", base, origin)
+        self._git("init", "-q", "-b", base)
+        self._git("remote", "add", "origin", origin)
+        with open(os.path.join(self.tmp, ".gitignore"), "w") as fh:
+            fh.write("ghq/\nmockbin/\nralph.log\n")
+        self._commit("a.txt", "a\n", "init")
+        self._git("push", "-q", "origin", base)
+        # Feature #10 ("S10") forks here; the base moves on after it.
+        self._git("push", "-q", "origin", "%s:refs/heads/feature/10-s10" % base)
+        self._commit("b.txt", "b\n", "base moves on")
+        self._git("push", "-q", "origin", base)
 
     def set_backlogs(self, *backlogs):
         for i, bl in enumerate(backlogs):
             with open(os.path.join(self.queue, "%d.json" % i), "w") as fh:
                 json.dump(bl, fh)
+        # `gh issue view N` answers the issue as the first backlog has it.
+        for issue in backlogs[0] if backlogs else []:
+            with open(os.path.join(self.queue, "view-%d.json" % issue["number"]), "w") as fh:
+                json.dump(issue, fh)
 
     def set_view_story(self, s):
         with open(os.path.join(self.queue, "story.json"), "w") as fh:
@@ -207,7 +253,11 @@ class FreshnessTickHarness:
               f="$RALPH_GH_QUEUE_DIR/$n.json"
               if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
             elif [[ "$1 $2" == "issue view" ]]; then
-              cat "$RALPH_GH_QUEUE_DIR/story.json"
+              if [[ -f "$RALPH_GH_QUEUE_DIR/view-$3.json" ]]; then
+                cat "$RALPH_GH_QUEUE_DIR/view-$3.json"
+              else
+                cat "$RALPH_GH_QUEUE_DIR/story.json"
+              fi
             fi
             """))
         _write_exec(os.path.join(mb, "claude"), textwrap.dedent("""\
@@ -220,8 +270,8 @@ class FreshnessTickHarness:
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
-            exit 0
-            """))
+            exec %s "$@"
+            """ % REAL_GIT))
 
     def env(self, claude_exit="0", claude_emit=""):
         e = dict(os.environ)
@@ -243,6 +293,7 @@ class FreshnessTickHarness:
                        "RALPH_SESSION_LIMIT_MARKER", "RALPH_CONFIG",
                        "RALPH_MAX_ITERATIONS", "RALPH_CLI"):
             e.pop(leaked, None)
+        e.update(GIT_ENV)
         e["RALPH_CLAUDE_EXIT"] = claude_exit
         e["RALPH_CLAUDE_EMIT"] = claude_emit
         return e
@@ -272,7 +323,8 @@ class FreshnessOrchestration(unittest.TestCase):
 
     def harness(self, config=None):
         tmp = tempfile.mkdtemp()
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        self.addCleanup(lambda: shutil.rmtree(tmp + "-origin.git", ignore_errors=True))
         return FreshnessTickHarness(tmp, config)
 
     def test_freshness_merges_main_when_base_is_main(self):
@@ -294,7 +346,7 @@ class FreshnessOrchestration(unittest.TestCase):
 
     def test_start_with_out_of_feature_dep_merges_base(self):
         """Starting a Feature story that depends on a closed Orphan #4 must
-        run `git merge develop` before the iteration."""
+        merge origin/develop into its branch before the iteration."""
         h = self.harness()
         backlog = [
             story(10, prio=None, prd=True),                                  # PRD

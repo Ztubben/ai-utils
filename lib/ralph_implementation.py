@@ -56,7 +56,7 @@ def implementation_green_plan(
         story, base=DEFAULT_BASE,
         branch_pattern=ralph_iterate.DEFAULT_BRANCH_PATTERN, prd=None,
         feature_pattern=ralph_iterate.DEFAULT_FEATURE_PATTERN,
-        existing_pr=None, feature_exists=True):
+        existing_pr=None, feature_exists=True, commits_ahead=None):
     """Return the ordered push/PR/state plan for locally green work.
 
     ``existing_pr`` must be an already-open, marked PR for the resolved head.
@@ -64,8 +64,12 @@ def implementation_green_plan(
     opt-in boundary.  ``feature_exists`` says whether the Story's Feature
     integration branch is already on the remote; when it is not, the plan
     creates it off the base branch first, because the pull request has nowhere
-    to target until it exists.  The function is pure; live PR and branch
-    discovery belong to the CLI wrapper.
+    to target until it exists.  ``commits_ahead`` is how many commits the
+    local Story branch has that its target does not (None when unknown); zero
+    is refused, because a done-signal over an empty branch is not work to
+    review (#98 -- and since #121 the tick creates the branch before the
+    iteration, so its mere existence proves nothing).  The function is pure;
+    live PR and branch discovery belong to the CLI wrapper.
     """
     errors = []
 
@@ -91,6 +95,11 @@ def implementation_green_plan(
         errors.append(
             "pull_request: open PR #%s is not Ralph-managed; refusing automated review"
             % existing_pr.get("number", "?"))
+
+    if commits_ahead == 0 and topology is not None:
+        errors.append(
+            "branch: %s has no commits ahead of %s; there is nothing to review"
+            % (branch, topology.base))
 
     if errors:
         return Plan(False, errors, [], base=base, branch=branch)
@@ -160,6 +169,23 @@ def run_plan(commands, cwd=None):
         if proc.returncode != 0:
             break
     return RunResult(results)
+
+
+def count_commits_ahead(branch, targets, cwd=None):
+    """Commits on the local ``branch`` that ``origin/<target>`` lacks.
+
+    ``targets`` is tried in order (the pull request's base, then the base
+    branch a not-yet-created Feature branch will be cut from).  Returns None
+    when no target resolves or git cannot answer -- unknown is never zero.
+    """
+    for target in targets:
+        proc = subprocess.run(
+            ["git", "rev-list", "--count",
+             "refs/remotes/origin/%s..refs/heads/%s" % (target, branch)],
+            cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if proc.returncode == 0 and proc.stdout.strip().isdigit():
+            return int(proc.stdout.strip())
+    return None
 
 
 def open_pull_requests(branch, cwd=None):
@@ -242,11 +268,14 @@ def _cmd_green(rest):
         feature_exists = (
             preview.feature is None
             or remote_branch_exists(preview.feature, cwd=os.getcwd()))
+        ahead = count_commits_ahead(
+            preview.branch, [preview.base, branching["base"]], cwd=os.getcwd())
         plan = implementation_green_plan(
             story, base=branching["base"],
             branch_pattern=branching["branch_pattern"], prd=prd,
             feature_pattern=branching["feature_pattern"],
-            existing_pr=existing, feature_exists=feature_exists)
+            existing_pr=existing, feature_exists=feature_exists,
+            commits_ahead=ahead)
 
     if not plan.ok:
         sys.stderr.write("REFUSED: implementation-green\n")
