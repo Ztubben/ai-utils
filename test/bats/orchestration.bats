@@ -301,16 +301,22 @@ MKEOF
   ! grep -q 'complete-feature' "$RALPH_LOG" 2>/dev/null
 }
 
-@test "the working branch is synced hard from origin at iteration start" {
+@test "the Story's own branch is fetched and checked out at iteration start" {
   echo "[$(story 7 ready)]" > "$SP/ghq/0.json"
   echo "[]" > "$SP/ghq/1.json"
   # Queue 2: empty for ready-features scan
   echo "[]" > "$SP/ghq/2.json"
+  story 7 ready > "$SP/ghq/story.json"
   run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 0 ]
-  # The tick must fetch + reset --hard before running the iteration
-  grep -q 'git fetch origin' "$RALPH_LOG"
-  grep -q 'git reset --hard' "$RALPH_LOG"
+  # The tick fetches, then checks out the Story's branch -- never whatever HEAD
+  # was -- before the iteration runs (#121; real-git cases in story_branch.bats).
+  fetch="$(grep -n '^git fetch -q origin' "$RALPH_LOG" | head -n1 | cut -d: -f1)"
+  checkout="$(grep -n '^git checkout .*ralph/7-story-7' "$RALPH_LOG" | head -n1 | cut -d: -f1)"
+  agent="$(grep -nE '^(claude|codex) ' "$RALPH_LOG" | head -n1 | cut -d: -f1)"
+  [ -n "$fetch" ] && [ -n "$checkout" ] && [ -n "$agent" ]
+  [ "$fetch" -lt "$checkout" ] && [ "$checkout" -lt "$agent" ]
+  ! grep -q '^git reset --hard' "$RALPH_LOG"
 }
 
 @test "a partial iteration (no done-signal) is not promoted" {

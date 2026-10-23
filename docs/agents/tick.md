@@ -34,6 +34,24 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `test/unit/test_orchestrate.py` (driving the
   script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
   queue that pops one backlog fixture per call to simulate stories completing).
+- **The Story's branch before any git** (#121). A `start`/`resume` resolves the Story's branch
+  and what it is cut from with `ralph --branch-name` (the iterate prompt's own CLI; a Feature
+  Story's PRD is fetched for it), then `checkout_story_branch` puts the checkout there: hard-
+  synced to `origin/<branch>` unless the local branch is origin plus unpushed commits (kept),
+  else the local branch, else cut from `origin/<cut-from>` (`origin/<base>` while the Feature
+  branch does not exist). Only then does `freshness_merge` run, merging **`origin/<base>`**
+  into the Story branch, and only when that branch does not already contain it. GOTCHAS:
+  (1) the old `sync_branch`/`freshness_merge` acted on whatever `HEAD` the previous iteration
+  left -- another Feature's Story branch -- and a conflict there left markers in the tracked
+  `.ralph.yml`, so every later tick died as INVALID CONFIG (autopilot_controller #183). A
+  conflict is now `git merge --abort`ed and recorded as a failed Attempt naming the paths; the
+  agent is not launched. (2) The tick refuses (exit 2) a checkout that is mid-merge/rebase/
+  cherry-pick or has unmerged paths, *before* `--check-config`, so the cause is named.
+  (3) `--needs-freshness` is asked before the branch is resolved, so the `gh issue list` reads a
+  tick makes do not depend on whether resolution succeeds (the mocked queues count them). An
+  unresolvable branch leaves git untouched and the iteration resolves it itself. (4) The
+  freshness tick tests and `test/bats/story_branch.bats` run on **real git**: a logging mock
+  answers "already an ancestor" to everything and cannot show which branch a merge hit.
 - `lib/ralph_pointer.py` is the **Superproject pointer check** (#96): `ralph --check-pointer
   [CONFIG]` (dispatched with `$RALPH_HOME`) compares the running ai-utils `HEAD` with the gitlink
   in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index) and
