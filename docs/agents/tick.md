@@ -56,7 +56,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   so the frozen tick hands `--check-pointer` the commit and mount through those variables;
   it then compares with `origin/<base>`'s gitlink (falling back to `HEAD`'s). (4) The
   bootstrap up to the exec is the *checkout's* code, the one part frozen tooling cannot
-  cover; keep it small. (5) `ralph_agent.TOOLING_BIN` (the launcher's own `bin/`) is put
+  cover; keep it small. (5) A Tooling Commit older than #146 has no `--preflight` mode: its
+  "preflight" is a whole tick, which exits 0 at once on the held lock, so it passes and the
+  old copy then runs as it always did (a Superproject pinning a pre-freeze ai-utils). (6)
+  `ralph_agent.TOOLING_BIN` (the launcher's own `bin/`) is put
   first on every agent's `PATH`, for every adapter and role. Covered by
   `test/unit/test_frozen_tooling.py` and `test/bats/frozen_tooling.bats` (self-hosted, real
   git), and the scenario worlds `pointer_drift` (`mount_ai_utils: moved`: the checkout
