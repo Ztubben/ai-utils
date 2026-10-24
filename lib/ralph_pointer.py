@@ -26,6 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_slot  # noqa: E402
 
 OK = "ok"
 NOT_MOUNTED = "not-mounted"
@@ -71,8 +72,13 @@ def _git(args, cwd):
 
 
 def locate(ralph_home, cwd):
-    """(superproject root, ai-utils path inside it), or None when not nested."""
-    root = _git(["rev-parse", "--show-toplevel"], cwd)
+    """(superproject root, ai-utils path inside it), or None when not nested.
+
+    The root is the clone's main worktree, so the answer is the same from the
+    operator's checkout and from a Slot (ADR-0008): a Tick runs in a Slot, which
+    has no ai-utils under it, and the mount it must compare is the clone's.
+    """
+    root = ralph_slot.main_worktree(cwd)
     if not root:
         return None
     home = os.path.realpath(ralph_home)
@@ -108,7 +114,7 @@ def main(argv):
     path = "ai-utils"
     if frozen:
         mount = os.environ.get("RALPH_TOOLING_MOUNT")
-        root = _git(["rev-parse", "--show-toplevel"], os.getcwd())
+        root = ralph_slot.main_worktree(os.getcwd())
         if mount and root:
             path = mount
             base = validated.config["branching"]["base"]

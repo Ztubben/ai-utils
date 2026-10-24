@@ -249,6 +249,39 @@ class TickHarness:
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
+            # The tick runs in a Slot (#134): a worktree of the clone, which it
+            # resolves through the common directory and the main worktree. Both
+            # are answered from the environment, not from $PWD -- a tick is run
+            # with `cwd=`, which does not update $PWD for this mock.
+            if [[ "$1" == "worktree" ]]; then
+              case "$2" in
+                list)
+                  # One clone, one main worktree: the faked superproject.
+                  echo "worktree $RALPH_MOCK_SUPERPROJECT" ;;
+                add)
+                  # Just enough linked worktree for a tick to work inside: a
+                  # `.git` file pointing at an admin dir whose `commondir` leads
+                  # back (so --git-common-dir and the alternation phase both
+                  # resolve), and the superproject's config visible in it.
+                  for a in "$@"; do
+                    [[ "$a" == /* ]] && slot="$a" && break
+                  done
+                  admin="$RALPH_MOCK_COMMON_DIR/worktrees/$(basename "$slot")"
+                  mkdir -p "$slot" "$admin"
+                  echo "gitdir: $admin" > "$slot/.git"
+                  echo "../.." > "$admin/commondir"
+                  ln -sf "$RALPH_MOCK_SUPERPROJECT/.ralph.yml" "$slot/.ralph.yml" ;;
+              esac
+              exit 0
+            fi
+            if [[ "$1" == "rev-parse" ]]; then
+              for a in "$@"; do
+                if [[ "$a" == "--git-common-dir" ]]; then
+                  echo "$RALPH_MOCK_COMMON_DIR"
+                  exit 0
+                fi
+              done
+            fi
             if [[ "$1" == "ls-remote" ]]; then
               # Which branches origin already has. Unpinned means "none", which
               # is what an unstarted Feature looks like.
@@ -281,13 +314,19 @@ class TickHarness:
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_QUEUE_DIR"] = self.queue
         e["RALPH_SESSION_LIMIT_EXIT"] = SESSION_LIMIT_EXIT
+        # What the mock `git` answers for the clone this fake superproject
+        # stands for, and the Slot the tick works in: inside tmp, so the
+        # throwaway directory still owns everything the tick creates.
+        e["RALPH_MOCK_SUPERPROJECT"] = self.tmp
+        e["RALPH_MOCK_COMMON_DIR"] = os.path.join(self.tmp, ".git")
+        e["RALPH_SLOT_DIR"] = os.path.join(self.tmp, "slot")
         # The same tick also leaks its own in-flight story and knobs into the
         # environment; inherited, they would steer the tick under test.
         for leaked in ("RALPH_ITERATION_ACTION", "RALPH_ITERATION_ISSUE",
                        "RALPH_SESSION_LIMIT_MARKER", "RALPH_CONFIG",
                        "RALPH_MAX_ITERATIONS", "RALPH_CLI",
                        "RALPH_TOOLING_COMMIT", "RALPH_TOOLING_KIND",
-                       "RALPH_TOOLING_MOUNT"):
+                       "RALPH_TOOLING_MOUNT", "RALPH_SLOT"):
             e.pop(leaked, None)
         e["RALPH_AGENT_EXIT"] = agent_exit
         e["RALPH_AGENT_EMIT"] = agent_emit
@@ -299,7 +338,7 @@ class TickHarness:
         env = self.env(agent_exit, agent_emit)
         if lock_probe:
             env["RALPH_LOCK_PROBE"] = os.path.join(self.tmp, ".git",
-                                                   "ralph-tick.lock")
+                                                   "ralph-tick-slot-1.lock")
         return subprocess.run([RALPH_SH], cwd=self.tmp, env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
@@ -326,7 +365,7 @@ class OrchestrationTest(unittest.TestCase):
         # AC: only one tick per superproject; an overlapping tick exits at once.
         h = self.harness()
         h.set_backlogs([story(7, "ready")])
-        lock_path = os.path.join(h.tmp, ".git", "ralph-tick.lock")
+        lock_path = os.path.join(h.tmp, ".git", "ralph-tick-slot-1.lock")
         held = open(lock_path, "w")
         self.addCleanup(held.close)
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)

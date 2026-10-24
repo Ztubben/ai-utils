@@ -256,17 +256,22 @@ class SelfHostedWorld:
         e["PATH"] = self.mockbin + os.pathsep + e["PATH"]
         e["RALPH_LOG"] = self.log
         e["RALPH_GH_DIR"] = self.gh_dir
-        e["RALPH_LOCK_PROBE"] = os.path.join(self.checkout, ".git", "ralph-tick.lock")
+        # The tick lock is per Slot and lives in the git common directory (#134).
+        e["RALPH_LOCK_PROBE"] = os.path.join(self.checkout, ".git",
+                                             "ralph-tick-slot-1.lock")
         e["RALPH_MAX_ITERATIONS"] = "1"
         if getattr(self, "state", None):
             e.update({"SCENARIO_STATE": self.state, "SCENARIO_LOG": self.calls,
                       "SCENARIO_REMOTE": self.origin})
         return e
 
-    def tick(self):
+    def tick(self, **overrides):
+        """One tick, launched from the checkout as the scheduler launches it.
+        *overrides* add environment the test needs (the Slot number, say)."""
         return subprocess.run([os.path.join(self.checkout, "bin", "ralph.sh")],
-                              cwd=self.checkout, env=self.env(), stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True, timeout=120)
+                              cwd=self.checkout, env=dict(self.env(), **overrides),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, timeout=120)
 
     def log_lines(self):
         if not os.path.exists(self.log):

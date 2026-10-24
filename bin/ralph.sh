@@ -3,8 +3,11 @@
 #
 # One tick is a single scheduled run (the scheduler fires it every 5 hours,
 # US-012). A tick:
-#   1. guards with flock so only one tick per superproject runs at a time; an
-#      overlapping tick exits immediately (lockfile in .git/, ADR: Tick).
+#   1. resolves its Slot (ADR-0008) -- a worktree dedicated to one Loop at
+#      <repo>.ralph-slot-<N> -- provisions or repairs it, and guards it with
+#      flock so only one tick per *Slot* runs at a time; an overlapping tick in
+#      the same Slot exits immediately (lockfile in the git common directory).
+#      Everything after that runs in the Slot, never in the operator's checkout.
 #   2. validates .ralph.yml at tick start (fails loud, ADR-0001).
 #   3. drives the pure selection engine (`ralph --dry-run`) which is resume-first:
 #      any active Story (state:in-progress or state:in-review) is resumed before
@@ -49,7 +52,13 @@ RALPH_BIN="${RALPH_CLI:-$SCRIPT_DIR/ralph}"
 ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 
 # Tunables (env-overridable so tests and superprojects can adjust them).
-: "${RALPH_LOCK_DIR:=.git}"                 # flock lives in the superproject's .git/
+# The Slot this tick runs in (ADR-0008): the scheduler's template instance, or 1
+# for the single-instance units and the cron line. Exported, so the agents this
+# tick launches run under the same Slot as the tick that launched them.
+: "${RALPH_SLOT:=1}"
+export RALPH_SLOT
+# RALPH_LOCK_DIR overrides where the per-Slot tick lock lives; unset, it is the
+# clone's git common directory, which every worktree of the clone agrees on.
 : "${RALPH_CONFIG:=.ralph.yml}"
 : "${RALPH_MAX_ITERATIONS:=25}"             # safety bound on stories per tick
 # Session-limit detection lives in lib/ralph_session.py (#65), so the tick and
@@ -181,9 +190,64 @@ freshness_merge() {
   return 1
 }
 
-# Refuse to tick on a checkout that an earlier run left mid-operation (#121):
-# a conflicted .ralph.yml would otherwise surface as an unrelated INVALID
-# CONFIG, on every tick, until a human looked.
+# The Slot this tick runs in (ADR-0008, #134): its number, the per-Slot tick
+# lock in the clone's git common directory, and the worktree's path. Resolved
+# from the checkout the scheduler launched the tick in -- the lock has to be
+# taken before the Slot is touched -- and only by the pre-freeze tick: the
+# frozen copy inherits the held lock and the Slot as its working directory.
+SLOT_NUMBER="" SLOT_LOCK="" SLOT_PATH=""
+resolve_slot() {
+  local line
+  if ! line="$("$RALPH_BIN" --slot)" || [[ -z "$line" ]]; then
+    log "cannot resolve this tick's slot; refusing to tick"
+    return 2
+  fi
+  read -r SLOT_NUMBER SLOT_LOCK SLOT_PATH <<<"$line"
+}
+
+# Provision or repair the Slot and move into it: every checkout, sync and merge
+# this tick makes happens there, so the operator keeps their own checkout and a
+# half-finished merge of theirs can no longer stop the Loop. A Slot that has to
+# be created is cut from origin/<base> when that resolves, so a first tick never
+# inherits whichever branch the operator left their checkout on. The base is
+# read from their config here because the Slot has none yet; a config too broken
+# to read falls back to 'main', and the Slot's own config is validated by
+# preflight a moment later.
+enter_slot() {
+  local what base from=""
+  base="$(read_base_branch)"
+  if git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null 2>&1; then
+    from="origin/$base"
+  fi
+  if ! what="$("$RALPH_BIN" --slot-ensure "$SLOT_PATH" ${from:+"$from"})"; then
+    log "cannot provision slot $SLOT_NUMBER at $SLOT_PATH; refusing to tick"
+    return 2
+  fi
+  log "slot $SLOT_NUMBER: $what $SLOT_PATH"
+  if ! cd "$SLOT_PATH"; then
+    log "cannot enter slot $SLOT_NUMBER at $SLOT_PATH; refusing to tick"
+    return 2
+  fi
+}
+
+# Let go of any branch the Slot still holds (ADR-0008): a tick that crashed
+# mid-Story would otherwise keep that branch checked out, and no other Slot
+# could ever take it. Done at the start of every tick, before a Story is picked.
+detach_slot() {
+  local branch
+  branch="$(git symbolic-ref -q --short HEAD 2>/dev/null)" || return 0
+  [[ -n "$branch" ]] || return 0
+  if ! git checkout -q --detach; then
+    log "could not detach the slot from $branch; refusing to tick"
+    return 1
+  fi
+  log "slot $RALPH_SLOT: detached, letting go of $branch"
+}
+
+# Refuse to tick on a Slot that an earlier run left mid-operation (#121): a
+# conflicted .ralph.yml would otherwise surface as an unrelated INVALID CONFIG,
+# on every tick, until a human looked. It reads the *per-worktree* git dir, so
+# the operator's own half-finished merge is none of its business (#134).
 checkout_mid_operation() {
   local git_dir
   git_dir="$(git rev-parse --git-dir 2>/dev/null)" || return 1
@@ -711,25 +775,29 @@ freeze_tooling() {
 }
 
 tick() {
-  # --- flock: one tick per superproject, overlapping ticks exit immediately ---
-  local lock_file="$RALPH_LOCK_DIR/ralph-tick.lock"
+  # --- the Slot and its flock: one tick per Slot, overlapping ticks exit ---
   if [[ -n "$TOOLING_COMMIT" ]] && { true >&9; } 2>/dev/null; then
-    # The pre-freeze tick took the lock and exec'd this frozen copy; fd 9 is
-    # that lock, still held. Re-opening it would release it for a moment.
-    flock -n 9 || { log "a tick is already running (lock held); exiting"; return 0; }
+    # The pre-freeze tick resolved the Slot, took its lock and exec'd this
+    # frozen copy from inside it: fd 9 is that lock, still held, and the working
+    # directory is already the Slot. Re-opening the lock would release it for a
+    # moment, and re-provisioning the Slot would be a second tick's worth of git.
+    flock -n 9 || { log "a tick is already running in slot $RALPH_SLOT (lock held); exiting"; return 0; }
   else
-    exec 9>"$lock_file"
+    resolve_slot || return $?
+    exec 9>"$SLOT_LOCK"
     if ! flock -n 9; then
-      log "a tick is already running (lock held); exiting"
+      log "a tick is already running in slot $SLOT_NUMBER (lock held); exiting"
       return 0
     fi
+    enter_slot || return $?
   fi
 
   local mid
   if mid="$(checkout_mid_operation)"; then
-    log "the checkout is $mid; refusing to tick until a human finishes or aborts it"
+    log "the slot at $PWD is $mid; refusing to tick until a human finishes or aborts it"
     return 2
   fi
+  detach_slot || return 2
 
   # --- frozen tooling: run an immutable copy of the Tooling Commit (ADR-0009) ---
   if [[ -z "$TOOLING_COMMIT" ]]; then

@@ -59,9 +59,43 @@ exit "\${RALPH_AGENT_EXIT:-0}"
 EOF
     chmod +x "$MB/$provider"
   done
+  # The tick runs in a Slot (#134): a worktree of the clone, resolved through
+  # the git common directory and the clone's main worktree. Both are answered
+  # from the environment, not from $PWD, because the tick is run with a cd.
+  export RALPH_MOCK_SUPERPROJECT="$SP"
+  export RALPH_MOCK_COMMON_DIR="$SP/.git"
+  export RALPH_SLOT_DIR="$SP/slot"
+  unset RALPH_SLOT
   cat >"$MB/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*" >> "$RALPH_LOG"
+if [[ "$1" == "worktree" ]]; then
+  case "$2" in
+    list) echo "worktree $RALPH_MOCK_SUPERPROJECT" ;;
+    add)
+      # Just enough linked worktree for a tick to work inside: a `.git` file
+      # pointing at an admin dir whose `commondir` leads back (so
+      # --git-common-dir and the alternation phase both resolve), and the
+      # superproject's config visible in it.
+      for a in "$@"; do
+        [[ "$a" == /* ]] && slot="$a" && break
+      done
+      admin="$RALPH_MOCK_COMMON_DIR/worktrees/$(basename "$slot")"
+      mkdir -p "$slot" "$admin"
+      echo "gitdir: $admin" > "$slot/.git"
+      echo "../.." > "$admin/commondir"
+      ln -sf "$RALPH_MOCK_SUPERPROJECT/.ralph.yml" "$slot/.ralph.yml" ;;
+  esac
+  exit 0
+fi
+if [[ "$1" == "rev-parse" ]]; then
+  for a in "$@"; do
+    if [[ "$a" == "--git-common-dir" ]]; then
+      echo "$RALPH_MOCK_COMMON_DIR"
+      exit 0
+    fi
+  done
+fi
 exit 0
 EOF
   chmod +x "$MB/gh" "$MB/git"
@@ -85,14 +119,14 @@ story() {
     "$n" "$n" "$type" "$state"
 }
 
-@test "an overlapping tick exits immediately" {
+@test "an overlapping tick in the same slot exits immediately" {
   echo "[$(story 7 ready)]" > "$SP/ghq/0.json"
-  exec 8>"$SP/.git/ralph-tick.lock"
+  exec 8>"$SP/.git/ralph-tick-slot-1.lock"
   flock -n 8
   run bash -c "cd '$SP' && '$RALPH_SH'"
   flock -u 8
   [ "$status" -eq 0 ]
-  [[ "$output" == *"already running"* ]]
+  [[ "$output" == *"already running in slot 1"* ]]
   ! grep -qE '^(claude|codex) ' "$RALPH_LOG" 2>/dev/null
 }
 
