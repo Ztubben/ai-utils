@@ -41,6 +41,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
+import ralph_slot  # noqa: E402
 
 RALPH_HOME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -72,7 +73,8 @@ class Resolution:
 
 
 def where(ralph_home, toplevel):
-    """(kind, mount): how the running ai-utils sits in the checkout at *toplevel*."""
+    """(kind, mount): how the running ai-utils sits in the clone whose main
+    worktree is *toplevel* (never a Slot's: see `cmd_commit`)."""
     if not toplevel:
         return ELSEWHERE, None
     home = os.path.realpath(ralph_home)
@@ -272,7 +274,10 @@ def cmd_commit(argv):
     if validated.ok:
         base = validated.config["branching"]["base"]
         allow = validated.config["tooling"]["allow_pointer_drift"]
-    toplevel = _git(["rev-parse", "--show-toplevel"], os.getcwd())
+    # The clone's main worktree, not this worktree: a Tick runs in a Slot
+    # (ADR-0008), and which ai-utils it runs must not depend on which worktree
+    # of the target repository it happens to be standing in.
+    toplevel = ralph_slot.main_worktree(os.getcwd())
     kind, _ = where(RALPH_HOME, toplevel)
     if kind != ELSEWHERE and _git(["fetch", "-q", "origin"], toplevel) is None:
         sys.stderr.write("ralph: could not fetch origin; resolving the Tooling "
