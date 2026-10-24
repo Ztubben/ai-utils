@@ -135,18 +135,6 @@ def ensure(path, repo, commitish=None):
     return path, what
 
 
-def detach(path):
-    """Release any branch the Slot holds, so another Slot may check it out.
-    Returns the branch let go, "" when it was already detached, None on failure.
-    """
-    branch = _git(["symbolic-ref", "-q", "--short", "HEAD"], path)
-    if branch is None:
-        return ""
-    if _git(["checkout", "-q", "--detach"], path) is None:
-        return None
-    return branch
-
-
 # --- git -------------------------------------------------------------------
 
 def _git(args, cwd):

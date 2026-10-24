@@ -543,10 +543,11 @@ class SelfHostedTicksFallBackToLastKnownGood(unittest.TestCase):
         w = self.world()
         good = w.rev("origin/main")
         w.tick()
-        bad = w.merge_to_main(*BREAK_SCHEMA)
-        # The repository's own config breaks, which no tooling can pass.
-        with open(os.path.join(w.checkout, ".ralph.yml"), "a") as fh:
-            fh.write("no_such_key: true\n")
+        w.merge_to_main(*BREAK_SCHEMA)
+        # The repository's own config breaks too, which no tooling can pass.
+        # Committed, because what a tick reads is its Slot's config (#134), and
+        # a Slot holds what the base commits -- never the operator's edits.
+        bad = w.merge_to_main(".ralph.yml", "no_such_key: true\n")
         proc = w.tick()
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("Tooling Commit %s fails preflight at the config check, and "

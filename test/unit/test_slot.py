@@ -70,6 +70,64 @@ class ProvisioningAction(unittest.TestCase):
         self.assertEqual(ralph_slot.action(True, False), ralph_slot.REPAIRED)
 
 
+class ResolvingAndProvisioning(unittest.TestCase):
+    """`resolve` and `ensure` against a real repository, refusals included."""
+
+    def repo(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        root = os.path.join(tmp, "repo")
+        os.makedirs(root)
+        env = dict(os.environ, **GIT_ENV)
+        for args in (["init", "-q", "-b", "main"],
+                     ["commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(["git"] + args, cwd=root, env=env, check=True,
+                           stdout=subprocess.DEVNULL)
+        return root
+
+    def test_resolve_names_the_slot_its_lock_and_its_path(self):
+        root = self.repo()
+        got = ralph_slot.resolve(root, {})
+        self.assertTrue(got.ok, got.message)
+        self.assertEqual(got.number, "1")
+        self.assertEqual(got.path, root + ".ralph-slot-1")
+        self.assertEqual(got.lock, os.path.join(root, ".git",
+                                                "ralph-tick-slot-1.lock"))
+
+    def test_resolve_refuses_an_unusable_slot_number_naming_the_variable(self):
+        got = ralph_slot.resolve(self.repo(), {"RALPH_SLOT": "../evil"})
+        self.assertFalse(got.ok)
+        self.assertIn("RALPH_SLOT", got.message)
+
+    def test_resolve_refuses_a_directory_that_is_not_a_repository(self):
+        got = ralph_slot.resolve(tempfile.mkdtemp(), {})
+        self.assertFalse(got.ok)
+        self.assertIn("not a git repository", got.message)
+
+    def test_a_slot_is_created_then_reused(self):
+        root = self.repo()
+        path = ralph_slot.resolve(root, {}).path
+        self.addCleanup(lambda: shutil.rmtree(path, ignore_errors=True))
+        self.assertEqual(ralph_slot.ensure(path, root), (path, ralph_slot.CREATED))
+        self.assertEqual(ralph_slot.ensure(path, root), (path, ralph_slot.REUSED))
+
+    def test_a_directory_that_is_not_our_worktree_is_repaired(self):
+        root = self.repo()
+        path = ralph_slot.resolve(root, {}).path
+        self.addCleanup(lambda: shutil.rmtree(path, ignore_errors=True))
+        os.makedirs(path)
+        with open(os.path.join(path, "leftover"), "w") as fh:
+            fh.write("not a worktree\n")
+        self.assertEqual(ralph_slot.ensure(path, root), (path, ralph_slot.REPAIRED))
+        self.assertFalse(os.path.exists(os.path.join(path, "leftover")))
+
+    def test_the_operators_checkout_is_never_a_slot(self):
+        root = self.repo()
+        got, why = ralph_slot.ensure(root, root)
+        self.assertIsNone(got)
+        self.assertIn("is the checkout itself", why)
+
+
 class SlotWorld(SelfHostedWorld):
     """The self-hosted world, plus what a Slot test needs to look at."""
 
@@ -258,6 +316,27 @@ class TheSlotStartsDetached(SlotTest):
         # Detached, the Slot holds no branch: the operator can take it.
         w.git("checkout", "-q", "ralph/7-s7")
         self.assertEqual(w.branch_of(w.checkout), "ralph/7-s7")
+
+
+class TheSlotStartsFromTheCommittedBase(SlotTest):
+    def test_each_tick_resets_the_slot_to_the_committed_base(self):
+        w = self.world()
+        self.ticked(w)
+        landed = w.merge_to_main("CONTEXT.md", "a Story landed on main\n")
+        proc = self.ticked(w)
+        self.assertEqual(w.head_of(w.slot()), landed, proc.stdout)
+        with open(os.path.join(w.slot(), "CONTEXT.md")) as fh:
+            self.assertIn("a Story landed on main", fh.read())
+
+    def test_the_config_the_tick_validates_is_the_slots_committed_one(self):
+        w = self.world()
+        self.ticked(w)
+        # A merged Story breaks the committed config: the Tick reads the base's
+        # config, not the one the Slot happened to be created at.
+        w.merge_to_main(".ralph.yml", "no_such_key: true\n")
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("config check", proc.stdout)
 
 
 class AlternationIsSharedByTheSlotsOfOneClone(unittest.TestCase):

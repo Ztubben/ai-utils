@@ -7,8 +7,9 @@ for the code it touches. Add a new learning here, in the file that owns it.
 - `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
   the TDD/gating happen inside the `claude` iteration it launches (driven by
   `prompts/iterate.v1.md`), but the tick owns the state transitions around it. Order: (1)
-  `flock -n` a lockfile under `.git/` (`RALPH_LOCK_DIR`, default `.git`) so only one tick per
-  superproject runs — an overlapping tick logs "already running" and exits 0; (2)
+  resolve, provision and enter its **Slot**, then `flock -n` that Slot's lockfile in the git
+  common directory so only one tick per *Slot* runs — an overlapping tick logs "already
+  running in slot N" and exits 0 (the Slot, below); (2)
   `ralph --check-config` (fail loud, ADR-0001); (3) loop calling `ralph --dry-run` (already
   resume-first) and launching one fresh-context `claude --print` iteration per selected story,
   working stories in sequence until `--dry-run` returns `no-work`/`halt`. A `start` action
@@ -34,6 +35,53 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `test/unit/test_orchestrate.py` (driving the
   script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
   queue that pops one backlog fixture per call to simulate stories completing).
+- **The Slot a tick runs in** (#134, ADR-0008, PRD #133). `lib/ralph_slot.py` decides it;
+  `bin/ralph.sh` (`resolve_slot`, `enter_slot`, `sync_slot`) does it. A **Slot** is a git
+  worktree dedicated to one Loop at a sibling path of the repository,
+  `<repo>.ralph-slot-<N>` — `N` from `RALPH_SLOT` (default 1, the scheduler's template
+  instance; exported, so the agents a tick launches run under the same Slot), the path
+  overridable outright by `RALPH_SLOT_DIR`. A tick is still launched from the target
+  repository: it resolves its Slot (`ralph --slot` prints `NUMBER LOCK PATH`), takes the
+  lock, provisions or repairs the worktree (`ralph --slot-ensure PATH [COMMITISH]` prints
+  `created|repaired|reused`), `cd`s into it, and does **all** of its git work there, so the
+  operator keeps their own checkout, branch and working tree through a tick. `slot_number`,
+  `slot_dir`, `lock_file` and `action` are pure; only `resolve` and `ensure` run git. The
+  detach and the reset are the tick's own `git`, in the Slot it has already entered.
+  Order inside the tick: resolve → lock → provision+enter → mid-operation refusal →
+  detach+sync. Covered by `test/unit/test_slot.py` (pure decisions, plus the real
+  `bin/ralph.sh` on real git in the self-hosted world, which is the only thing that can show
+  a worktree, an untouched operator checkout, and a mid-merge Slot told apart from a
+  mid-merge checkout), the lock and mid-merge cases in `test/bats/orchestration.bats` /
+  `test/bats/story_branch.bats`, and the Slot-shaped mock `git` in both tick harnesses.
+  GOTCHAS: (1) the lock is `<git-common-dir>/ralph-tick-slot-<N>.lock`, in the **common**
+  directory, because every worktree of one clone must agree on it; two ticks in the same
+  Slot still serialize, and Slot 2 is not blocked by Slot 1. `RALPH_LOCK_DIR` still
+  overrides the directory (there is no `.git` default any more: inside a linked worktree
+  `.git` is a *file*). The Alternation phase moved to the same directory for the same
+  reason (`docs/agents/agents.md`). (2) `sync_slot` detaches HEAD at the start of every
+  tick — a crashed earlier tick cannot keep holding a Story's branch, so any Slot can check
+  it out — and then hard-resets to `origin/<base>`. The reset is what keeps the `.ralph.yml`,
+  schema and gating a tick validates the **base's**: a Slot created once and only reused
+  would otherwise read the config of whenever it was created for ever, while frozen tooling
+  ran `origin/<base>`'s code against it. Nothing is lost — a Story's work lives on its own
+  pushed branch. The base comes from `SLOT_BASE`, read from the operator's config *before*
+  the `cd` (the Slot's copy is the thing being replaced; a config too broken to read falls
+  back to `main`), and the `fetch` before the reset is best-effort. (3) The Slot is prepared
+  by the **pre-freeze** tick only: the frozen copy inherits the held lock on fd 9 *and* a
+  Slot already checked, detached and reset, and preparing it again would be a second tick's
+  worth of git. (4) A Slot is never the operator's checkout — `ensure` refuses the clone's
+  main worktree and the repository it is called from, whatever `RALPH_SLOT_DIR` says — and a
+  Slot number that could climb out of its path is refused by `slot_number`. (5) A deleted
+  Slot directory is still *registered*, so `ensure` runs `git worktree prune` before
+  `worktree add`; a directory that is no longer a worktree of this clone is removed and
+  remade (`repaired`). (6) Which ai-utils runs is ADR-0009's decision, not the Slot's:
+  `ralph_tooling` and `ralph_pointer` resolve against `ralph_slot.main_worktree`, the clone's
+  main worktree, so they answer the same from the operator's checkout, from a Slot and from a
+  frozen copy. (7) A **pre-#134** Tooling Commit cannot run in a Slot: its lock path is
+  `.git/ralph-tick.lock`, and `.git` is a file there, so its preflight fails and the pin is
+  refused, naming the step. That is deliberate — exporting `RALPH_LOCK_DIR` to the common
+  dir instead would let such a copy take a *different* lock and run a whole tick as its
+  "preflight".
 - **Frozen tooling** (#146, ADR-0009, PRD #145). `lib/ralph_tooling.py` resolves the
   **Tooling Commit** (`ralph --tooling-commit`): self-hosted (ai-utils is the checkout
   root) is `origin/<base>` after a fetch; a Superproject is the gitlink at the mount in
@@ -112,8 +160,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   left -- another Feature's Story branch -- and a conflict there left markers in the tracked
   `.ralph.yml`, so every later tick died as INVALID CONFIG (autopilot_controller #183). A
   conflict is now `git merge --abort`ed and recorded as a failed Attempt naming the paths; the
-  agent is not launched. (2) The tick refuses (exit 2) a checkout that is mid-merge/rebase/
-  cherry-pick or has unmerged paths, *before* `--check-config`, so the cause is named.
+  agent is not launched. (2) The tick refuses (exit 2) a **Slot** that is mid-merge/rebase/
+  cherry-pick or has unmerged paths, *before* `--check-config`, so the cause is named. Since
+  #134 it reads the Slot's per-worktree git dir only: the operator's own half-finished merge
+  is none of its business and no longer stops a tick.
   (3) `--needs-freshness` is asked before the branch is resolved, so the `gh issue list` reads a
   tick makes do not depend on whether resolution succeeds (the mocked queues count them). An
   unresolvable branch leaves git untouched and the iteration resolves it itself. (4) The

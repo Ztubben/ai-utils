@@ -195,7 +195,7 @@ freshness_merge() {
 # from the checkout the scheduler launched the tick in -- the lock has to be
 # taken before the Slot is touched -- and only by the pre-freeze tick: the
 # frozen copy inherits the held lock and the Slot as its working directory.
-SLOT_NUMBER="" SLOT_LOCK="" SLOT_PATH=""
+SLOT_NUMBER="" SLOT_LOCK="" SLOT_PATH="" SLOT_BASE=""
 resolve_slot() {
   local line
   if ! line="$("$RALPH_BIN" --slot)" || [[ -z "$line" ]]; then
@@ -214,10 +214,14 @@ resolve_slot() {
 # to read falls back to 'main', and the Slot's own config is validated by
 # preflight a moment later.
 enter_slot() {
-  local what base from=""
-  base="$(read_base_branch)"
-  if git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null 2>&1; then
-    from="origin/$base"
+  local what from=""
+  # The operator's config, read before the cd: the Slot has none of its own yet,
+  # and the one it gets is validated by preflight a moment later. Cached in
+  # SLOT_BASE so `sync_slot` does not read a config from inside the Slot -- the
+  # very thing it is about to replace.
+  SLOT_BASE="$(read_base_branch)"
+  if git rev-parse -q --verify "refs/remotes/origin/$SLOT_BASE" >/dev/null 2>&1; then
+    from="origin/$SLOT_BASE"
   fi
   if ! what="$("$RALPH_BIN" --slot-ensure "$SLOT_PATH" ${from:+"$from"})"; then
     log "cannot provision slot $SLOT_NUMBER at $SLOT_PATH; refusing to tick"
@@ -230,18 +234,36 @@ enter_slot() {
   fi
 }
 
-# Let go of any branch the Slot still holds (ADR-0008): a tick that crashed
-# mid-Story would otherwise keep that branch checked out, and no other Slot
-# could ever take it. Done at the start of every tick, before a Story is picked.
-detach_slot() {
+# Start the tick from the committed base (ADR-0008, #134). Two things, in order:
+# let go of any branch the Slot still holds -- a tick that crashed mid-Story
+# would otherwise keep that branch checked out and no other Slot could ever take
+# it -- and hard-reset the detached Slot to origin/<base>. The reset is what
+# makes the config, schema and gating this tick validates the ones the base
+# commits, rather than whatever a Story left in the Slot ticks ago: a Slot
+# created once and only reused would otherwise read the same stale `.ralph.yml`
+# for ever, while frozen tooling (ADR-0009) ran origin/<base>'s code against it.
+# Nothing is lost by the reset -- a Story's work lives on its own pushed branch,
+# and a Slot is never the operator's checkout. Run after the mid-operation
+# refusal, so a Slot left mid-merge is reported, not steamrolled.
+sync_slot() {
   local branch
-  branch="$(git symbolic-ref -q --short HEAD 2>/dev/null)" || return 0
-  [[ -n "$branch" ]] || return 0
-  if ! git checkout -q --detach; then
-    log "could not detach the slot from $branch; refusing to tick"
+  branch="$(git symbolic-ref -q --short HEAD 2>/dev/null)" || branch=""
+  if [[ -n "$branch" ]]; then
+    if ! git checkout -q --detach; then
+      log "could not detach the slot from $branch; refusing to tick"
+      return 1
+    fi
+    log "slot $SLOT_NUMBER: detached, letting go of $branch"
+  fi
+  # Best-effort: a tick with no network still runs, from the refs it has.
+  git fetch -q origin 2>/dev/null \
+    || log "could not fetch origin; the slot starts from the refs it has"
+  git rev-parse -q --verify "refs/remotes/origin/${SLOT_BASE:-main}" >/dev/null 2>&1 \
+    || return 0
+  if ! git reset -q --hard "origin/${SLOT_BASE:-main}"; then
+    log "could not reset the slot to origin/${SLOT_BASE:-main}; refusing to tick"
     return 1
   fi
-  log "slot $RALPH_SLOT: detached, letting go of $branch"
 }
 
 # Refuse to tick on a Slot that an earlier run left mid-operation (#121): a
@@ -779,8 +801,9 @@ tick() {
   if [[ -n "$TOOLING_COMMIT" ]] && { true >&9; } 2>/dev/null; then
     # The pre-freeze tick resolved the Slot, took its lock and exec'd this
     # frozen copy from inside it: fd 9 is that lock, still held, and the working
-    # directory is already the Slot. Re-opening the lock would release it for a
-    # moment, and re-provisioning the Slot would be a second tick's worth of git.
+    # directory is already the Slot -- checked for a mid-operation, detached and
+    # reset to the base. Re-opening the lock would release it for a moment, and
+    # preparing the Slot again would be a second tick's worth of git.
     flock -n 9 || { log "a tick is already running in slot $RALPH_SLOT (lock held); exiting"; return 0; }
   else
     resolve_slot || return $?
@@ -790,14 +813,13 @@ tick() {
       return 0
     fi
     enter_slot || return $?
+    local mid
+    if mid="$(checkout_mid_operation)"; then
+      log "the slot at $PWD is $mid; refusing to tick until a human finishes or aborts it"
+      return 2
+    fi
+    sync_slot || return 2
   fi
-
-  local mid
-  if mid="$(checkout_mid_operation)"; then
-    log "the slot at $PWD is $mid; refusing to tick until a human finishes or aborts it"
-    return 2
-  fi
-  detach_slot || return 2
 
   # --- frozen tooling: run an immutable copy of the Tooling Commit (ADR-0009) ---
   if [[ -z "$TOOLING_COMMIT" ]]; then
