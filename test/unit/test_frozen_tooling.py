@@ -1,6 +1,7 @@
 """Every Tick runs an immutable copy of its Tooling Commit (#146, ADR-0009),
-copies nothing needs any more are pruned (#147), and a self-hosted Tick whose
-new `main` fails preflight falls back to the Last-Known-Good one (#148).
+copies nothing needs any more are pruned (#147), a self-hosted Tick whose new
+`main` fails preflight falls back to the Last-Known-Good one (#148), and that
+fallback is reported on one self-closing issue (#149).
 
 The pure half -- where the running ai-utils sits, and which commit is the
 Tooling Commit -- is tested directly. The rest runs the real `bin/ralph.sh`, as
@@ -25,9 +26,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
+import ralph_fallback  # noqa: E402
+import ralph_select  # noqa: E402
 import ralph_tooling  # noqa: E402
 
 FULL_CONFIG = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid", "full.yml")
+FAKE_GH = os.path.join(REPO_ROOT, "test", "scenarios", "fakes", "gh")
 TOOLING = ("bin", "lib", "schema", "prompts")
 GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
@@ -199,6 +203,10 @@ class SelfHostedWorld:
         _write_exec(os.path.join(self.mockbin, "gh"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "gh $*" >> "$RALPH_LOG"
+            if [[ -n "${RALPH_GH_FAIL:-}" && "$1 $2" == "$RALPH_GH_FAIL" ]]; then
+              echo "HTTP 502: Bad Gateway" >&2
+              exit 1
+            fi
             if [[ "$1 $2" == "issue list" ]]; then
               cat "$RALPH_GH_DIR/backlog.json"
             elif [[ "$1 $2" == "issue view" ]]; then
@@ -219,6 +227,23 @@ class SelfHostedWorld:
                 fi
                 """ % provider))
 
+    def use_fake_gh(self):
+        """Swap the mock for the scenario tier's stateful fake gh (#87)."""
+        self.state = os.path.join(self.tmp, "gh-state.json")
+        self.calls = os.path.join(self.tmp, "gh-calls.jsonl")
+        with open(self.state, "w") as fh:
+            json.dump({"repo": {"owner": "acme", "name": "ai-utils",
+                                "defaultBranch": "main"},
+                       "labels": [], "issues": {}, "pulls": {}, "statuses": {},
+                       "ci": [], "next_number": 1, "next_id": 1000, "clock": 0}, fh)
+        open(self.calls, "w").close()
+        os.remove(os.path.join(self.mockbin, "gh"))
+        os.symlink(FAKE_GH, os.path.join(self.mockbin, "gh"))
+
+    def issues(self):
+        with open(self.state) as fh:
+            return json.load(fh)["issues"]
+
     def env(self):
         e = dict(os.environ)
         for name in list(e):
@@ -233,6 +258,9 @@ class SelfHostedWorld:
         e["RALPH_GH_DIR"] = self.gh_dir
         e["RALPH_LOCK_PROBE"] = os.path.join(self.checkout, ".git", "ralph-tick.lock")
         e["RALPH_MAX_ITERATIONS"] = "1"
+        if getattr(self, "state", None):
+            e.update({"SCENARIO_STATE": self.state, "SCENARIO_LOG": self.calls,
+                      "SCENARIO_REMOTE": self.origin})
         return e
 
     def tick(self):
@@ -519,6 +547,126 @@ class SelfHostedTicksFallBackToLastKnownGood(unittest.TestCase):
         self.assertIn("Tooling Commit %s fails preflight at the config check, and "
                       "Last-Known-Good %s fails at the config check too" % (bad, good),
                       proc.stdout)
+
+
+class FallbackIssuePlan(unittest.TestCase):
+    """#149: the open/update/close plan for the one fallback issue."""
+
+    def fallback(self, issue):
+        return ralph_fallback.plan("fallback", issue, notify="octocat", failed=B,
+                                   step="config check", tail="Traceback: boom\n",
+                                   running=A)
+
+    def test_the_first_fallback_opens_one_issue_with_everything_named(self):
+        (call,) = self.fallback(None)
+        self.assertEqual(call[:3], ["gh", "issue", "create"])
+        self.assertNotIn("--label", call)
+        text = call[call.index("--body") + 1]
+        for needle in ("@octocat", B, "config check", "Traceback: boom", A):
+            self.assertIn(needle, text)
+        self.assertEqual(ralph_fallback.failed_commit(text), B)
+
+    def test_a_later_fallback_updates_the_open_issue(self):
+        issue = {"number": 9, "body": ralph_fallback.body(B, "dry run", "", A, "octocat")}
+        (call,) = self.fallback(issue)
+        self.assertEqual(call[:4], ["gh", "issue", "edit", "9"])
+
+    def test_a_different_failing_commit_is_also_commented(self):
+        issue = {"number": 9, "body": ralph_fallback.body(C, "dry run", "", A, "octocat")}
+        edit, comment = self.fallback(issue)
+        self.assertEqual(edit[:4], ["gh", "issue", "edit", "9"])
+        self.assertEqual(comment[:4], ["gh", "issue", "comment", "9"])
+        self.assertIn(B, comment[-1])
+
+    def test_recovery_comments_the_passing_commit_and_closes(self):
+        issue = {"number": 9, "body": ralph_fallback.body(B, "dry run", "", A, None)}
+        comment, close = ralph_fallback.plan("recovered", issue, recovered=C)
+        self.assertEqual(comment[:4], ["gh", "issue", "comment", "9"])
+        self.assertIn(C, comment[-1])
+        self.assertEqual(close, ["gh", "issue", "close", "9"])
+
+    def test_recovery_with_no_issue_open_does_nothing(self):
+        self.assertEqual(ralph_fallback.plan("recovered", None, recovered=C), [])
+
+    def test_the_issue_is_found_by_its_marker_not_its_title(self):
+        marked = {"number": 12, "body": ralph_fallback.body(B, "dry run", "", A, None)}
+        lookalike = {"number": 3, "body": ralph_fallback.TITLE}
+        self.assertEqual(ralph_fallback.find([lookalike, marked]), marked)
+        self.assertIsNone(ralph_fallback.find([lookalike]))
+
+    def test_selection_never_picks_the_issue(self):
+        issue = {"number": 12, "title": ralph_fallback.TITLE, "labels": [], "state": "OPEN",
+                 "body": ralph_fallback.body(B, "dry run", "", A, "octocat")}
+        self.assertEqual(ralph_select.select_next(ralph_select.normalize([issue])).kind,
+                         "no-work")
+
+
+class AFallbackIsReportedOnOneSelfClosingIssue(unittest.TestCase):
+    """#149, against the stateful fake gh: open, update, recover, close."""
+
+    def world(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return SelfHostedWorld(tmp)
+
+    def marked(self, w):
+        return [i for i in w.issues().values() if ralph_fallback.failed_commit(i["body"])]
+
+    def test_the_full_cycle(self):
+        w = self.world()
+        w.use_fake_gh()
+        good = w.rev("origin/main")
+        self.assertEqual(w.tick().returncode, 0)
+        self.assertEqual(self.marked(w), [])
+        bad = w.merge_to_main(*BREAK_SCHEMA)
+
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("no eligible work; tick complete", proc.stdout)
+        (issue,) = self.marked(w)
+        self.assertEqual(issue["state"], "OPEN")
+        self.assertEqual(issue["labels"], [])
+        for needle in ("@octocat", bad, "config check", good):
+            self.assertIn(needle, issue["body"])
+
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("updated fallback issue #%s" % issue["number"], proc.stdout)
+        self.assertEqual(len(self.marked(w)), 1)
+
+        w.git("pull", "-q", "--ff-only", cwd=w.upstream)
+        w.git("checkout", "-q", good, "--", "schema", cwd=w.upstream)
+        w.git("commit", "-q", "-m", "fix the schema", cwd=w.upstream)
+        w.git("push", "-q", "origin", "main", cwd=w.upstream)
+        fixed = w.rev("HEAD", cwd=w.upstream)
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        (issue,) = self.marked(w)
+        self.assertEqual(issue["state"], "CLOSED")
+        self.assertIn(fixed, issue["comments"][-1]["body"])
+        with open(w.calls) as fh:
+            calls = [json.loads(line) for line in fh if line.strip()]
+        self.assertFalse([c for c in calls if c.get("unemulated")], calls)
+
+        # Recovered: a healthy tick asks GitHub nothing about it any more.
+        before = len(calls)
+        w.tick()
+        with open(w.calls) as fh:
+            after = [json.loads(line) for line in fh if line.strip()][before:]
+        self.assertFalse([c for c in after if c["argv"][:2] == ["issue", "close"]])
+
+    def test_a_github_error_is_logged_and_never_fails_the_tick(self):
+        w = self.world()
+        w.tick()
+        w.merge_to_main(*BREAK_SCHEMA)
+        env = w.env()
+        env["RALPH_GH_FAIL"] = "issue create"
+        proc = subprocess.run([os.path.join(w.checkout, "bin", "ralph.sh")],
+                              cwd=w.checkout, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("could not report the fallback on its issue; continuing", proc.stdout)
+        self.assertIn("no eligible work; tick complete", proc.stdout)
 
 
 if __name__ == "__main__":

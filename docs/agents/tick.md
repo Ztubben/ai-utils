@@ -85,6 +85,19 @@ for the code it touches. Add a new learning here, in the file that owns it.
   commits and steps. A Superproject never reads the file: a failing pin is refused.
   Covered by `SelfHostedTicksFallBackToLastKnownGood` and the scenario test that plants a
   `last-known-good` under a failing pin.
+- **The fallback issue** (#149) is `lib/ralph_fallback.py` (`ralph --fallback-issue`):
+  pure `plan(event, issue, ...)` -> gh argv lists, found again by the hidden
+  `<!-- ralph-tooling-fallback failed=<sha> -->` marker (never the title). A fallback tick
+  opens it (no labels at all, so selection never takes it), or edits the body of the open
+  one, adding a comment only when a *different* commit fails; the first passing tick after
+  that comments the commit and closes it. The frozen tick runs it from `report_fallback`,
+  next to pruning, with the copy's own `ralph`. GOTCHAS: (1) `<copies>/fallback-open` is
+  set by every fallback tick and removed only once the close succeeded, so a healthy tick
+  makes no GitHub call for it and a failed close is retried. (2) Best-effort: a gh error is
+  logged ("could not report the fallback on its issue") and the tick goes on, because it is
+  the tick keeping the Loop alive. The full cycle runs against the scenario tier's stateful
+  fake gh (`SelfHostedWorld.use_fake_gh`), which emulates `issue create` and
+  `issue edit --body` for it.
 - **The Story's branch before any git** (#121). A `start`/`resume` resolves the Story's branch
   and what it is cut from with `ralph --branch-name` (the iterate prompt's own CLI; a Feature
   Story's PRD is fetched for it), then `checkout_story_branch` puts the checkout there: hard-

@@ -32,7 +32,7 @@ for the code it touches. Add a new learning here, in the file that owns it.
   **fails closed** -- an unemulated subcommand, flag, `--json` field or API route exits 64 and
   is flagged `unemulated` in the call log, and `check_calls` fails the scenario on it, because
   the Loop swallows some gh failures (`2>/dev/null`) on purpose. Extend the fake for a new call;
-  never loosen it. (2) `headRefOid` is **never stored**: it is read from the bare remote when
+  never loosen it (#149 added `issue create` and `issue edit --body`). (2) `headRefOid` is **never stored**: it is read from the bare remote when
   asked, so a pushed commit moves the PR exactly as on GitHub; a merged PR keeps its merge-time
   head. `pr merge` is plumbing on the remote and refuses (unemulated) a head that does not
   contain its base. (3) Ralph posts reviews as `COMMENT`; the fake refuses APPROVE/
