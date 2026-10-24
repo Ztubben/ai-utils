@@ -209,11 +209,22 @@ class SuperprojectPointer(unittest.TestCase):
         self.assertTrue(any(c["tool"] != "gh" for c in world.calls()))
 
     def test_a_pin_failing_preflight_is_refused_before_anything_moves(self):
-        world, proc = self.tick("pointer_pin_fails_preflight")
+        world = harness.World(harness.load("pointer_pin_fails_preflight"))
+        self.addCleanup(world.cleanup)
+        home = os.path.join(world.checkout, "ai-utils")
+        # A Superproject never falls back (#148), even to a commit that passed.
+        good = self.git(world, "rev-parse", "HEAD~2", cwd=home)
+        copies = os.path.join(home, ".git", "ralph-tooling")
+        os.makedirs(copies)
+        with open(os.path.join(copies, "last-known-good"), "w") as fh:
+            fh.write(good + "\n")
+        proc = world.tick()
         pinned = self.git(world, "ls-tree", "HEAD", "ai-utils").split()[2]
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("pinned at ai-utils (%s) fails preflight at the config check"
                       % pinned, proc.stdout)
+        self.assertNotIn("Last-Known-Good", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(copies, good)))
         self.assertEqual([c for c in world.calls() if c["tool"] != "gh"], [])
         self.assertFalse(any(c["argv"][:2] == ["issue", "edit"] for c in world.calls()))
 

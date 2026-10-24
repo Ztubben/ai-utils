@@ -74,6 +74,17 @@ for the code it touches. Add a new learning here, in the file that owns it.
   tick lock a fresh file while an earlier one still holds the old inode. (2) `git
   worktree remove` runs from a copy that stays (a worktree of the same repository),
   never from inside the git directory.
+- **Last-Known-Good** (#148). Self-hosted only: a Tooling Commit whose preflight passes is
+  written to `<copies>/last-known-good` (tmp + `mv`) before the exec. One that fails makes
+  the pre-freeze tick lock, make and preflight the Last-Known-Good copy and exec *that*,
+  exporting `RALPH_TOOLING_FAILED`/`_FAILED_STEP` (unset at the top of the script, like the
+  other markers), so the frozen tick logs both commits and the step, and keeps the failing
+  copy when it prunes, because it is still the current Tooling Commit and the next tick
+  retries it. No Last-Known-Good (or it is the failing commit itself), or a Last-Known-Good
+  that fails preflight too (the repository's own config broke, say), exits 2 naming the
+  commits and steps. A Superproject never reads the file: a failing pin is refused.
+  Covered by `SelfHostedTicksFallBackToLastKnownGood` and the scenario test that plants a
+  `last-known-good` under a failing pin.
 - **The Story's branch before any git** (#121). A `start`/`resume` resolves the Story's branch
   and what it is cut from with `ralph --branch-name` (the iterate prompt's own CLI; a Feature
   Story's PRD is fetched for it), then `checkout_story_branch` puts the checkout there: hard-

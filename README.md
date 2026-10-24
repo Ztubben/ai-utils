@@ -463,7 +463,10 @@ created once per commit (`ralph --tooling-commit` names the commit,
 
 Before it runs a Tooling Commit, the tick preflights it: config check, subcommand
 check, pointer check and a dry run. A pinned commit that fails is **refused**,
-naming the commit and the failed step, before any label moves. For deliberate
+naming the commit and the failed step, before any label moves. Self-hosted,
+a commit that passes is recorded as **Last-Known-Good**. A new `origin/main`
+that fails runs Last-Known-Good instead, and every later tick retries the new
+commit, so the fix for a bad merge is picked up as soon as it lands. For deliberate
 local development of ai-utils, opt out. The tick then runs the mounted checkout
 as it is, and it logs any mismatch with the pointer on every run:
 
