@@ -64,8 +64,16 @@ For an AFK story: CI is green. For a HIL story: CI is green **and** the human ha
 _Avoid_: complete, finished, closed (use "passing" / "Done")
 
 **Tick**:
-One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes active work — a Story in `state:in-progress` from an implementation checkpoint or in `state:in-review` during model-review negotiation — before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Only one tick per superproject runs at a time, guarded by a `flock` lockfile in `.git/`; an overlapping tick exits immediately. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
+One scheduled run of the Ralph Loop, triggered every 5 hours by the local scheduler and bounded by the Claude session window. A tick first resumes active work — a Story in `state:in-progress` from an implementation checkpoint or in `state:in-review` during model-review negotiation — before scanning for new `state:ready` work, then works as many eligible stories as the session budget allows. Every tick runs in a Slot, and only one tick per Slot runs at a time; an overlapping tick in the same Slot exits immediately. Ticks in different Slots, on one machine or several, run concurrently and never work the same issue at once, because each holds the issue's Claim. The target repository sets how many Slots a machine may run; by default it is one, which keeps the loop single-threaded. When the session limit is reached the current iteration checkpoints (Handoff) and the tick ends cleanly.
 _Avoid_: run, cron run (use "tick")
+
+**Slot**:
+A working copy of the target repository dedicated to one Ralph Loop: a worktree that shares the repository's history and branches but has its own files on disk. A Loop runs only in its Slot, a Slot is reused tick after tick, and the number of Slots caps how many Loops run at once. The operator's own checkout is never a Slot, so a human can work there, for example authoring stories, while Loops run.
+_Avoid_: runner, workspace, sandbox (use "Slot")
+
+**Claim**:
+A Slot's exclusive, time-limited hold on one issue — a Story or a PRD — held on the shared remote so it is honoured by Slots on every machine. Ralph changes an issue, or the branches and pull requests that belong to it, only while holding its Claim: a Story's Claim covers working it and acting on a human's review of it, a PRD's Claim covers integrating its Feature. A Claim lasts one unit of work (an Iteration, a Negotiation Round, one bounded wait on review, one Feature integration) and is released when it ends, so the next time the Story is selected any Slot on any machine may claim it and resume from its Handoff. A Claim that is not renewed before it expires may be taken over by another Slot. A Claim is runtime coordination, not backlog state: it never changes a Story's labels.
+_Avoid_: lock, reservation, assignment (use "Claim"; "assignment" means the Story's Model Profiles)
 
 **Iteration**:
 A single fresh-context agent process within a tick. Ralph **never compacts context**: when context fills, the current iteration terminates after writing a Handoff, and the next iteration resumes the same story with clean context. Stories must be sized to fit within a single context window.
