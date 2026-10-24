@@ -117,5 +117,33 @@ class CiPublishesTheCheckTheGateRequires(unittest.TestCase):
                         "request Ralph opens against %r" % base)
 
 
+class OnlyPullRequestsRalphDoesNotOwnMayWaiveModelReview(unittest.TestCase):
+    """`ralph_review.owned_by_ralph`, the decision ai-utils' model-review waiver
+    reads: a hand-built pull request may skip the model review a person stands
+    in for; one of Ralph's never may."""
+
+    def owned(self, head, body=""):
+        import ralph_review
+        return ralph_review.owned_by_ralph(head, body, committed_config()["branching"])
+
+    def test_a_hand_built_pull_request_is_not_ralphs(self):
+        self.assertFalse(self.owned("feat/147-prune-frozen-copies", "Story #147"))
+
+    def test_a_marked_pull_request_is_ralphs_whatever_its_branch(self):
+        import ralph_review
+        self.assertTrue(self.owned("fix/x", ralph_review.MANAGED_PR_MARKER + "\nbody"))
+
+    def test_story_and_feature_branches_stay_ralphs_with_the_marker_edited_out(self):
+        self.assertTrue(self.owned("ralph/147-prune", "marker removed"))
+        self.assertTrue(self.owned("feature/145-frozen-tooling", ""))
+
+    def test_custom_patterns_are_honoured(self):
+        import ralph_review
+        branching = {"branch_pattern": "bot/{issue}", "feature_pattern": "int/{issue}-{slug}"}
+        self.assertTrue(ralph_review.owned_by_ralph("bot/9", "", branching))
+        self.assertTrue(ralph_review.owned_by_ralph("int/9-x", "", branching))
+        self.assertFalse(ralph_review.owned_by_ralph("ralph/9", "", branching))
+
+
 if __name__ == "__main__":
     unittest.main()

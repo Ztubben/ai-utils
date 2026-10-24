@@ -638,7 +638,11 @@ human-gated one; human approval where it genuinely matters (a protected-path
 change, a deadlock, an override) is enforced by Ralph itself, not by GitHub.
 Administrators stay outside the restriction, so a human can still merge a
 feature-integration pull request (ADR-0006), which carries no model review of its
-own. A **feature branch needs no protection of its own** — every Story that
+own. A pull request **Ralph does not own** (no managed marker, and a head
+outside the Story and Feature branch patterns: one a person built by hand) gets
+`ralph/model-review` from CI instead, from `.github/workflows/model-review-waiver.yml`.
+A person reviews and merges it, so it needs no bypass, even in a stack of pull
+requests. Ralph's own pull requests are never waived. A **feature branch needs no protection of its own** — every Story that
 merges into one was reviewed and CI-checked on its own pull request first, and
 the base branch is where the gate has to hold. **Linear history is required**
 (and merge commits are disabled for the repository): Stories squash-merge and a

@@ -1,0 +1,66 @@
+# Waive Ralph's model review on pull requests Ralph does not own.
+#
+# `main` requires `ralph/model-review`, which only Ralph's review round posts,
+# and only on its own marked pull requests. A pull request a person builds by
+# hand never gets it, so it could only merge by admin bypass, which a stack of
+# pull requests cannot do. This posts the status as success on a pull request
+# that is *not* Ralph's (no managed marker, and a head outside the Story and
+# Feature branch patterns, see ralph_review.owned_by_ralph): a person reviews
+# and merges it. A Ralph pull request is left alone, so its status still comes
+# only from the review round, and Ralph never merges without model review.
+#
+# Runs on every pull request, whatever its base: a stack is held to main's
+# rules on each of its pull requests. `edited` re-decides when a body changes.
+#
+# .github/workflows/** is a protected control-plane path: a Story cannot widen
+# this waiver without a human Approve (#60).
+name: model-review-waiver
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  waive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install the Python dependencies
+        run: python -m pip install --upgrade PyYAML jsonschema
+
+      - name: Decide whether Ralph owns the pull request
+        id: owner
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import os, sys
+          sys.path.insert(0, "lib")
+          import ralph_config, ralph_review
+          config = ralph_config.load_and_validate(".ralph.yml")
+          assert config.ok, config.errors
+          owned = ralph_review.owned_by_ralph(os.environ["HEAD_REF"],
+                                              os.environ.get("PR_BODY", ""),
+                                              config.config["branching"])
+          print("owned=%s" % ("yes" if owned else "no"))
+          EOF
+
+      - name: Waive the model review
+        if: steps.owner.outputs.owned == 'no'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state=success -f context=ralph/model-review \
+            -f description="Not a Ralph pull request: a person reviews and merges it"

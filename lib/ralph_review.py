@@ -83,6 +83,24 @@ def is_managed_pr(pr):
     return MANAGED_PR_MARKER in ((pr or {}).get("body") or "")
 
 
+def owned_by_ralph(head_ref, body, branching):
+    """Whether a pull request is one of Ralph's: it carries the managed marker,
+    or its head is a Story or Feature branch by the configured patterns.
+
+    Only a pull request Ralph does not own may have its `ralph/model-review`
+    status waived (ai-utils' own CI): a person reviews and merges it. The
+    branch half keeps a Ralph pull request owned even with the marker edited
+    out of its body.
+    """
+    if is_managed_pr({"body": body}):
+        return True
+    for key in ("branch_pattern", "feature_pattern"):
+        prefix = (branching or {}).get(key, "").split("{", 1)[0]
+        if prefix and (head_ref or "").startswith(prefix):
+            return True
+    return False
+
+
 def review_marker(head):
     """The durable stamp identifying a Ralph review of exactly *head*."""
     return REVIEW_MARKER_TEMPLATE % head
