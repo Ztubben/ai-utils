@@ -69,9 +69,14 @@ for the code it touches. Add a new learning here, in the file that owns it.
   back to `main`), and the `fetch` before the reset is best-effort. (3) The Slot is prepared
   by the **pre-freeze** tick only: the frozen copy inherits the held lock on fd 9 *and* a
   Slot already checked, detached and reset, and preparing it again would be a second tick's
-  worth of git. (4) A Slot is never the operator's checkout — `ensure` refuses the clone's
-  main worktree and the repository it is called from, whatever `RALPH_SLOT_DIR` says — and a
-  Slot number that could climb out of its path is refused by `slot_number`. (5) A deleted
+  worth of git. (4) A Slot is never the operator's checkout, nor any part of it — `ensure`
+  refuses the clone's main worktree, the repository it is called from, and any path *inside*
+  a worktree of the clone, whatever `RALPH_SLOT_DIR` says — and a
+  Slot number that could climb out of its path is refused by `slot_number`. Belonging to the
+  clone is not enough to be reused: `ensure` makes `git rev-parse --show-toplevel` name the
+  path itself, because every directory of the operator's working tree shares the clone's
+  common directory, and one accepted as a Slot would be detached and hard-reset by
+  `sync_slot` — or deleted as a "repair" (#156, F-1). (5) A deleted
   Slot directory is still *registered*, so `ensure` runs `git worktree prune` before
   `worktree add`; a directory that is no longer a worktree of this clone is removed and
   remade (`repaired`). (6) Which ai-utils runs is ADR-0009's decision, not the Slot's:

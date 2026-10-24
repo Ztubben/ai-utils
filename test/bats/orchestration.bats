@@ -94,6 +94,16 @@ if [[ "$1" == "rev-parse" ]]; then
       echo "$RALPH_MOCK_COMMON_DIR"
       exit 0
     fi
+    if [[ "$a" == "--show-toplevel" ]]; then
+      # Which working tree the caller stands in: reuse accepts a Slot only
+      # when it is a worktree *root*, never a directory of one (#134).
+      if [[ "$(pwd)" == "$RALPH_SLOT_DIR"* ]]; then
+        echo "$RALPH_SLOT_DIR"
+      else
+        echo "$RALPH_MOCK_SUPERPROJECT"
+      fi
+      exit 0
+    fi
   done
 fi
 exit 0

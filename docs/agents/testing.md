@@ -16,8 +16,11 @@ for the code it touches. Add a new learning here, in the file that owns it.
   whose `git` is a logging mock must answer enough of it: `worktree list --porcelain` (one
   `worktree <main>` line, the clone's main worktree, which is what `ralph_tooling` and
   `ralph_pointer` resolve against too), `worktree add` (make the directory, a `.git` file
-  pointing at an admin dir, a `commondir` leading back, and the config visible inside) and
-  `rev-parse --git-common-dir`. Both mocks answer those from the **environment**
+  pointing at an admin dir, a `commondir` leading back, and the config visible inside),
+  `rev-parse --git-common-dir` and `rev-parse --show-toplevel` (which working tree the caller
+  stands in: reuse accepts a Slot only when it is a worktree *root*, so a mock that answers
+  the superproject for the Slot's own path makes every second tick refuse it). Both mocks
+  answer those from the **environment**
   (`RALPH_MOCK_SUPERPROJECT`, `RALPH_MOCK_COMMON_DIR`) rather than `$PWD`: a tick is launched
   with a `cwd=`, which does not update `$PWD` for the mock, and the tick then `cd`s again into
   its Slot. The harnesses also pin `RALPH_SLOT_DIR` inside the throwaway tmpdir — the

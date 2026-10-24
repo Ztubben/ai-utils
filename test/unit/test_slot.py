@@ -127,6 +127,33 @@ class ResolvingAndProvisioning(unittest.TestCase):
         self.assertIsNone(got)
         self.assertIn("is the checkout itself", why)
 
+    def test_a_directory_inside_the_operators_checkout_is_never_a_slot(self):
+        # It is a directory of their working tree, not a worktree of its own:
+        # reusing it would detach and hard-reset their checkout, and repairing
+        # it would delete their files. Neither is the Tick's to do.
+        root = self.repo()
+        inside = os.path.join(root, "lib")
+        os.makedirs(inside)
+        with open(os.path.join(inside, "thing.py"), "w") as fh:
+            fh.write("the operator's own work\n")
+        got, why = ralph_slot.ensure(inside, root)
+        self.assertIsNone(got)
+        self.assertIn("inside the worktree", why)
+        self.assertIn(root, why)
+        self.assertTrue(os.path.isfile(os.path.join(inside, "thing.py")))
+
+    def test_a_directory_inside_a_slot_is_not_itself_a_slot(self):
+        root = self.repo()
+        path = ralph_slot.resolve(root, {}).path
+        self.addCleanup(lambda: shutil.rmtree(path, ignore_errors=True))
+        ralph_slot.ensure(path, root)
+        inside = os.path.join(path, "nested")
+        os.makedirs(inside)
+        got, why = ralph_slot.ensure(inside, root)
+        self.assertIsNone(got)
+        self.assertIn("inside the worktree", why)
+        self.assertTrue(os.path.isdir(inside))
+
 
 class SlotWorld(SelfHostedWorld):
     """The self-hosted world, plus what a Slot test needs to look at."""
@@ -252,6 +279,24 @@ class TheOperatorsCheckoutIsLeftAlone(SlotTest):
         # The story work happened, and it happened in the Slot.
         self.assertIn("ralph/7-s7", w.git("branch", "--list", "ralph/7-s7"))
         self.assertEqual(w.branch_of(w.slot()), "ralph/7-s7")
+
+    def test_a_slot_pointed_into_the_checkout_is_refused_not_reset(self):
+        # Whatever the environment says, a Tick that would have to work inside
+        # the operator's own tree refuses to tick rather than detach and reset
+        # it. Nothing of theirs is touched -- not even their uncommitted edit.
+        w = self.world()
+        w.set_backlog([ready_story(7)])
+        w.git("checkout", "-q", "-b", "operator/grilling")
+        with open(os.path.join(w.checkout, "lib", "ralph_slot.py"), "a") as fh:
+            fh.write("# the operator is editing this\n")
+        before = (w.branch_of(w.checkout), w.head_of(w.checkout),
+                  w.tree_of(w.checkout))
+        proc = w.tick(RALPH_SLOT_DIR=os.path.join(w.checkout, "lib"))
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("refusing to tick", proc.stdout)
+        self.assertEqual((w.branch_of(w.checkout), w.head_of(w.checkout),
+                          w.tree_of(w.checkout)), before, proc.stdout)
+        self.assertNotIn("start #7", proc.stdout)
 
     def test_a_mid_merge_checkout_no_longer_stops_a_tick(self):
         w = self.world()

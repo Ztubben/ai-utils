@@ -113,7 +113,19 @@ def ensure(path, repo, commitish=None):
     if real in (os.path.realpath(main), os.path.realpath(repo)):
         return None, "%s is the checkout itself, not a slot" % path
     exists = os.path.isdir(path)
-    what = action(exists, exists and _is_worktree_of(path, common))
+    is_slot = False
+    if exists and _is_worktree_of(path, common):
+        # Belonging to this clone is not enough: a Slot is a worktree *root*.
+        # A directory *inside* a worktree is part of somebody's working tree --
+        # usually the operator's -- and the Tick's detach and hard reset would
+        # land there. Reusing it would take their checkout, repairing it would
+        # delete their files; refuse it instead, naming the worktree it is in.
+        root = _worktree_root(path)
+        if not root or os.path.realpath(root) != real:
+            return None, ("%s is inside the worktree at %s, not a slot"
+                          % (path, root or main))
+        is_slot = True
+    what = action(exists, is_slot)
     if what == REUSED:
         return path, REUSED
     if exists and not _remove(repo, path):
@@ -167,6 +179,13 @@ def main_worktree(cwd):
 def _is_worktree_of(path, common):
     found = common_dir(path)
     return bool(found) and os.path.realpath(found) == os.path.realpath(common)
+
+
+def _worktree_root(path):
+    """The root of the working tree *path* lies in, or None when it is in none
+    (a path under `.git`, say) -- which is what tells a Slot from a directory
+    of one."""
+    return _git(["rev-parse", "--show-toplevel"], path)
 
 
 def _remove(repo, path):
