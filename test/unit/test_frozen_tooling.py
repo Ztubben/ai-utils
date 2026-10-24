@@ -1,4 +1,5 @@
-"""Every Tick runs an immutable copy of its Tooling Commit (#146, ADR-0009).
+"""Every Tick runs an immutable copy of its Tooling Commit (#146, ADR-0009),
+and copies nothing needs any more are pruned (#147).
 
 The pure half -- where the running ai-utils sits, and which commit is the
 Tooling Commit -- is tested directly. The rest runs the real `bin/ralph.sh`, as
@@ -8,6 +9,7 @@ code from a frozen copy even while the checkout's `bin/ralph.sh` and `lib/`
 say otherwise, and so must the agents it launches. (The Superproject half is
 the scenario tier's `pointer_*` worlds.)
 """
+import fcntl
 import json
 import os
 import shutil
@@ -86,6 +88,23 @@ class Resolve(unittest.TestCase):
     def test_a_copy_lives_in_the_git_common_directory_named_by_its_commit(self):
         self.assertEqual(ralph_tooling.copy_path("/r/.git", A),
                          os.path.join("/r/.git", "ralph-tooling", A))
+
+
+C = "c" * 40
+
+
+class PrunePlan(unittest.TestCase):
+    def test_only_copies_nothing_needs_are_pruned(self):
+        self.assertEqual(ralph_tooling.prune_plan([A, B, C], [A], None, ()), [B, C])
+
+    def test_the_current_and_last_known_good_copies_are_never_pruned(self):
+        self.assertEqual(ralph_tooling.prune_plan([A, B, C], [A], B, ()), [C])
+
+    def test_a_copy_a_running_tick_uses_is_never_pruned(self):
+        self.assertEqual(ralph_tooling.prune_plan([A, B, C], [A], None, [C]), [B])
+
+    def test_several_commits_can_be_kept(self):
+        self.assertEqual(ralph_tooling.prune_plan([A, B, C], [A, B], None, ()), [C])
 
 
 class TheAgentRunsTheSameTooling(unittest.TestCase):
@@ -291,13 +310,19 @@ class SelfHostedTicksRunFrozenTooling(unittest.TestCase):
         self.assertEqual(w.git("status", "--porcelain", cwd=w.copy(commit)), "")
         self.assertEqual(w.rev("HEAD", cwd=w.copy(commit)), commit)
 
-    def test_an_upgrade_runs_a_new_copy_and_leaves_the_old_one_alone(self):
+    def test_an_upgrade_runs_a_new_copy_and_never_edits_the_old_one(self):
         w = self.world()
         old = w.rev("origin/main")
         w.tick()
         new = w.merge_to_main("README.md", "merged\n")
-        self.assert_ran_frozen(w, w.tick(), new)
+        with open(os.path.join(w.checkout, ".git", "ralph-tooling", old + ".lock"),
+                  "w") as held:
+            # Another tick still runs from the old copy while this one upgrades.
+            fcntl.flock(held, fcntl.LOCK_SH)
+            self.assert_ran_frozen(w, w.tick(), new)
         self.assertEqual(w.rev("HEAD", cwd=w.copy(old)), old)
+        self.assertEqual(w.git("status", "--porcelain", cwd=w.copy(old)), "")
+        self.assertFalse(os.path.exists(os.path.join(w.copy(old), "README.md")))
 
     def test_the_re_exec_happens_once_and_keeps_the_lock(self):
         w = self.world()
@@ -331,6 +356,72 @@ class SelfHostedTicksRunFrozenTooling(unittest.TestCase):
                       proc.stdout)
         self.assertFalse([ln for ln in w.log_lines() if ln.startswith("gh issue edit")])
         self.assertFalse([ln for ln in w.log_lines() if " ralph=" in ln])
+
+
+class FrozenCopiesAreBounded(unittest.TestCase):
+    """#147: after an upgrade, the old copy goes once no tick runs from it."""
+
+    def world(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return SelfHostedWorld(tmp)
+
+    def upgraded(self):
+        w = self.world()
+        old = w.rev("origin/main")
+        self.assertEqual(w.tick().returncode, 0)
+        new = w.merge_to_main("README.md", "merged\n")
+        return w, old, new
+
+    def worktrees(self, w):
+        return w.git("worktree", "list", "--porcelain")
+
+    def test_the_previous_copy_is_pruned_on_a_later_tick(self):
+        w, old, new = self.upgraded()
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("pruned the frozen copy of %s" % old, proc.stdout)
+        self.assertFalse(os.path.exists(w.copy(old)))
+        self.assertNotIn(w.copy(old), self.worktrees(w))
+        self.assertTrue(os.path.isdir(w.copy(new)))
+
+    def test_the_last_known_good_copy_is_never_pruned(self):
+        w, old, new = self.upgraded()
+        with open(os.path.join(w.checkout, ".git", "ralph-tooling", "last-known-good"),
+                  "w") as fh:
+            fh.write(old + "\n")
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertTrue(os.path.isdir(w.copy(old)))
+        self.assertNotIn("pruned", proc.stdout)
+
+    def test_a_copy_a_running_tick_holds_is_never_pruned(self):
+        w, old, new = self.upgraded()
+        lock = os.path.join(w.checkout, ".git", "ralph-tooling", old + ".lock")
+        with open(lock, "w") as held:
+            # Another Slot's tick, still running from the old copy.
+            fcntl.flock(held, fcntl.LOCK_SH)
+            proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("frozen copy of %s is in use" % old, proc.stdout)
+        self.assertTrue(os.path.isdir(w.copy(old)))
+        proc = w.tick()
+        self.assertIn("pruned the frozen copy of %s" % old, proc.stdout)
+        self.assertFalse(os.path.exists(w.copy(old)))
+
+    @unittest.skipIf(os.geteuid() == 0, "root removes read-only directories")
+    def test_a_copy_that_cannot_be_removed_is_logged_and_the_tick_goes_on(self):
+        w, old, new = self.upgraded()
+        stuck = os.path.join(w.copy(old), "lib")
+        os.chmod(stuck, 0o555)
+        self.addCleanup(lambda: os.path.isdir(stuck) and os.chmod(stuck, 0o755))
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("could not remove the frozen copy of %s" % old, proc.stdout)
+        self.assertIn("no eligible work; tick complete", proc.stdout)
+        os.chmod(stuck, 0o755)
+        proc = w.tick()
+        self.assertIn("pruned the frozen copy of %s" % old, proc.stdout)
 
 
 if __name__ == "__main__":

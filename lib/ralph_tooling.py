@@ -16,14 +16,26 @@ is created once and never modified.
     unfrozen, as before, and the pointer check warns;
   * ai-utils installed outside the checkout: nothing to freeze, it runs as-is.
 
-`where` and `resolve` are pure (git is read through an injected function);
-`copy_path` names a copy. The CLI does the git work:
+Copies that are no longer needed are pruned (#147): every copy that is neither
+the current Tooling Commit nor Last-Known-Good, and that no running Tick uses.
+A Tick holds its copy's `<commit>.lock` (beside the copy) shared for as long as
+it runs from it; pruning takes that lock exclusively and keeps it while it
+removes the copy, so a Tick about to use the copy waits and then recreates it.
+The lock files stay: removing one would let a later Tick lock a fresh file
+while an earlier one still holds the old.
 
-  ralph_tooling.py commit [CONFIG]      print "KIND COMMIT REPO MOUNT", or
+`where`, `resolve` and `prune_plan` are pure (git is read through an injected
+function); `copy_path` names a copy. The CLI does the git work:
+
+  ralph_tooling.py commit [CONFIG]      print "KIND COMMIT REPO MOUNT COPIES", or
                                         "unfrozen" with the reason on stderr
   ralph_tooling.py copy COMMIT REPO     make sure COMMIT's copy exists; print it
+  ralph_tooling.py prune COPIES KEEP... remove the copies nothing needs
 """
+import fcntl
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -40,6 +52,8 @@ UNFROZEN = "unfrozen"
 # Where the copies live, inside the git common directory of the repository that
 # owns ai-utils: one detached worktree per Tooling Commit, named by the commit.
 COPIES_DIR = "ralph-tooling"
+LAST_KNOWN_GOOD = "last-known-good"
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 
 
 class Resolution:
@@ -111,6 +125,76 @@ def copy_path(common_dir, commit):
     return os.path.join(copies_dir(common_dir), commit)
 
 
+def lock_path(copies, commit):
+    return os.path.join(copies, commit + ".lock")
+
+
+def prune_plan(copies, keep, last_known_good, in_use):
+    """The copies to remove: not kept (the current Tooling Commit), not
+    Last-Known-Good, and not in use by a running Tick."""
+    spared = set(keep) | set(in_use) | ({last_known_good} if last_known_good else set())
+    return sorted(c for c in copies if c not in spared)
+
+
+def read_last_known_good(copies):
+    try:
+        with open(os.path.join(copies, LAST_KNOWN_GOOD)) as fh:
+            commit = fh.read().strip()
+    except OSError:
+        return None
+    return commit if COMMIT_RE.match(commit) else None
+
+
+def list_copies(copies):
+    try:
+        names = os.listdir(copies)
+    except OSError:
+        return []
+    return sorted(n for n in names
+                  if COMMIT_RE.match(n) and os.path.isdir(os.path.join(copies, n)))
+
+
+def prune(copies, keep, log):
+    """Remove every copy `prune_plan` names; best-effort. Returns the removed."""
+    lkg = read_last_known_good(copies)
+    # git is run from a copy that stays, a worktree of the same repository.
+    repo = next((os.path.join(copies, k) for k in keep
+                 if os.path.isdir(os.path.join(copies, k))), copies)
+    held, in_use = [], []
+    candidates = prune_plan(list_copies(copies), keep, lkg, ())
+    try:
+        # Every candidate's lock is taken before anything is decided, and held
+        # until it is removed: a Tick that wants it back waits, then recreates.
+        for commit in candidates:
+            try:
+                fd = os.open(lock_path(copies, commit), os.O_WRONLY | os.O_CREAT, 0o644)
+            except OSError as exc:
+                log("cannot lock the frozen copy of %s (%s); leaving it" % (commit, exc))
+                in_use.append(commit)
+                continue
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(fd)
+                log("the frozen copy of %s is in use by a running tick; leaving it" % commit)
+                in_use.append(commit)
+                continue
+            held.append(fd)
+        removed = []
+        for commit in prune_plan(candidates, keep, lkg, in_use):
+            path = os.path.join(copies, commit)
+            if _remove(repo, path):
+                log("pruned the frozen copy of %s" % commit)
+                removed.append(commit)
+            else:
+                log("could not remove the frozen copy of %s at %s; a later tick retries"
+                    % (commit, path))
+        return removed
+    finally:
+        for fd in held:
+            os.close(fd)
+
+
 # --- git -------------------------------------------------------------------
 
 def _git(args, cwd):
@@ -167,13 +251,15 @@ def ensure_copy(commit, repo):
 
 
 def _remove(repo, path):
-    subprocess.run(["git", "worktree", "remove", "--force", path], cwd=repo,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Remove the copy at *path*; *repo* is any worktree of its repository."""
+    subprocess.run(["git", "worktree", "remove", "--force", "--force", path],
+                   cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if os.path.isdir(path):
-        import shutil
         shutil.rmtree(path, ignore_errors=True)
-    subprocess.run(["git", "worktree", "prune"], cwd=repo,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not os.path.exists(path):
+        # The worktree's admin entry in the git directory goes with it.
+        subprocess.run(["git", "worktree", "prune"], cwd=repo,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return not os.path.exists(path)
 
 
@@ -199,8 +285,12 @@ def cmd_commit(argv):
         sys.stderr.write("ralph: %s\n" % result.message)
         print(UNFROZEN)
         return 0
-    print("%s %s %s %s" % (result.kind, result.commit, result.repo,
-                           result.mount or "-"))
+    common = common_dir(result.repo)
+    if not common:
+        sys.stderr.write("REFUSED: %s is not a git repository\n" % result.repo)
+        return 2
+    print("%s %s %s %s %s" % (result.kind, result.commit, result.repo,
+                              result.mount or "-", copies_dir(common)))
     return 0
 
 
@@ -218,8 +308,16 @@ def cmd_copy(argv):
     return 0
 
 
+def cmd_prune(argv):
+    if len(argv) < 2:
+        sys.stderr.write("usage: ralph_tooling.py prune COPIES KEEP...\n")
+        return 2
+    prune(argv[0], argv[1:], lambda line: print("ralph: %s" % line))
+    return 0
+
+
 def main(argv):
-    commands = {"commit": cmd_commit, "copy": cmd_copy}
+    commands = {"commit": cmd_commit, "copy": cmd_copy, "prune": cmd_prune}
     if not argv or argv[0] not in commands:
         sys.stderr.write("usage: ralph_tooling.py {%s} ...\n" % ",".join(sorted(commands)))
         return 2
