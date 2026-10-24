@@ -82,11 +82,11 @@ control_plane:
     - .github/workflows/**    # the CI the gate reads
     - .ralph.yml              # the policy itself, including this list
 
-# The Superproject commits the ai-utils gitlink it runs. The tick compares that
-# commit with the ai-utils checkout actually running and refuses to start on a
-# mismatch, naming both, so the version you debug is the version that ran.
-# Allow a mismatch only for deliberate local development of ai-utils; the tick
-# then logs it on every run.
+# The Superproject commits the ai-utils gitlink it runs. Every tick runs a frozen
+# copy of the gitlink committed on origin/<base>, whatever the submodule checkout
+# holds (ADR-0009), and refuses a pinned commit that fails its preflight. Allow
+# drift only for deliberate local development of ai-utils: the tick then runs
+# the mounted checkout as it is and logs any mismatch on every run.
 tooling:
   allow_pointer_drift: false   # default: false
 

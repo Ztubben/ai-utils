@@ -448,22 +448,33 @@ To keep the roles fixed, commit `models.alternate: false`, or pass
 ralph --assign-models story.json --fixed-roles   # this story keeps the resolved order
 ```
 
-### The committed ai-utils pointer
+### Frozen tooling and the committed ai-utils pointer
 
-The superproject commits the ai-utils gitlink it runs, so that commit is the
-tooling version on record. At tick start Ralph compares it with the ai-utils
-checkout actually running and **refuses to tick on a mismatch**, naming both
-commits — the version you debug is then always the version that ran. Commit the
-pointer (`git add ai-utils && git commit`) to proceed. For deliberate local
-development of ai-utils, allow the mismatch; the tick logs it on every run:
+Every tick runs one commit of ai-utils, the **Tooling Commit**, from a copy of
+that commit that never changes while it runs (ADR-0009). In a superproject it is
+the ai-utils gitlink committed on `origin/<base>`: the commit on record is the
+commit that runs, whatever the local submodule checkout holds, so upgrading is a
+pushed pointer bump (`git add ai-utils && git commit && git push`). When ai-utils
+is the checkout root it is `origin/main` as of tick start, so ai-utils upgrades
+itself after every merge. The copy is a detached worktree under the git directory,
+created once per commit (`ralph --tooling-commit` names the commit,
+`ralph --tooling-copy` makes the copy). The agents a tick launches find that copy's
+`ralph` first on their `PATH`.
+
+Before it runs a Tooling Commit, the tick preflights it: config check, subcommand
+check, pointer check and a dry run. A pinned commit that fails is **refused**,
+naming the commit and the failed step, before any label moves. For deliberate
+local development of ai-utils, opt out. The tick then runs the mounted checkout
+as it is, and it logs any mismatch with the pointer on every run:
 
 ```yaml
 tooling:
   allow_pointer_drift: true   # default: false
 ```
 
-`ralph --check-pointer` runs the same comparison by hand. When ai-utils is the
-checkout root itself there is no pointer, and nothing to compare.
+`ralph --check-pointer` compares the running ai-utils with the committed pointer
+by hand. When ai-utils is the checkout root itself there is no pointer, and
+nothing to compare.
 
 ## Authoring the backlog
 
@@ -617,6 +628,7 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 | CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `main` and pushes to it; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
 | Base branch | `.ralph.yml` `branching.base` | `main`; Ralph may auto-merge into it, and there is no promotion step — a superproject's submodule pointer bump is the release (ADR-0007) |
+| Tooling the Loop runs | (none: it follows `origin/main`) | each tick runs a frozen copy of `origin/main` as of its start, never the checkout the agent edits, so ai-utils builds its own tooling and upgrades itself once a Story merges (ADR-0009) |
 
 **Branch protection on `main`.** Two checks are required — `test` (CI) and
 `ralph/model-review` (the verdict Ralph publishes) — and **no** approving reviews

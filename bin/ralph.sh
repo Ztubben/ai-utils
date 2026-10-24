@@ -26,6 +26,14 @@
 #   6. when the agent signals session-limit exhaustion, checkpoints the current
 #      story via a Handoff (`ralph --checkpoint`) and ends the tick cleanly.
 #
+# Before any of that, the tick freezes its tooling (ADR-0009): it resolves the
+# Tooling Commit (origin/<base> when ai-utils is the checkout root, the pinned
+# gitlink in origin/<base>'s tree in a Superproject), makes sure an immutable
+# copy of that commit exists, preflights it (`ralph.sh --preflight`), and
+# re-execs the copy's ralph.sh exactly once with the tick lock still held. From
+# then on the tick, and every agent it launches, runs the frozen copy -- never
+# the checkout the agent is editing, never a submodule checkout that moved.
+#
 # Ralph only ever modifies its target repository (the superproject when ai-utils is
 # mounted as a submodule; ai-utils itself when it is the checkout root -- ADR-0001
 # amendment) and never commits on main itself. The heavy
@@ -58,6 +66,15 @@ ITERATE_PROMPT="$SCRIPT_DIR/../prompts/iterate.v1.md"
 export RALPH_RUN_ID
 
 log() { printf 'ralph: %s\n' "$*"; }
+
+# The frozen tooling this process runs, when the pre-freeze tick exec'd it (or
+# asked it for a preflight). Read once and un-exported, so the agents and test
+# suites this tick launches never inherit the marker that stops the re-exec.
+TOOLING_COMMIT="${RALPH_TOOLING_COMMIT:-}"
+TOOLING_KIND="${RALPH_TOOLING_KIND:-}"
+TOOLING_MOUNT="${RALPH_TOOLING_MOUNT:-}"
+export -n RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT 2>/dev/null || true
+unset RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT
 
 # Read the configured base branch from .ralph.yml (default 'main').
 # Called once per tick after config validation; cached in BASE_BRANCH.
@@ -499,24 +516,16 @@ complete_feature() {
   return "$rc"
 }
 
-tick() {
-  # --- flock: one tick per superproject, overlapping ticks exit immediately ---
-  local lock_file="$RALPH_LOCK_DIR/ralph-tick.lock"
-  exec 9>"$lock_file"
-  if ! flock -n 9; then
-    log "a tick is already running (lock held); exiting"
-    return 0
-  fi
-
-  local mid
-  if mid="$(checkout_mid_operation)"; then
-    log "the checkout is $mid; refusing to tick until a human finishes or aborts it"
-    return 2
-  fi
-
+# The tick's preflight: everything that must hold before anything is labelled.
+# Sets PREFLIGHT_STEP to the step that failed. The pre-freeze tick runs it
+# against a candidate copy (`ralph.sh --preflight`, which adds a dry run).
+PREFLIGHT_STEP=""
+preflight() {
+  PREFLIGHT_STEP=""
   # --- config validation at tick start (ADR-0001: fail loud) ---
   if ! "$RALPH_BIN" --check-config "$RALPH_CONFIG" >/dev/null; then
     log "invalid or missing $RALPH_CONFIG; refusing to tick"
+    PREFLIGHT_STEP="config check"
     return 2
   fi
 
@@ -535,6 +544,7 @@ tick() {
   if (( ${#missing[@]} )); then
     log "$RALPH_BIN does not support: ${missing[*]}"
     log "the checkout providing bin/ralph is out of step with this bin/ralph.sh; refusing to tick"
+    PREFLIGHT_STEP="subcommand preflight"
     return 2
   fi
 
@@ -543,10 +553,115 @@ tick() {
   # ai-utils while another runs debugs the wrong version (autopilot_controller
   # pinned 8eba071 while 744b8b3 ran). A deliberate mismatch is allowed by
   # config, and logged by the check itself.
-  if ! "$RALPH_BIN" --check-pointer "$RALPH_CONFIG"; then
+  # Frozen, the copy is told which commit and mount it stands for: its own path
+  # sits in a git directory, not at the mount.
+  if ! RALPH_TOOLING_COMMIT="$TOOLING_COMMIT" RALPH_TOOLING_MOUNT="$TOOLING_MOUNT" \
+       "$RALPH_BIN" --check-pointer "$RALPH_CONFIG"; then
     log "the running ai-utils is not the one the Superproject commits; refusing to tick"
+    PREFLIGHT_STEP="pointer check"
     return 2
   fi
+}
+
+# Run the tooling a candidate copy holds through the tick's preflight, plus a dry
+# run, without taking the lock or touching the backlog. Prints the failed step
+# on a RALPH-PREFLIGHT-FAILED line.
+preflight_only() {
+  local rc=0 action
+  preflight || rc=$?
+  if (( rc == 0 )); then
+    if ! action="$("$RALPH_BIN" --dry-run)"; then
+      PREFLIGHT_STEP="dry run" rc=2
+    else
+      case "${action%% *}" in
+        no-work|halt|resume|start) ;;
+        *) log "unrecognized action from --dry-run: $action"
+           PREFLIGHT_STEP="dry run" rc=2 ;;
+      esac
+    fi
+  fi
+  (( rc == 0 )) || printf 'RALPH-PREFLIGHT-FAILED: %s\n' "$PREFLIGHT_STEP"
+  return "$rc"
+}
+
+# Preflight COPY as the frozen tooling for COMMIT. On failure TOOLING_FAILED_STEP
+# names the step and TOOLING_FAILED_TAIL holds the end of its output.
+TOOLING_FAILED_STEP="" TOOLING_FAILED_TAIL=""
+preflight_copy() {
+  local copy="$1" commit="$2" kind="$3" mount="$4" out rc=0
+  TOOLING_FAILED_STEP="" TOOLING_FAILED_TAIL=""
+  out="$(env -u RALPH_CLI RALPH_TOOLING_COMMIT="$commit" RALPH_TOOLING_KIND="$kind" \
+           RALPH_TOOLING_MOUNT="$mount" "$copy/bin/ralph.sh" --preflight 2>&1)" || rc=$?
+  (( rc == 0 )) && return 0
+  TOOLING_FAILED_STEP="$(sed -n 's/^RALPH-PREFLIGHT-FAILED: //p' <<<"$out" | tail -n1)"
+  # No step named: the copy's tick script itself crashed before it could say.
+  : "${TOOLING_FAILED_STEP:=the tick script (exit $rc)}"
+  TOOLING_FAILED_TAIL="$(grep -v '^RALPH-PREFLIGHT-FAILED: ' <<<"$out" | tail -n 20)"
+  return "$rc"
+}
+
+# Freeze the tooling (ADR-0009): resolve the Tooling Commit, make sure its copy
+# exists, preflight it, and exec the copy's tick -- once, with the lock (fd 9)
+# still held, because the exec keeps the open file. Returns 0 to tick unfrozen
+# (ai-utils is installed outside the checkout, or drift is allowed), non-zero
+# to refuse; on success it never returns.
+freeze_tooling() {
+  local line kind commit repo mount copy
+  line="$("$RALPH_BIN" --tooling-commit "$RALPH_CONFIG")" || {
+    log "cannot resolve the Tooling Commit; refusing to tick"
+    return 2
+  }
+  [[ "$line" == unfrozen ]] && return 0
+  read -r kind commit repo mount <<<"$line"
+  [[ "$mount" == - ]] && mount=""
+  if ! copy="$("$RALPH_BIN" --tooling-copy "$commit" "$repo")"; then
+    log "cannot make the frozen copy of Tooling Commit $commit; refusing to tick"
+    return 2
+  fi
+  if ! preflight_copy "$copy" "$commit" "$kind" "$mount"; then
+    log "the Tooling Commit $commit fails preflight at the $TOOLING_FAILED_STEP:"
+    printf '%s\n' "$TOOLING_FAILED_TAIL"
+    if [[ "$kind" == superproject ]]; then
+      log "the ai-utils pinned at $mount ($commit) fails preflight at the $TOOLING_FAILED_STEP; refusing to tick"
+    else
+      log "the ai-utils Tooling Commit $commit fails preflight at the $TOOLING_FAILED_STEP; refusing to tick"
+    fi
+    return 2
+  fi
+  export RALPH_TOOLING_COMMIT="$commit" RALPH_TOOLING_KIND="$kind" RALPH_TOOLING_MOUNT="$mount"
+  unset RALPH_CLI
+  exec "$copy/bin/ralph.sh" "$@"
+}
+
+tick() {
+  # --- flock: one tick per superproject, overlapping ticks exit immediately ---
+  local lock_file="$RALPH_LOCK_DIR/ralph-tick.lock"
+  if [[ -n "$TOOLING_COMMIT" ]] && { true >&9; } 2>/dev/null; then
+    # The pre-freeze tick took the lock and exec'd this frozen copy; fd 9 is
+    # that lock, still held. Re-opening it would release it for a moment.
+    flock -n 9 || { log "a tick is already running (lock held); exiting"; return 0; }
+  else
+    exec 9>"$lock_file"
+    if ! flock -n 9; then
+      log "a tick is already running (lock held); exiting"
+      return 0
+    fi
+  fi
+
+  local mid
+  if mid="$(checkout_mid_operation)"; then
+    log "the checkout is $mid; refusing to tick until a human finishes or aborts it"
+    return 2
+  fi
+
+  # --- frozen tooling: run an immutable copy of the Tooling Commit (ADR-0009) ---
+  if [[ -z "$TOOLING_COMMIT" ]]; then
+    freeze_tooling "$@" || return $?
+  else
+    log "tooling: running the $TOOLING_KIND Tooling Commit $TOOLING_COMMIT from $(cd "$SCRIPT_DIR/.." && pwd)"
+  fi
+
+  preflight || return $?
 
   # --- read the base branch once (for freshness merges) ---
   local base_branch rc=0
@@ -771,4 +886,8 @@ completion_pass() {
   done < <("$RALPH_BIN" --ready-features 2>/dev/null)
 }
 
-tick "$@"
+if [[ "${1:-}" == --preflight ]]; then
+  preflight_only
+else
+  tick "$@"
+fi

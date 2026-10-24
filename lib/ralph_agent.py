@@ -39,6 +39,12 @@ import ralph_models  # noqa: E402
 import ralph_session  # noqa: E402
 import ralph_usage  # noqa: E402
 
+# The `bin/` of the tooling this launcher runs from. A tick runs a frozen copy
+# of its Tooling Commit (ADR-0009); first on the agent's PATH, the agent's own
+# `ralph` calls run that copy too, never the checkout the agent is editing.
+TOOLING_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "bin")
+
 # The three outcomes an adapter distinguishes.
 NORMAL = "normal"
 SESSION_EXHAUSTED = "session-exhausted"
@@ -172,6 +178,9 @@ class AgentAdapter:
         # `AGENTS.md` change. Forced, never merely defaulted: an operator
         # setting is exactly what a provider's memory would be written into.
         env.update(self.memory_env)
+        env["PATH"] = os.pathsep.join([TOOLING_BIN] + [
+            entry for entry in env.get("PATH", "").split(os.pathsep)
+            if entry and os.path.realpath(entry) != os.path.realpath(TOOLING_BIN)])
         if self.role == "review":
             # Review is evidence-only.  Even if a provider somehow escapes its
             # local read-only tool policy, it receives no GitHub credential:

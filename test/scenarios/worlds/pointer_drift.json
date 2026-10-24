@@ -1,5 +1,5 @@
 {
-  "description": "The mounted ai-utils has moved one commit past the gitlink the Superproject commits; the Tick refuses before any label moves or agent launches, naming both commits.",
+  "description": "The mounted ai-utils checkout has moved past the gitlink the Superproject commits, to code that cannot select work, and carries uncommitted edits too; the Tick runs a frozen copy of the pinned commit instead (ADR-0009) and the Story reaches Passing.",
   "config": {
     "version": 1,
     "branching": {
@@ -64,10 +64,9 @@
     "implementation": "cooperative",
     "review": "cooperative"
   },
-  "ticks": 1,
+  "ticks": 3,
   "expect": {
-    "1": "ready"
+    "1": "passing"
   },
-  "mount_ai_utils": "drifted",
-  "tick_exit": 2
+  "mount_ai_utils": "moved"
 }
