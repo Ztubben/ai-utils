@@ -1,6 +1,6 @@
 # The tick and operations — module notes
 
-Notes for `bin/ralph.sh`, `lib/ralph_pointer.py`, `lib/ralph_init.py`, `scheduler/`, and `ai-utils`' own deployment. Read this before changing those modules; it is part of
+Notes for `bin/ralph.sh`, `lib/ralph_tooling.py`, `lib/ralph_pointer.py`, `lib/ralph_init.py`, `scheduler/`, and `ai-utils`' own deployment. Read this before changing those modules; it is part of
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
@@ -34,6 +34,34 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `test/unit/test_orchestrate.py` (driving the
   script against mock `claude`/`gh`/`git` on PATH via `$RALPH_LOG` + a stateful `gh issue list`
   queue that pops one backlog fixture per call to simulate stories completing).
+- **Frozen tooling** (#146, ADR-0009, PRD #145). `lib/ralph_tooling.py` resolves the
+  **Tooling Commit** (`ralph --tooling-commit`): self-hosted (ai-utils is the checkout
+  root) is `origin/<base>` after a fetch; a Superproject is the gitlink at the mount in
+  `origin/<base>`'s tree, never the index or the submodule checkout; ai-utils installed
+  outside the checkout, or `tooling.allow_pointer_drift`, prints `unfrozen` and the tick
+  runs as before (that is the opt-out: the mounted checkout runs, the pointer check warns).
+  `ralph --tooling-copy` makes the copy once -- a detached worktree of the repository that
+  owns ai-utils (the checkout itself, or the submodule's repository) at
+  `<git-common-dir>/ralph-tooling/<commit>` -- and a half-made one is replaced, never
+  reused. The tick (right after the lock and the mid-operation check) preflights the copy
+  with `<copy>/bin/ralph.sh --preflight` (config check, subcommand preflight, pointer
+  check, dry run; the failed step is the `RALPH-PREFLIGHT-FAILED:` line, and a copy that
+  crashes before naming one is "the tick script") and then `exec`s the copy's `ralph.sh`.
+  A failing preflight refuses (exit 2) naming the commit and step, before anything is
+  labelled. GOTCHAS: (1) the exec marker `RALPH_TOOLING_COMMIT` (with `_KIND`, `_MOUNT`)
+  is read into shell variables and **unset** at the top of the script, so no agent or test
+  suite inherits it; the tick harnesses strip it too. (2) The frozen tick does not reopen
+  its lock: fd 9 survives the exec and is still the held lock, and re-opening it would
+  release it for a moment. (3) The copy's path sits in a git directory, not at the mount,
+  so the frozen tick hands `--check-pointer` the commit and mount through those variables;
+  it then compares with `origin/<base>`'s gitlink (falling back to `HEAD`'s). (4) The
+  bootstrap up to the exec is the *checkout's* code, the one part frozen tooling cannot
+  cover; keep it small. (5) `ralph_agent.TOOLING_BIN` (the launcher's own `bin/`) is put
+  first on every agent's `PATH`, for every adapter and role. Covered by
+  `test/unit/test_frozen_tooling.py` and `test/bats/frozen_tooling.bats` (self-hosted, real
+  git), and the scenario worlds `pointer_drift` (`mount_ai_utils: moved`: the checkout
+  under the pin cannot select work, and the pin still runs) and
+  `pointer_pin_fails_preflight` (`broken-pin`).
 - **The Story's branch before any git** (#121). A `start`/`resume` resolves the Story's branch
   and what it is cut from with `ralph --branch-name` (the iterate prompt's own CLI; a Feature
   Story's PRD is fetched for it), then `checkout_story_branch` puts the checkout there: hard-
@@ -68,13 +96,17 @@ for the code it touches. Add a new learning here, in the file that owns it.
   branch is checked out here); `cleanup` deletes the remote branch by name, best-effort.
 - `lib/ralph_pointer.py` is the **Superproject pointer check** (#96): `ralph --check-pointer
   [CONFIG]` (dispatched with `$RALPH_HOME`) compares the running ai-utils `HEAD` with the gitlink
-  in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index) and
+  in the Superproject's **committed tree** (`git ls-tree HEAD -- <path>`, never the index; under
+  frozen tooling the frozen commit with `origin/<base>`'s gitlink, see above) and
   exits 2 on a mismatch naming both commits, unless `tooling.allow_pointer_drift` (schema
   default false) makes it a logged warning. `locate` returns None when ai-utils is the checkout
   root (self-hosting) or not inside it, and the check passes. The tick runs it right after the
   subcommand preflight, before anything is labelled. Scenario worlds cover it with
-  `mount_ai_utils: committed|drifted` (a copy of the working tree as a nested repo recorded by a
-  gitlink; `drifted` commits once more under it) and `tick_exit`, the exit a refusing Tick owes.
+  `mount_ai_utils: committed|drifted|moved|broken-pin` (a copy of the working tree as a nested
+  repo recorded by a gitlink; `drifted` commits once more under it, `moved` breaks the checkout
+  under the pin, `broken-pin` pins a commit no config passes) and `tick_exit`, the exit a
+  refusing Tick owes. Since #146 a drifted checkout no longer refuses by default: the frozen
+  pin runs, and only `allow_pointer_drift` runs (and warns about) the checkout itself.
 - `lib/ralph_init.py` is the one-shot bootstrap seam (`ralph --init`): same pure-`Plan`/
   `run_plan`/CLI shape as the completion stages. `init_plan(base, base_exists, default_branch,
   prio_max)` returns the ordered gh/git commands to `gh label create --force` the canonical

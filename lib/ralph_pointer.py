@@ -13,6 +13,12 @@ committed tree (`HEAD`), never its index: a staged pointer is not committed.
 Where ai-utils is not a submodule of the checkout -- it *is* the checkout root
 (ADR-0001 amendment), or it is installed elsewhere -- there is nothing to
 compare and the check passes.
+
+Frozen tooling (ADR-0009) runs from a copy inside a git directory, not from the
+mount, so the frozen tick names what it stands for: `RALPH_TOOLING_COMMIT` (the
+running commit) and `RALPH_TOOLING_MOUNT` (the ai-utils path; empty when
+self-hosted). The pin it is compared with is then the one the Tooling Commit was
+resolved from, `origin/<base>`'s, falling back to `HEAD`'s.
 """
 import os
 import subprocess
@@ -76,9 +82,9 @@ def locate(ralph_home, cwd):
     return root, os.path.relpath(home, root)
 
 
-def gitlink(root, path):
-    """The commit the Superproject's HEAD tree records for *path*, if a gitlink."""
-    entry = _git(["ls-tree", "HEAD", "--", path], root)
+def gitlink(root, path, treeish="HEAD"):
+    """The commit the Superproject's *treeish* records for *path*, if a gitlink."""
+    entry = _git(["ls-tree", treeish, "--", path], root)
     if not entry:
         return None
     mode, kind, sha = entry.split("\t", 1)[0].split()
@@ -96,10 +102,20 @@ def main(argv):
         sys.stderr.write("INVALID CONFIG: %s\n" % config_path)
         return 2
     allow = validated.config["tooling"]["allow_pointer_drift"]
+    frozen = os.environ.get("RALPH_TOOLING_COMMIT")
     where = locate(ralph_home, os.getcwd())
     committed = running = None
     path = "ai-utils"
-    if where is not None:
+    if frozen:
+        mount = os.environ.get("RALPH_TOOLING_MOUNT")
+        root = _git(["rev-parse", "--show-toplevel"], os.getcwd())
+        if mount and root:
+            path = mount
+            base = validated.config["branching"]["base"]
+            committed = (gitlink(root, path, "origin/%s" % base)
+                         or gitlink(root, path))
+            running = frozen if committed else None
+    elif where is not None:
         root, path = where
         committed = gitlink(root, path)
         running = _git(["rev-parse", "HEAD"], ralph_home) if committed else None

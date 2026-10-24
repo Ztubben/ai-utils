@@ -271,6 +271,20 @@ class World:
             # it moves on without the pointer following (#96).
             _git(["commit", "-q", "--allow-empty", "-m", "local change"],
                  os.path.join(self.checkout, "ai-utils"), self.env)
+        elif mount == "moved":
+            # The checkout under the pin moves on to code that cannot select
+            # work, committed and uncommitted: only frozen tooling, run from
+            # the pinned commit, still works the backlog (ADR-0009).
+            home = os.path.join(self.checkout, "ai-utils")
+            self._break(home, "lib/ralph_select.py")
+            _git(["commit", "-q", "-am", "local change"], home, self.env)
+            self._break(home, "lib/ralph_iterate.py")
+        elif mount == "broken-pin":
+            # The pinned commit rejects every config; the checkout under it is
+            # fixed after the pin, which a frozen tick must not run (#146).
+            home = os.path.join(self.checkout, "ai-utils")
+            _git(["checkout", "-q", "HEAD~1", "--", "schema"], home, self.env)
+            _git(["commit", "-q", "-m", "fix the schema"], home, self.env)
         _git(["push", "-q", "-u", "origin", base], self.checkout, self.env)
         state = initial_state(self.spec)
         self.oid_map = {}
@@ -298,8 +312,18 @@ class World:
         _git(["init", "-q", home], self.root, self.env)
         _git(["add", "-A"], home, self.env)
         _git(["commit", "-q", "-m", "ai-utils"], home, self.env)
+        if self.spec.get("mount_ai_utils") == "broken-pin":
+            with open(os.path.join(home, "schema", "ralph.schema.json"), "w") as fh:
+                json.dump({"$schema": "http://json-schema.org/draft-07/schema#",
+                           "not": {}}, fh)
+            _git(["commit", "-q", "-am", "a schema no config passes"], home, self.env)
         self.ralph = os.path.join(home, "bin", "ralph")
         self.env["SCENARIO_RALPH"] = self.ralph
+
+    @staticmethod
+    def _break(home, path):
+        with open(os.path.join(home, path), "a") as fh:
+            fh.write("\nraise SystemExit('the moved checkout ran: %s')\n" % path)
 
     def _replay_chain(self, git, state):
         """Rebuild a captured pull request's commit chain on the scenario base.

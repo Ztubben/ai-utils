@@ -185,7 +185,7 @@
       "additionalProperties": false,
       "properties": {
         "allow_pointer_drift": {
-          "description": "Run even when the ai-utils checkout's HEAD differs from the gitlink the Superproject commits. Off by default: the tick refuses to start, naming both commits, so the version being debugged is the version that ran. Turn on only for deliberate local development of ai-utils; the tick then logs the mismatch.",
+          "description": "Run the mounted ai-utils checkout as it is, even when its HEAD differs from the gitlink the Superproject commits. Off by default: the tick runs a frozen copy of the gitlink committed on origin/<base> (ADR-0009), whatever the checkout holds, and refuses a pinned commit that fails preflight. Turn on only for deliberate local development of ai-utils; the tick then logs any mismatch.",
           "type": "boolean",
           "default": false
         }

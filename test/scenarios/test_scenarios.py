@@ -181,7 +181,7 @@ class ResponseRounds(unittest.TestCase):
 
 
 class SuperprojectPointer(unittest.TestCase):
-    """#96: the ai-utils that runs is the one the Superproject commits."""
+    """#96, #146: the ai-utils that runs is the one the Superproject commits."""
 
     def tick(self, name):
         world = harness.World(harness.load(name))
@@ -192,14 +192,28 @@ class SuperprojectPointer(unittest.TestCase):
         return subprocess.run(["git"] + list(args), cwd=cwd or world.checkout, env=world.env,
                               stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
 
-    def test_a_drifted_checkout_refuses_before_anything_moves(self):
+    def test_a_moved_checkout_has_no_effect_the_pinned_commit_runs(self):
+        # ADR-0009: the submodule checkout carries a commit and edits that
+        # cannot select work; the Tick runs a frozen copy of the pin instead.
         world, proc = self.tick("pointer_drift")
-        committed = self.git(world, "ls-tree", "HEAD", "ai-utils").split()[2]
-        running = self.git(world, "rev-parse", "HEAD",
-                           cwd=os.path.join(world.checkout, "ai-utils"))
-        self.assertEqual(proc.returncode, 2)
-        self.assertIn(committed, proc.stdout)
-        self.assertIn(running, proc.stdout)
+        pinned = self.git(world, "ls-tree", "HEAD", "ai-utils").split()[2]
+        home = os.path.join(world.checkout, "ai-utils")
+        copy = os.path.join(home, ".git", "ralph-tooling", pinned)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertNotIn("the moved checkout ran", proc.stdout)
+        self.assertIn("running the superproject Tooling Commit %s from %s"
+                      % (pinned, copy), proc.stdout)
+        self.assertIn("matches the committed pointer", proc.stdout)
+        self.assertEqual(self.git(world, "rev-parse", "HEAD", cwd=copy), pinned)
+        self.assertNotEqual(self.git(world, "rev-parse", "HEAD", cwd=home), pinned)
+        self.assertTrue(any(c["tool"] != "gh" for c in world.calls()))
+
+    def test_a_pin_failing_preflight_is_refused_before_anything_moves(self):
+        world, proc = self.tick("pointer_pin_fails_preflight")
+        pinned = self.git(world, "ls-tree", "HEAD", "ai-utils").split()[2]
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("pinned at ai-utils (%s) fails preflight at the config check"
+                      % pinned, proc.stdout)
         self.assertEqual([c for c in world.calls() if c["tool"] != "gh"], [])
         self.assertFalse(any(c["argv"][:2] == ["issue", "edit"] for c in world.calls()))
 

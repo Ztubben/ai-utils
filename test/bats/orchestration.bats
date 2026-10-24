@@ -29,7 +29,8 @@ setup() {
   # claude binary instead of the mock on PATH.
   export RALPH_CLAUDE=claude
   unset RALPH_ITERATION_ACTION RALPH_ITERATION_ISSUE RALPH_SESSION_LIMIT_MARKER \
-        RALPH_CONFIG RALPH_MAX_ITERATIONS RALPH_CLI
+        RALPH_CONFIG RALPH_MAX_ITERATIONS RALPH_CLI \
+        RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT
   export PATH="$MB:$PATH"
   # A tick that is itself running Ralph exports the provider binary overrides;
   # inherited, they would win over the fakes on PATH and this suite would launch

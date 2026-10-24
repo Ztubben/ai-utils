@@ -285,7 +285,9 @@ class TickHarness:
         # environment; inherited, they would steer the tick under test.
         for leaked in ("RALPH_ITERATION_ACTION", "RALPH_ITERATION_ISSUE",
                        "RALPH_SESSION_LIMIT_MARKER", "RALPH_CONFIG",
-                       "RALPH_MAX_ITERATIONS", "RALPH_CLI"):
+                       "RALPH_MAX_ITERATIONS", "RALPH_CLI",
+                       "RALPH_TOOLING_COMMIT", "RALPH_TOOLING_KIND",
+                       "RALPH_TOOLING_MOUNT"):
             e.pop(leaked, None)
         e["RALPH_AGENT_EXIT"] = agent_exit
         e["RALPH_AGENT_EMIT"] = agent_emit
