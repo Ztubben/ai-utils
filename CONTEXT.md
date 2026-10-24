@@ -75,6 +75,13 @@ _Avoid_: runner, workspace, sandbox (use "Slot")
 A Slot's exclusive, time-limited hold on one issue — a Story or a PRD — held on the shared remote so it is honoured by Slots on every machine. Ralph changes an issue, or the branches and pull requests that belong to it, only while holding its Claim: a Story's Claim covers working it and acting on a human's review of it, a PRD's Claim covers integrating its Feature. A Claim lasts one unit of work (an Iteration, a Negotiation Round, one bounded wait on review, one Feature integration) and is released when it ends, so the next time the Story is selected any Slot on any machine may claim it and resume from its Handoff. A Claim that is not renewed before it expires may be taken over by another Slot. A Claim is runtime coordination, not backlog state: it never changes a Story's labels.
 _Avoid_: lock, reservation, assignment (use "Claim"; "assignment" means the Story's Model Profiles)
 
+**Tooling Commit**:
+The commit of `ai-utils` a tick runs, decided once when the tick starts and never changed while it runs. In a Superproject it is the commit the superproject pins; when `ai-utils` is its own target repository it is the base branch as of tick start. A tick and every agent it launches run the tooling from a frozen copy of this commit, never from a checkout that work is happening in.
+_Avoid_: tooling version, ralph version (use "Tooling Commit")
+
+**Last-Known-Good**:
+The most recent Tooling Commit that passed a tick's preflight when `ai-utils` is its own target repository. A tick whose new Tooling Commit fails preflight runs the Last-Known-Good one instead and tells a human, until the base branch passes again. A Superproject has no Last-Known-Good: a pinned commit that fails is refused.
+
 **Iteration**:
 A single fresh-context agent process within a tick. Ralph **never compacts context**: when context fills, the current iteration terminates after writing a Handoff, and the next iteration resumes the same story with clean context. Stories must be sized to fit within a single context window.
 _Avoid_: pass, loop, session (use "iteration")
