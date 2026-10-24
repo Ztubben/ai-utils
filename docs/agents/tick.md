@@ -146,4 +146,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   GitHub's **`workflow` scope** — a push that creates or updates anything under
   `.github/workflows/` is rejected without it (`gh auth refresh -h github.com -s workflow`).
   The push fails at the git layer, so it looks like an ordinary Attempt failure rather than
-  a permissions problem; check the scope before chasing the diff.
+  a permissions problem; check the scope before chasing the diff. (5) A pull request Ralph does not
+  own, i.e. one built by hand, gets `ralph/model-review` = success from
+  `.github/workflows/model-review-waiver.yml`, which asks `ralph_review.owned_by_ralph(head,
+  body, branching)` (marker, or a head on the Story/Feature branch patterns, so editing the
+  marker out of a Ralph PR's body does not waive it). It runs on every pull request, not
+  just those into `main`: a GitHub stack holds each of its pull requests to `main`'s rules,
+  and hand-built stacks could otherwise only merge by admin bypass.
