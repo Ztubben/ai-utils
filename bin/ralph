@@ -10,6 +10,8 @@
 #   ralph --tooling-commit [CONFIG]  Print the Tooling Commit this checkout's Tick runs (ADR-0009).
 #   ralph --tooling-copy COMMIT REPO  Make sure COMMIT's frozen tooling copy exists; print its path.
 #   ralph --prune-tooling COPIES KEEP...  Remove the frozen tooling copies nothing needs any more.
+#   ralph --fallback-issue fallback FAILED STEP RUNNING TAIL_FILE [CONFIG] | recovered COMMIT [CONFIG]
+#                                 Open/update, or close, the one issue that reports a tooling fallback.
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG] [PRD] [--base]  Print a story's working branch, or its
 #                                 pull-request base with --base (ADR-0006).
@@ -62,6 +64,8 @@ usage: ralph --init [CONFIG]
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
        ralph --prune-tooling COPIES KEEP...
+       ralph --fallback-issue fallback FAILED STEP RUNNING TAIL_FILE [CONFIG]
+       ralph --fallback-issue recovered COMMIT [CONFIG]
        ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG] [PRD] [--base]
        ralph --run-gating [CONFIG]
@@ -148,6 +152,12 @@ usage: ralph --init [CONFIG]
        COPIES KEEP...     KEEP commit nor Last-Known-Good and that no running
                           tick holds (its <commit>.lock). Best-effort: a copy
                           that cannot be removed is logged and left. Exits 0.
+  --fallback-issue        Report a self-hosted tick's fallback to Last-Known-Good
+       fallback FAILED    (#149): open the one marked issue (no state: label,
+       STEP RUNNING       tagging notify.github) naming the failing commit, the
+       TAIL_FILE [CONFIG] failed step, its output tail and the running commit, or
+                          update it if it is open. `recovered COMMIT` comments
+                          and closes it. Exits 0, or 1 on a gh failure.
   --ready-features [PATH] Scan the backlog and print, one per line, the PRD
                           numbers eligible for the Feature completion pass
                           (ADR-0006): open, prd + state:ready, at least one
@@ -538,6 +548,10 @@ main() {
     --prune-tooling)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_tooling.py" prune "$@"
+      ;;
+    --fallback-issue)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_fallback.py" "$@"
       ;;
     --ready-features)
       shift

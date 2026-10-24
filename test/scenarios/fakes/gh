@@ -263,9 +263,24 @@ def cmd_issue(state, args):
         issue = get_issue(state, number)
         comment = add_comment(state, issue, "issues", issue["number"], opts["--body"])
         return print(comment["url"])
+    if sub == "create":
+        _, opts = parse(rest, ("--title", "--body"), multi=("--label",))
+        number = max([state["next_number"]] + [int(n) + 1 for n in state["issues"]]
+                     + [int(n) + 1 for n in state["pulls"]])
+        state["next_number"] = number + 1
+        labels = [n for v in opts["--label"] for n in v.split(",")]
+        for name in labels:
+            _ensure_label(state, name)
+        issue = {"number": number, "title": opts["--title"], "body": opts["--body"],
+                 "state": "OPEN", "labels": labels, "comments": [],
+                 "url": _url(state, "issues", number)}
+        state["issues"][str(number)] = issue
+        return print(issue["url"])
     if sub == "edit":
-        (number,), opts = parse(rest, (), multi=("--add-label", "--remove-label"))
+        (number,), opts = parse(rest, ("--body",), multi=("--add-label", "--remove-label"))
         issue = get_issue(state, number)
+        if opts.get("--body") is not None:
+            issue["body"] = opts["--body"]
         adds = [n for v in opts["--add-label"] for n in v.split(",")]
         removes = [n for v in opts["--remove-label"] for n in v.split(",")]
         for name in adds:

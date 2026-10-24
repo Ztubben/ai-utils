@@ -76,8 +76,9 @@ TOOLING_MOUNT="${RALPH_TOOLING_MOUNT:-}"
 # Set when this is Last-Known-Good, run because the Tooling Commit failed (#148).
 TOOLING_FAILED="${RALPH_TOOLING_FAILED:-}"
 TOOLING_FAILED_STEP_NAME="${RALPH_TOOLING_FAILED_STEP:-}"
+TOOLING_FAILED_OUTPUT="${RALPH_TOOLING_FAILED_TAIL:-}"
 unset RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT \
-      RALPH_TOOLING_FAILED RALPH_TOOLING_FAILED_STEP
+      RALPH_TOOLING_FAILED RALPH_TOOLING_FAILED_STEP RALPH_TOOLING_FAILED_TAIL
 
 # Read the configured base branch from .ralph.yml (default 'main').
 # Called once per tick after config validation; cached in BASE_BRANCH.
@@ -541,7 +542,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling; do
+  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -613,6 +614,30 @@ hold_copy() {
   flock -s -w 120 8
 }
 
+# Tell the operator about a fallback through one issue, and close it once main
+# passes again (#149). Best-effort: GitHub being down must not stop the tick
+# that is keeping the Loop alive. `fallback-open` remembers that an issue may be
+# open, so a healthy tick asks GitHub nothing; it goes once the close worked.
+report_fallback() {
+  local copies="$1" flag="$1/fallback-open" tail_file
+  [[ "$TOOLING_KIND" == self-hosted ]] || return 0
+  if [[ -n "$TOOLING_FAILED" ]]; then
+    : >"$flag" || true
+    tail_file="$(mktemp)"
+    printf '%s\n' "$TOOLING_FAILED_OUTPUT" >"$tail_file"
+    "$RALPH_BIN" --fallback-issue fallback "$TOOLING_FAILED" "$TOOLING_FAILED_STEP_NAME" \
+      "$TOOLING_COMMIT" "$tail_file" "$RALPH_CONFIG" \
+      || log "could not report the fallback on its issue; continuing"
+    rm -f "$tail_file"
+  elif [[ -e "$flag" ]]; then
+    if "$RALPH_BIN" --fallback-issue recovered "$TOOLING_COMMIT" "$RALPH_CONFIG"; then
+      rm -f "$flag"
+    else
+      log "could not close the fallback issue; the next tick retries"
+    fi
+  fi
+}
+
 # Lock and make COMMIT's copy (fd 8, see hold_copy); sets COPY.
 COPY=""
 prepare_copy() {
@@ -659,7 +684,7 @@ freeze_tooling() {
     unset RALPH_CLI
     exec "$COPY/bin/ralph.sh" "$@"
   fi
-  local step="$TOOLING_FAILED_STEP"
+  local step="$TOOLING_FAILED_STEP" tail="$TOOLING_FAILED_TAIL"
   log "the Tooling Commit $commit fails preflight at the $step:"
   printf '%s\n' "$TOOLING_FAILED_TAIL"
   if [[ "$kind" == superproject ]]; then
@@ -679,7 +704,8 @@ freeze_tooling() {
   fi
   log "falling back to Last-Known-Good $lkg: the Tooling Commit $commit fails preflight at the $step"
   export RALPH_TOOLING_COMMIT="$lkg" RALPH_TOOLING_KIND="$kind" RALPH_TOOLING_MOUNT="$mount" \
-         RALPH_TOOLING_FAILED="$commit" RALPH_TOOLING_FAILED_STEP="$step"
+         RALPH_TOOLING_FAILED="$commit" RALPH_TOOLING_FAILED_STEP="$step" \
+         RALPH_TOOLING_FAILED_TAIL="$tail"
   unset RALPH_CLI
   exec "$COPY/bin/ralph.sh" "$@"
 }
@@ -718,10 +744,13 @@ tick() {
 
   # --- prune the frozen copies nothing needs any more (#147; best-effort) ---
   if [[ -n "$TOOLING_COMMIT" ]]; then
+    local copies
+    copies="$(cd "$SCRIPT_DIR/../.." && pwd)"
     # A failing Tooling Commit is still the current one: kept, to be retried.
-    "$RALPH_BIN" --prune-tooling "$(cd "$SCRIPT_DIR/../.." && pwd)" "$TOOLING_COMMIT" \
+    "$RALPH_BIN" --prune-tooling "$copies" "$TOOLING_COMMIT" \
       ${TOOLING_FAILED:+"$TOOLING_FAILED"} \
       || log "could not prune the frozen tooling copies; continuing"
+    report_fallback "$copies"
   fi
 
   # --- read the base branch once (for freshness merges) ---
