@@ -9,6 +9,7 @@
 #   ralph --run                   Run one unattended tick (bin/ralph.sh): select, work, promote.
 #   ralph --tooling-commit [CONFIG]  Print the Tooling Commit this checkout's Tick runs (ADR-0009).
 #   ralph --tooling-copy COMMIT REPO  Make sure COMMIT's frozen tooling copy exists; print its path.
+#   ralph --prune-tooling COPIES KEEP...  Remove the frozen tooling copies nothing needs any more.
 #   ralph --ready-features [PATH] List PRDs eligible for the Feature completion pass (ADR-0006).
 #   ralph --branch-name STORY [CONFIG] [PRD] [--base]  Print a story's working branch, or its
 #                                 pull-request base with --base (ADR-0006).
@@ -60,6 +61,7 @@ usage: ralph --init [CONFIG]
        ralph --run
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
+       ralph --prune-tooling COPIES KEEP...
        ralph --ready-features [PATH]
        ralph --branch-name STORY [CONFIG] [PRD] [--base]
        ralph --run-gating [CONFIG]
@@ -132,7 +134,7 @@ usage: ralph --init [CONFIG]
                           sequence, promoting green ones, until no eligible work
                           remains. Extra arguments are passed through.
   --tooling-commit        Print the Tooling Commit the Tick runs (ADR-0009) as
-       [CONFIG]           "KIND COMMIT REPO MOUNT": origin/<base> after a fetch
+       [CONFIG]           "KIND COMMIT REPO MOUNT COPIES": origin/<base> after a fetch
                           when ai-utils is the checkout root (self-hosted), the
                           gitlink in origin/<base>'s tree in a Superproject.
                           Prints "unfrozen" when ai-utils is installed outside
@@ -142,6 +144,10 @@ usage: ralph --init [CONFIG]
        COMMIT REPO        worktree of REPO in its git common directory) exists,
                           creating it once, and print its path. Exits 2 when it
                           cannot be created.
+  --prune-tooling         Remove every frozen copy in COPIES that is neither a
+       COPIES KEEP...     KEEP commit nor Last-Known-Good and that no running
+                          tick holds (its <commit>.lock). Best-effort: a copy
+                          that cannot be removed is logged and left. Exits 0.
   --ready-features [PATH] Scan the backlog and print, one per line, the PRD
                           numbers eligible for the Feature completion pass
                           (ADR-0006): open, prd + state:ready, at least one
@@ -528,6 +534,10 @@ main() {
     --tooling-copy)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_tooling.py" copy "$@"
+      ;;
+    --prune-tooling)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_tooling.py" prune "$@"
       ;;
     --ready-features)
       shift

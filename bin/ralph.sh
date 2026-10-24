@@ -538,7 +538,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories; do
+  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -600,6 +600,16 @@ preflight_copy() {
   return "$rc"
 }
 
+# Hold COMMIT's copy for as long as this tick runs from it (#147): fd 8 is its
+# lock, shared, kept across the exec. Pruning takes it exclusively, so a copy in
+# use is never removed, and a copy being removed is waited for, then recreated.
+hold_copy() {
+  local copies="$1" commit="$2"
+  mkdir -p "$copies" || return 1
+  exec 8>"$copies/$commit.lock" || return 1
+  flock -s -w 120 8
+}
+
 # Freeze the tooling (ADR-0009): resolve the Tooling Commit, make sure its copy
 # exists, preflight it, and exec the copy's tick -- once, with the lock (fd 9)
 # still held, because the exec keeps the open file. Returns 0 to tick unfrozen
@@ -612,8 +622,12 @@ freeze_tooling() {
     return 2
   }
   [[ "$line" == unfrozen ]] && return 0
-  read -r kind commit repo mount <<<"$line"
+  read -r kind commit repo mount copies <<<"$line"
   [[ "$mount" == - ]] && mount=""
+  if ! hold_copy "$copies" "$commit"; then
+    log "cannot lock the frozen copy of Tooling Commit $commit; refusing to tick"
+    return 2
+  fi
   if ! copy="$("$RALPH_BIN" --tooling-copy "$commit" "$repo")"; then
     log "cannot make the frozen copy of Tooling Commit $commit; refusing to tick"
     return 2
@@ -662,6 +676,12 @@ tick() {
   fi
 
   preflight || return $?
+
+  # --- prune the frozen copies nothing needs any more (#147; best-effort) ---
+  if [[ -n "$TOOLING_COMMIT" ]]; then
+    "$RALPH_BIN" --prune-tooling "$(cd "$SCRIPT_DIR/../.." && pwd)" "$TOOLING_COMMIT" \
+      || log "could not prune the frozen tooling copies; continuing"
+  fi
 
   # --- read the base branch once (for freshness merges) ---
   local base_branch rc=0

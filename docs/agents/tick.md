@@ -62,6 +62,18 @@ for the code it touches. Add a new learning here, in the file that owns it.
   git), and the scenario worlds `pointer_drift` (`mount_ai_utils: moved`: the checkout
   under the pin cannot select work, and the pin still runs) and
   `pointer_pin_fails_preflight` (`broken-pin`).
+- **Pruning frozen copies** (#147). The pre-freeze tick takes `<copies>/<commit>.lock`
+  **shared** on fd 8 (`hold_copy`) *before* it makes the copy, and the exec carries it,
+  so a tick holds its copy for as long as it runs. After its preflight the frozen tick
+  runs `ralph --prune-tooling <copies> <commit>`: `ralph_tooling.prune` takes every
+  candidate's lock **exclusively** (non-blocking; a lock it cannot get is a copy in use),
+  asks the pure `prune_plan(copies, keep, last_known_good, in_use)`, and removes what it
+  names while still holding those locks, so a tick that wants a copy back waits and then
+  recreates it. Best-effort: a copy it cannot remove is logged and retried by a later
+  tick. GOTCHAS: (1) the lock files are never deleted: unlinking one would let a later
+  tick lock a fresh file while an earlier one still holds the old inode. (2) `git
+  worktree remove` runs from a copy that stays (a worktree of the same repository),
+  never from inside the git directory.
 - **The Story's branch before any git** (#121). A `start`/`resume` resolves the Story's branch
   and what it is cut from with `ralph --branch-name` (the iterate prompt's own CLI; a Feature
   Story's PRD is fetched for it), then `checkout_story_branch` puts the checkout there: hard-
