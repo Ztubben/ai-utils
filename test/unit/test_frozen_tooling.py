@@ -1,5 +1,6 @@
 """Every Tick runs an immutable copy of its Tooling Commit (#146, ADR-0009),
-and copies nothing needs any more are pruned (#147).
+copies nothing needs any more are pruned (#147), and a self-hosted Tick whose
+new `main` fails preflight falls back to the Last-Known-Good one (#148).
 
 The pure half -- where the running ai-utils sits, and which commit is the
 Tooling Commit -- is tested directly. The rest runs the real `bin/ralph.sh`, as
@@ -385,15 +386,23 @@ class FrozenCopiesAreBounded(unittest.TestCase):
         self.assertNotIn(w.copy(old), self.worktrees(w))
         self.assertTrue(os.path.isdir(w.copy(new)))
 
-    def test_the_last_known_good_copy_is_never_pruned(self):
-        w, old, new = self.upgraded()
-        with open(os.path.join(w.checkout, ".git", "ralph-tooling", "last-known-good"),
-                  "w") as fh:
-            fh.write(old + "\n")
-        proc = w.tick()
-        self.assertEqual(proc.returncode, 0, proc.stdout)
-        self.assertTrue(os.path.isdir(w.copy(old)))
-        self.assertNotIn("pruned", proc.stdout)
+    def test_the_current_and_last_known_good_copies_are_never_pruned(self):
+        w, old, good = self.upgraded()
+        w.tick()                                    # good passes: Last-Known-Good
+        bad = w.merge_to_main("schema/ralph.schema.json", "not json\n")
+        proc = w.tick()                             # bad fails: good runs instead
+        self.assertIn("falling back to Last-Known-Good %s" % good, proc.stdout)
+        self.assertFalse(os.path.exists(w.copy(old)))
+        self.assertTrue(os.path.isdir(w.copy(good)))
+        self.assertTrue(os.path.isdir(w.copy(bad)))
+        # With no tick running, keeping only the current commit still spares
+        # Last-Known-Good.
+        copies = os.path.join(w.checkout, ".git", "ralph-tooling")
+        subprocess.run([os.path.join(w.checkout, "bin", "ralph"), "--prune-tooling",
+                        copies, bad], cwd=w.checkout, env=w.env(), check=True,
+                       stdout=subprocess.PIPE)
+        self.assertTrue(os.path.isdir(w.copy(good)))
+        self.assertTrue(os.path.isdir(w.copy(bad)))
 
     def test_a_copy_a_running_tick_holds_is_never_pruned(self):
         w, old, new = self.upgraded()
@@ -422,6 +431,94 @@ class FrozenCopiesAreBounded(unittest.TestCase):
         os.chmod(stuck, 0o755)
         proc = w.tick()
         self.assertIn("pruned the frozen copy of %s" % old, proc.stdout)
+
+
+# A merge that leaves `main` unable to pass preflight: no config validates.
+BREAK_SCHEMA = ("schema/ralph.schema.json", "not json\n")
+
+
+class SelfHostedTicksFallBackToLastKnownGood(unittest.TestCase):
+    """#148: one bad merge cannot brick the Loop that would fix it."""
+
+    def world(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return SelfHostedWorld(tmp)
+
+    def lkg(self, w):
+        with open(os.path.join(w.checkout, ".git", "ralph-tooling", "last-known-good")) as fh:
+            return fh.read().strip()
+
+    def test_a_commit_that_passes_preflight_is_last_known_good(self):
+        w = self.world()
+        self.assertEqual(w.tick().returncode, 0)
+        self.assertEqual(self.lkg(w), w.rev("origin/main"))
+
+    def test_a_failing_main_runs_last_known_good_and_works_the_backlog(self):
+        w = self.world()
+        good = w.rev("origin/main")
+        w.tick()
+        bad = w.merge_to_main(*BREAK_SCHEMA)
+        w.set_backlog([ready_story()])
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("falling back to Last-Known-Good %s: the Tooling Commit %s fails "
+                      "preflight at the config check" % (good, bad), proc.stdout)
+        self.assertIn("running Last-Known-Good %s from %s" % (good, w.copy(good)),
+                      proc.stdout)
+        self.assertIn("gh issue edit 7 --add-label state:in-progress --remove-label "
+                      "state:ready", w.log_lines())
+        agent = [ln for ln in w.log_lines() if " ralph=" in ln]
+        self.assertTrue(agent, proc.stdout)
+        self.assertTrue(all(ln.endswith(os.path.join(w.copy(good), "bin", "ralph"))
+                            for ln in agent), agent)
+        self.assertEqual(self.lkg(w), good)
+        # The failing commit is the current one: kept, to be retried.
+        self.assertTrue(os.path.isdir(w.copy(bad)))
+
+    def test_every_tick_retries_main_and_a_fix_becomes_last_known_good(self):
+        w = self.world()
+        good = w.rev("origin/main")
+        w.tick()
+        bad = w.merge_to_main(*BREAK_SCHEMA)
+        w.tick()
+        proc = w.tick()
+        self.assertIn("the Tooling Commit %s fails preflight" % bad, proc.stdout)
+        self.assertIn("falling back to Last-Known-Good %s" % good, proc.stdout)
+        w.git("pull", "-q", "--ff-only", cwd=w.upstream)
+        w.git("checkout", "-q", good, "--", "schema", cwd=w.upstream)
+        w.git("commit", "-q", "-m", "fix the schema", cwd=w.upstream)
+        w.git("push", "-q", "origin", "main", cwd=w.upstream)
+        fixed = w.rev("HEAD", cwd=w.upstream)
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertNotIn("falling back", proc.stdout)
+        self.assertIn("running the self-hosted Tooling Commit %s" % fixed, proc.stdout)
+        self.assertEqual(self.lkg(w), fixed)
+
+    def test_with_no_last_known_good_a_failing_main_is_refused(self):
+        w = self.world()
+        bad = w.merge_to_main(*BREAK_SCHEMA)
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("Tooling Commit %s fails preflight at the config check, and there "
+                      "is no Last-Known-Good" % bad, proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(w.checkout, ".git", "ralph-tooling",
+                                                     "last-known-good")))
+
+    def test_a_last_known_good_that_fails_too_is_refused_naming_both(self):
+        w = self.world()
+        good = w.rev("origin/main")
+        w.tick()
+        bad = w.merge_to_main(*BREAK_SCHEMA)
+        # The repository's own config breaks, which no tooling can pass.
+        with open(os.path.join(w.checkout, ".ralph.yml"), "a") as fh:
+            fh.write("no_such_key: true\n")
+        proc = w.tick()
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("Tooling Commit %s fails preflight at the config check, and "
+                      "Last-Known-Good %s fails at the config check too" % (bad, good),
+                      proc.stdout)
 
 
 if __name__ == "__main__":

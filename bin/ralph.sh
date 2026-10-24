@@ -73,8 +73,11 @@ log() { printf 'ralph: %s\n' "$*"; }
 TOOLING_COMMIT="${RALPH_TOOLING_COMMIT:-}"
 TOOLING_KIND="${RALPH_TOOLING_KIND:-}"
 TOOLING_MOUNT="${RALPH_TOOLING_MOUNT:-}"
-export -n RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT 2>/dev/null || true
-unset RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT
+# Set when this is Last-Known-Good, run because the Tooling Commit failed (#148).
+TOOLING_FAILED="${RALPH_TOOLING_FAILED:-}"
+TOOLING_FAILED_STEP_NAME="${RALPH_TOOLING_FAILED_STEP:-}"
+unset RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT \
+      RALPH_TOOLING_FAILED RALPH_TOOLING_FAILED_STEP
 
 # Read the configured base branch from .ralph.yml (default 'main').
 # Called once per tick after config validation; cached in BASE_BRANCH.
@@ -610,13 +613,34 @@ hold_copy() {
   flock -s -w 120 8
 }
 
+# Lock and make COMMIT's copy (fd 8, see hold_copy); sets COPY.
+COPY=""
+prepare_copy() {
+  local commit="$1" repo="$2" copies="$3"
+  COPY=""
+  if ! hold_copy "$copies" "$commit"; then
+    log "cannot lock the frozen copy of $commit; refusing to tick"
+    return 2
+  fi
+  if ! COPY="$("$RALPH_BIN" --tooling-copy "$commit" "$repo")"; then
+    log "cannot make the frozen copy of $commit; refusing to tick"
+    return 2
+  fi
+}
+
 # Freeze the tooling (ADR-0009): resolve the Tooling Commit, make sure its copy
 # exists, preflight it, and exec the copy's tick -- once, with the lock (fd 9)
 # still held, because the exec keeps the open file. Returns 0 to tick unfrozen
 # (ai-utils is installed outside the checkout, or drift is allowed), non-zero
 # to refuse; on success it never returns.
+#
+# Self-hosted, a commit that passes preflight becomes Last-Known-Good (#148),
+# and a new origin/<base> that fails runs Last-Known-Good instead: one bad merge
+# must not brick the Loop that would fix it. The failing commit is tried again
+# on every tick. A Superproject never falls back: its pin is the contract, so a
+# failing pin is refused, naming it.
 freeze_tooling() {
-  local line kind commit repo mount copy
+  local line kind commit repo mount copies lkg
   line="$("$RALPH_BIN" --tooling-commit "$RALPH_CONFIG")" || {
     log "cannot resolve the Tooling Commit; refusing to tick"
     return 2
@@ -624,27 +648,40 @@ freeze_tooling() {
   [[ "$line" == unfrozen ]] && return 0
   read -r kind commit repo mount copies <<<"$line"
   [[ "$mount" == - ]] && mount=""
-  if ! hold_copy "$copies" "$commit"; then
-    log "cannot lock the frozen copy of Tooling Commit $commit; refusing to tick"
-    return 2
-  fi
-  if ! copy="$("$RALPH_BIN" --tooling-copy "$commit" "$repo")"; then
-    log "cannot make the frozen copy of Tooling Commit $commit; refusing to tick"
-    return 2
-  fi
-  if ! preflight_copy "$copy" "$commit" "$kind" "$mount"; then
-    log "the Tooling Commit $commit fails preflight at the $TOOLING_FAILED_STEP:"
-    printf '%s\n' "$TOOLING_FAILED_TAIL"
-    if [[ "$kind" == superproject ]]; then
-      log "the ai-utils pinned at $mount ($commit) fails preflight at the $TOOLING_FAILED_STEP; refusing to tick"
-    else
-      log "the ai-utils Tooling Commit $commit fails preflight at the $TOOLING_FAILED_STEP; refusing to tick"
+  prepare_copy "$commit" "$repo" "$copies" || return $?
+  if preflight_copy "$COPY" "$commit" "$kind" "$mount"; then
+    if [[ "$kind" == self-hosted ]]; then
+      printf '%s\n' "$commit" >"$copies/last-known-good.tmp" \
+        && mv -f "$copies/last-known-good.tmp" "$copies/last-known-good" \
+        || log "could not record $commit as Last-Known-Good; continuing"
     fi
+    export RALPH_TOOLING_COMMIT="$commit" RALPH_TOOLING_KIND="$kind" RALPH_TOOLING_MOUNT="$mount"
+    unset RALPH_CLI
+    exec "$COPY/bin/ralph.sh" "$@"
+  fi
+  local step="$TOOLING_FAILED_STEP"
+  log "the Tooling Commit $commit fails preflight at the $step:"
+  printf '%s\n' "$TOOLING_FAILED_TAIL"
+  if [[ "$kind" == superproject ]]; then
+    log "the ai-utils pinned at $mount ($commit) fails preflight at the $step; refusing to tick"
     return 2
   fi
-  export RALPH_TOOLING_COMMIT="$commit" RALPH_TOOLING_KIND="$kind" RALPH_TOOLING_MOUNT="$mount"
+  lkg="$(cat "$copies/last-known-good" 2>/dev/null || true)"
+  if [[ -z "$lkg" || "$lkg" == "$commit" ]]; then
+    log "the ai-utils Tooling Commit $commit fails preflight at the $step, and there is no Last-Known-Good to fall back to; refusing to tick"
+    return 2
+  fi
+  prepare_copy "$lkg" "$repo" "$copies" || return $?
+  if ! preflight_copy "$COPY" "$lkg" "$kind" "$mount"; then
+    printf '%s\n' "$TOOLING_FAILED_TAIL"
+    log "the ai-utils Tooling Commit $commit fails preflight at the $step, and Last-Known-Good $lkg fails at the $TOOLING_FAILED_STEP too; refusing to tick"
+    return 2
+  fi
+  log "falling back to Last-Known-Good $lkg: the Tooling Commit $commit fails preflight at the $step"
+  export RALPH_TOOLING_COMMIT="$lkg" RALPH_TOOLING_KIND="$kind" RALPH_TOOLING_MOUNT="$mount" \
+         RALPH_TOOLING_FAILED="$commit" RALPH_TOOLING_FAILED_STEP="$step"
   unset RALPH_CLI
-  exec "$copy/bin/ralph.sh" "$@"
+  exec "$COPY/bin/ralph.sh" "$@"
 }
 
 tick() {
@@ -671,6 +708,8 @@ tick() {
   # --- frozen tooling: run an immutable copy of the Tooling Commit (ADR-0009) ---
   if [[ -z "$TOOLING_COMMIT" ]]; then
     freeze_tooling "$@" || return $?
+  elif [[ -n "$TOOLING_FAILED" ]]; then
+    log "tooling: running Last-Known-Good $TOOLING_COMMIT from $(cd "$SCRIPT_DIR/.." && pwd); the Tooling Commit $TOOLING_FAILED fails preflight at the $TOOLING_FAILED_STEP_NAME"
   else
     log "tooling: running the $TOOLING_KIND Tooling Commit $TOOLING_COMMIT from $(cd "$SCRIPT_DIR/.." && pwd)"
   fi
@@ -679,7 +718,9 @@ tick() {
 
   # --- prune the frozen copies nothing needs any more (#147; best-effort) ---
   if [[ -n "$TOOLING_COMMIT" ]]; then
+    # A failing Tooling Commit is still the current one: kept, to be retried.
     "$RALPH_BIN" --prune-tooling "$(cd "$SCRIPT_DIR/../.." && pwd)" "$TOOLING_COMMIT" \
+      ${TOOLING_FAILED:+"$TOOLING_FAILED"} \
       || log "could not prune the frozen tooling copies; continuing"
   fi
 
