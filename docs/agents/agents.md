@@ -59,8 +59,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   healing forward all keep what the story carries and leave the phase alone — otherwise a
   resume would consume the swap the next new story is owed, or worse, swap a story's model
   midway. (2) The phase advances **after** `run_plan` succeeds, so a gh outage cannot burn a
-  swap. (3) The phase is loop-local state under the target repository's git dir (next to the
-  tick lock, `state_path` follows a `gitdir:` gitlink), never the working tree and never the
+  swap. (3) The phase is loop-local state in the target repository's git **common** dir
+  (next to the per-Slot tick lock; `state_path` follows a `gitdir:` gitlink and then the
+  `commondir` file a linked worktree carries, so every Slot of one clone reads one phase --
+  #134), never the working tree and never the
   backlog; a missing/damaged file or a checkout with no git dir degrades to "start over" /
   "never alternate" rather than failing a tick — it is a balance heuristic, not a
   correctness invariant. (4) The swap happens before the labels are built, so what the story

@@ -16,8 +16,9 @@ half-assigned Story (a crash between the two label writes) heals forward for the
 same reason -- it already started, so it is not a fresh pair.
 
 The phase is one integer -- the number of pairs assigned so far -- and the order
-is its parity. It is durable but **loop-local**: it lives under the target
-repository's git dir, next to the tick lock, so it survives across ticks without
+is its parity. It is durable but **loop-local**: it lives in the target
+repository's git *common* directory, next to the per-Slot tick lock -- so every
+Slot of one clone reads one phase -- and it survives across ticks without
 entering the working tree or the backlog. It is a balance heuristic, not a
 correctness invariant, so a missing or damaged state file starts the alternation
 over rather than failing a tick, and a checkout with no git dir simply never
@@ -29,7 +30,7 @@ ordering and its state, and imports nothing from the rest of the loop.
 import json
 import os
 
-# One integer under the git dir: `{"version": 1, "phase": N}`.
+# One integer in the git common dir: `{"version": 1, "phase": N}`.
 STATE_VERSION = 1
 STATE_DIR_NAME = "ralph"
 STATE_FILE_NAME = "alternation"
@@ -84,12 +85,35 @@ def git_dir(root=None):
     return None
 
 
-def state_path(root=None):
-    """Where the alternation phase is recorded, or None when nowhere durable."""
+def common_dir(root=None):
+    """The clone's git *common* directory: the git dir itself in the main
+    worktree, and the directory it points at from a Slot (ADR-0008, #134).
+
+    The phase has to be one per clone, not one per worktree, or each Slot of a
+    machine would alternate on its own and the pair would stop being balanced.
+    Read from the `commondir` file git leaves in a linked worktree's git dir, so
+    this module still decides from files alone and never runs git.
+    """
     gd = git_dir(root)
     if gd is None:
         return None
-    return os.path.join(gd, STATE_DIR_NAME, STATE_FILE_NAME)
+    try:
+        with open(os.path.join(gd, "commondir")) as fh:
+            pointed = fh.readline().strip()
+    except OSError:
+        return gd
+    if not pointed:
+        return gd
+    return os.path.normpath(pointed if os.path.isabs(pointed)
+                            else os.path.join(gd, pointed))
+
+
+def state_path(root=None):
+    """Where the alternation phase is recorded, or None when nowhere durable."""
+    common = common_dir(root)
+    if common is None:
+        return None
+    return os.path.join(common, STATE_DIR_NAME, STATE_FILE_NAME)
 
 
 def read_phase(path):
