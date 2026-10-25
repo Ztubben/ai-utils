@@ -8,6 +8,41 @@ import invariants
 
 
 class SeveralSlots(unittest.TestCase):
+    def test_operator_branch_is_skipped_without_mutation_then_resumes(self):
+        for state in ('state:ready', 'state:in-progress'):
+            with self.subTest(state=state):
+                spec = harness.load('two_slots_different_stories')
+                spec['github']['issues'][0]['labels'] = ['type:afk', 'prio:1', state]
+                world = harness.World(spec)
+                self.addCleanup(world.cleanup)
+                branch = 'ralph/1-add-the-greeting'
+                subprocess.run(['git', 'checkout', '-q', '-b', branch],
+                               cwd=world.checkout, env=world.env, check=True)
+                before = world.state()['issues']['1']
+                watch = invariants.Watch(world)
+                proc = world.tick()
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn('#1', proc.stdout)
+                self.assertIn(world.checkout, proc.stdout)
+                self.assertIn('skipping', proc.stdout)
+                self.assertEqual(world.state()['issues']['1'], before)
+                self.assertEqual(world.state()['issues']['2']['state'], 'CLOSED')
+                self.assertEqual(watch.check(), [])
+                refs = subprocess.run(['git', 'ls-remote', 'origin',
+                                       'refs/ralph/claims/*'], cwd=world.checkout,
+                                      env=world.env, check=True, capture_output=True,
+                                      text=True).stdout
+                self.assertEqual(refs, '')
+                self.assertIn('released Claim for #1', proc.stdout)
+                self.assertFalse(any(c.get('story') == 1 and c.get('phase')
+                                     for c in world.calls()))
+                subprocess.run(['git', 'checkout', '-q', '--detach'],
+                               cwd=world.checkout, env=world.env, check=True)
+                proc = world.tick()
+                self.assertEqual(proc.returncode, 0, proc.stdout)
+                self.assertEqual(world.state()['issues']['1']['state'], 'CLOSED')
+                self.assertEqual(watch.check(final=True), [])
+
     def world(self):
         spec = harness.load('two_slots_different_stories')
         world = harness.World(spec)
