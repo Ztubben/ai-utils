@@ -653,7 +653,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claimed-issues --feature-claim --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -892,51 +892,100 @@ tick() {
 # a child process renewing it by compare-and-swap at a fifth of the lease. It
 # is started when the Claim is taken and stopped when the unit ends, and it
 # watches this Tick, so a Tick that is killed outright takes it with it (#137).
+# A unit of work holds up to two Claims -- its issue's (CLAIM_*) and, for a
+# Feature Story, its PRD's (FEATURE_CLAIM_*, #141) -- so both functions take
+# the prefix of the variables they keep the lease in (default CLAIM).
 start_claim_heartbeat() {
-  CLAIM_OID_FILE="$(mktemp "${TMPDIR:-/tmp}/ralph-claim-XXXXXX")"
+  local -n hb_oid="${2:-CLAIM}_OID" hb_file="${2:-CLAIM}_OID_FILE" \
+    hb_pid="${2:-CLAIM}_HEARTBEAT"
+  hb_file="$(mktemp "${TMPDIR:-/tmp}/ralph-claim-XXXXXX")"
   # $$ is this Tick, which is *not* the heartbeat's parent: story work runs in
   # the `work_backlog` subshell, and that subshell survives a kill of the Tick.
   # A heartbeat watching only its parent would go on renewing from there.
   RALPH_TICK_PID=$$ \
-    "$RALPH_BIN" --heartbeat-claim "$1" "$CLAIM_OID" "$RALPH_CONFIG" \
-    >"$CLAIM_OID_FILE" &
-  CLAIM_HEARTBEAT=$!
+    "$RALPH_BIN" --heartbeat-claim "$1" "$hb_oid" "$RALPH_CONFIG" \
+    >"$hb_file" &
+  hb_pid=$!
 }
 
 stop_claim_heartbeat() {
-  [[ -z "${CLAIM_HEARTBEAT:-}" ]] && return 0
+  local -n hb_oid="${1:-CLAIM}_OID" hb_file="${1:-CLAIM}_OID_FILE" \
+    hb_pid="${1:-CLAIM}_HEARTBEAT"
+  [[ -z "${hb_pid:-}" ]] && return 0
   # TERM asks the heartbeat to stop at its next safe point and we wait it out:
   # a renewal already in flight has moved the Claim on origin, and killing it
   # before it reports that object id would leave nothing able to release the
   # ref until it expired. A renewal wedged on the network blocks here exactly
   # as any other git push of this tick would.
-  kill -TERM "$CLAIM_HEARTBEAT" 2>/dev/null || true
-  wait "$CLAIM_HEARTBEAT" 2>/dev/null || true
+  kill -TERM "$hb_pid" 2>/dev/null || true
+  wait "$hb_pid" 2>/dev/null || true
   # Whatever the heartbeat last swapped to *is* the Claim now: releasing it
   # against the value it was taken with would be refused as stale.
   local renewed
-  renewed="$(tail -n 1 "$CLAIM_OID_FILE" 2>/dev/null || true)"
-  [[ -n "$renewed" ]] && CLAIM_OID="$renewed"
-  rm -f "$CLAIM_OID_FILE"
-  CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  renewed="$(tail -n 1 "$hb_file" 2>/dev/null || true)"
+  [[ -n "$renewed" ]] && hb_oid="$renewed"
+  rm -f "$hb_file"
+  hb_pid="" hb_file=""
+}
+
+# One Slot per Feature (#141, ADR-0008): a Feature Story's unit of work also
+# holds its PRD's Claim, unless `concurrency.feature_exclusive` is false. Taken
+# after the Story's own Claim; returns 1 when the PRD is held elsewhere (or
+# the Story cannot be read to tell), so the caller skips the Story.
+claim_story_feature() {
+  local issue="$1" story_file prd
+  story_file="$(mktemp)"
+  if ! gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null \
+     || ! prd="$("$RALPH_BIN" --feature-claim "$story_file" "$RALPH_CONFIG")"; then
+    rm -f "$story_file"
+    log "cannot tell which Feature #$issue belongs to; skipping it for this tick"
+    return 1
+  fi
+  rm -f "$story_file"
+  [[ -z "$prd" ]] && return 0
+  if ! FEATURE_CLAIM_OID="$("$RALPH_BIN" --claim "$prd" "$RALPH_CONFIG")"; then
+    log "could not claim Feature #$prd for #$issue; skipping it for this tick"
+    FEATURE_CLAIM_OID=""
+    return 1
+  fi
+  FEATURE_CLAIM_ISSUE="$prd"
+  start_claim_heartbeat "$prd" FEATURE_CLAIM
 }
 
 # Work eligible stories in sequence, resume-first via the engine. Returns what
 # the tick should exit with; every early end of the tick is a return from here.
 release_story_claim() {
   stop_claim_heartbeat
-  [[ -z "${CLAIM_ISSUE:-}" ]] && return 0
+  stop_claim_heartbeat FEATURE_CLAIM
+  [[ -z "${CLAIM_ISSUE:-}" && -z "${FEATURE_CLAIM_ISSUE:-}" ]] && return 0
   # Free the branch before making the Claim available to another Slot.
   if ! git checkout -q --detach; then
-    log "could not detach the Slot after #$CLAIM_ISSUE"
+    log "could not detach the Slot after #${CLAIM_ISSUE:-$FEATURE_CLAIM_ISSUE}"
     return 2
   fi
-  if ! "$RALPH_BIN" --release-claim "$CLAIM_ISSUE" "$CLAIM_OID"; then
-    log "could not release the Claim for #$CLAIM_ISSUE"
-    return 2
+  # Each release is attempted whatever became of the other: one that fails
+  # must not strand the other Claim until it expires.
+  local rc=0
+  if [[ -n "${CLAIM_ISSUE:-}" ]]; then
+    if "$RALPH_BIN" --release-claim "$CLAIM_ISSUE" "$CLAIM_OID"; then
+      log "released Claim for #$CLAIM_ISSUE; Slot detached"
+      CLAIM_ISSUE="" CLAIM_OID=""
+    else
+      log "could not release the Claim for #$CLAIM_ISSUE"
+      rc=2
+    fi
   fi
-  log "released Claim for #$CLAIM_ISSUE; Slot detached"
-  CLAIM_ISSUE="" CLAIM_OID=""
+  # The Feature's Claim goes last: until it does, no sibling is selectable.
+  if [[ -n "${FEATURE_CLAIM_ISSUE:-}" ]]; then
+    if "$RALPH_BIN" --release-claim "$FEATURE_CLAIM_ISSUE" "$FEATURE_CLAIM_OID"; then
+      log "released Claim for Feature #$FEATURE_CLAIM_ISSUE"
+      FEATURE_CLAIM_ISSUE="" FEATURE_CLAIM_OID=""
+    else
+      log "could not release the Claim for Feature #$FEATURE_CLAIM_ISSUE"
+      rc=2
+    fi
+  fi
+  return "$rc"
 }
 
 # Stop renewal before this compare-and-swap so it cannot race our last-seen
@@ -947,6 +996,11 @@ fence_reconciliation_claim() {
   renewed="$("$RALPH_BIN" --renew-claim "$CLAIM_ISSUE" "$CLAIM_OID" "$RALPH_CONFIG")" || return 1
   CLAIM_OID="$renewed"
   start_claim_heartbeat "$CLAIM_ISSUE"
+  [[ -z "${FEATURE_CLAIM_ISSUE:-}" ]] && return 0
+  stop_claim_heartbeat FEATURE_CLAIM
+  renewed="$("$RALPH_BIN" --renew-claim "$FEATURE_CLAIM_ISSUE" "$FEATURE_CLAIM_OID" "$RALPH_CONFIG")" || return 1
+  FEATURE_CLAIM_OID="$renewed"
+  start_claim_heartbeat "$FEATURE_CLAIM_ISSUE" FEATURE_CLAIM
 }
 
 # Reconciliation owns the same lease lifecycle as Story work. Scope the trap
@@ -956,6 +1010,7 @@ reconcile_with_claim() (
   local issue="$1"
   shift
   CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  FEATURE_CLAIM_ISSUE="" FEATURE_CLAIM_OID="" FEATURE_CLAIM_HEARTBEAT="" FEATURE_CLAIM_OID_FILE=""
   trap 'release_story_claim' EXIT
   trap 'exit 143' TERM
   trap 'exit 130' INT
@@ -965,6 +1020,9 @@ reconcile_with_claim() (
   fi
   CLAIM_ISSUE="$issue"
   start_claim_heartbeat "$issue"
+  # A blocked Feature Story's arbitration is a unit of work on it like any
+  # other; a PRD's own integration claims nothing more.
+  claim_story_feature "$issue" || return 0
   "$@"
 )
 
@@ -972,6 +1030,7 @@ work_backlog() (
   # A subshell scopes the EXIT trap to story work: every early return releases
   # its Claim, before the reconciliation passes run in the parent Tick.
   CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  FEATURE_CLAIM_ISSUE="" FEATURE_CLAIM_OID="" FEATURE_CLAIM_HEARTBEAT="" FEATURE_CLAIM_OID_FILE=""
   trap 'release_story_claim' EXIT
   trap 'exit 143' TERM
   trap 'exit 130' INT
@@ -1013,6 +1072,11 @@ work_backlog() (
         fi
         CLAIM_ISSUE="$issue"
         start_claim_heartbeat "$issue"
+        if ! claim_story_feature "$issue"; then
+          skipped="$skipped $issue"
+          n=$(( n + 1 ))
+          continue
+        fi
         log "$kind #$issue"
         # In Review has resume priority so the negotiation path owns the tick,
         # but it is never more implementation work: wait out the review window
