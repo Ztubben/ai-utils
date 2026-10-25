@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - environment guard
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_failure  # noqa: E402
 import ralph_ledger  # noqa: E402
@@ -499,7 +500,18 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         return ralph_agent.launch_role(config, "implementation", prompt,
                                        story=story)
 
+    lost = []
+
     def publish(answer, new_head, usage_event=None):
+        # Fenced again (#139, F-2): the Implementation Agent has just run, and
+        # an invocation can outlast a lease. Before the push, so a Slot that
+        # lost the Story mid-invocation moves neither its branch nor its
+        # threads.
+        try:
+            ralph_claim.fence_mutation(story.get("number"), root)
+        except ralph_claim.ClaimLost as exc:
+            lost.append(str(exc))
+            return False, ["%s; nothing was pushed or replied" % exc]
         # The push comes first: until the fix is on the remote there is no new
         # head for CI and the next review round to judge, and the replies would
         # describe commits nobody else can see. Never --force -- the invariant
@@ -533,6 +545,11 @@ def respond_to_review(story, pull_request, config, root, comments=None):
     ralph_usage.emit(outcome.usage_event)
     ralph_ledger.record(story.get("number"), outcome.usage_event, cwd=root,
                         comments=comments)
+    if lost:
+        # After the ledger row: the invocation happened and its tokens were
+        # spent, which is the one issue write no Claim covers.
+        sys.stderr.write("REFUSED: respond-review (%s)\n" % lost[0])
+        return ralph_claim.EXIT_CLAIM_LOST
     if outcome.ok:
         print("OK: answered round %s of #%s; %s is now %s"
               % (result.get("round"), story["number"], outcome.head,

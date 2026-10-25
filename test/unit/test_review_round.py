@@ -8,6 +8,7 @@ seams, never how the prompt or the plan is assembled.
 import json
 import os
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -18,6 +19,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_render  # noqa: E402
 import ralph_review_respond  # noqa: E402
@@ -286,7 +288,7 @@ notify:
   github: someone
 """)
 
-    def _provider(self, name, review=None, exit_code=0):
+    def _provider(self, name, review=None, exit_code=0, takeover=None):
         """A mock provider CLI that records its argv, credentials, and prompt."""
         path = self._write(name, "")
         payload = os.path.join(self.root, "%s-review.json" % name)
@@ -302,8 +304,19 @@ notify:
                      'echo \'```json\'\n'
                      'cat "%s"\n'
                      'echo \'```\'\n'
-                     'exit %d\n'
-                     % (name, name, self.root, name, payload, exit_code))
+                     % (name, name, self.root, name, payload))
+            if takeover:
+                # Another Slot takes the Story over while the Review Agent is
+                # still running (#139, F-2): a lid-close whose window is one
+                # invocation long. Nothing after this may reach the Story.
+                fh.write('tree="$(git mktree </dev/null)"\n'
+                         'lease="$(printf \'{"expiry":%s,"holder":"%s:2"}\\n\' '
+                         '"$(( $(date +%s) + 600 ))" "$(hostname)" '
+                         '| git commit-tree "$tree")"\n'
+                         'git push --force origin "$lease:refs/ralph/claims/'
+                         + str(takeover) + '" >/dev/null 2>&1 || '
+                         'echo "TAKEOVER FAILED" >> "$RALPH_LOG"\n')
+            fh.write('exit %d\n' % exit_code)
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def _gh(self, exit_code=0):
@@ -355,10 +368,30 @@ notify:
                 "statusCheckRollup": checks or []}
         return self._write("pr.json", json.dumps(data))
 
-    def run_round(self, story_path=None, pr_path=None, discover=False):
+    def claimable(self, slot="1"):
+        """An `origin` to hold Claims on, with this Slot holding #53's.
+
+        The fence needs a remote: it is a compare-and-swap on a git ref, and
+        `ls-remote` is how it reads the lease (#139).
+        """
+        origin = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, origin, True)
+        self._run("git", "init", "-q", "--bare", origin)
+        self._run("git", "remote", "add", "origin", origin)
+        got = subprocess.run([os.path.join(REPO_ROOT, "bin", "ralph"), "--claim",
+                              "53", ".ralph.yml"], cwd=self.root, text=True,
+                             env=dict(os.environ, RALPH_SLOT=slot),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return origin
+
+    def run_round(self, story_path=None, pr_path=None, discover=False, slot=None):
         env = dict(os.environ, PATH=self.root + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=self.log, GH_TOKEN="secret-token",
                    GITHUB_TOKEN="secret-token")
+        env.pop("RALPH_SLOT", None)
+        if slot:
+            env["RALPH_SLOT"] = slot
         for name in ("RALPH_CLAUDE", "RALPH_CODEX"):
             env.pop(name, None)
         args = [story_path or self.story_file(), ".ralph.yml", self.root]
@@ -385,6 +418,27 @@ notify:
         self.assertIn("repos/{owner}/{repo}/pulls/70/reviews", calls)
         self.assertIn("statuses/" + self.head, calls)
         self.assertIn("F-3", calls)
+
+    def test_a_takeover_while_the_reviewer_runs_publishes_nothing(self):
+        # F-2 of round 1: the dispatcher's fence ran before the round, and a
+        # Review Agent invocation can outlast a lease -- a suspended laptop
+        # being the whole point. The publication asks again, so a Slot that
+        # lost the Story mid-invocation posts no review on it and no record of
+        # one. The token ledger is still written: those tokens were spent.
+        self.claimable()
+        self._provider("claude", self.review(model="claude-opus-5"), takeover=53)
+        self._gh()
+
+        proc, calls = self.run_round(slot="1")
+
+        self.assertEqual(proc.returncode, ralph_claim.EXIT_CLAIM_LOST, proc.stderr)
+        self.assertEqual(calls.count("claude --print"), 1)
+        self.assertNotIn("pulls/70/reviews", calls)
+        self.assertNotIn("statuses/" + self.head, calls)
+        ledger = [ln for ln in calls.splitlines()
+                  if ln.startswith("gh issue comment 53")]
+        self.assertEqual(len(ledger), 1, calls)
+        self.assertIn(socket.gethostname() + ":2", proc.stderr)
 
     def test_a_published_review_is_recorded_on_the_story_for_later_rounds(self):
         self._provider("claude", self.review(model="claude-opus-5"))

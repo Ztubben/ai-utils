@@ -7,6 +7,8 @@ drive the clock and the fetches, so nothing here actually sleeps.
 """
 import json
 import os
+import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -16,6 +18,7 @@ import unittest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
+import ralph_claim  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_wait  # noqa: E402
@@ -491,6 +494,42 @@ class CliAwaitReview(unittest.TestCase):
                      'exit 0\n' % {"r": self.root})
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
+    def claimable(self, slot="1", takeover_on=None):
+        """A repository with an `origin` to hold Claims on (#139).
+
+        With *takeover_on*, the mock `gh` hands the Claim to Slot 2 on its
+        first call of that kind -- a takeover during a poll, after the
+        dispatcher fenced the window's entry and before the step it leads to.
+        """
+        origin = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, origin, True)
+        for args in (("init", "-q", "."), ("init", "-q", "--bare", origin),
+                     ("remote", "add", "origin", origin)):
+            subprocess.run(["git"] + list(args), cwd=self.root, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        got = subprocess.run([os.path.join(REPO_ROOT, "bin", "ralph"), "--claim",
+                              "54", ".ralph.yml"], cwd=self.root, text=True,
+                             env=dict(os.environ, RALPH_SLOT=slot),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        if takeover_on:
+            path = os.path.join(self.root, "gh")
+            with open(path) as fh:
+                script = fh.read()
+            with open(path, "w") as fh:
+                fh.write(script.replace(
+                    'echo "gh $*" >> "$RALPH_LOG"\n',
+                    'echo "gh $*" >> "$RALPH_LOG"\n'
+                    'if [[ "$1 $2" == "%s" && ! -e "%s/took-over" ]]; then\n'
+                    '  : > "%s/took-over"\n'
+                    '  tree="$(git mktree </dev/null)"\n'
+                    '  lease="$(printf \'{"expiry":%%s,"holder":"%%s:2"}\\n\' '
+                    '"$(( $(date +%%s) + 600 ))" "$(hostname)" '
+                    '| git commit-tree "$tree")"\n'
+                    '  git push -q --force origin "$lease:refs/ralph/claims/54"\n'
+                    'fi\n' % (takeover_on, self.root, self.root), 1))
+        return origin
+
     def _provider_that_must_not_run(self):
         for name in ("claude", "codex"):
             path = self._write(name, "")
@@ -499,9 +538,12 @@ class CliAwaitReview(unittest.TestCase):
                          'echo "%s LAUNCHED" >> "$RALPH_LOG"\nexit 1\n' % name)
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
-    def run_await(self):
+    def run_await(self, slot=None):
         env = dict(os.environ, PATH=self.root + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=self.log)
+        env.pop("RALPH_SLOT", None)
+        if slot:
+            env["RALPH_SLOT"] = slot
         for name in ("RALPH_CLAUDE", "RALPH_CODEX"):
             env.pop(name, None)
         proc = subprocess.run(
@@ -532,6 +574,27 @@ class CliAwaitReview(unittest.TestCase):
         self.assertNotIn("LAUNCHED", calls)
         self.assertGreater(calls.count("gh pr view"), 1)  # it polled
         self.assertIn("window", proc.stdout + proc.stderr)
+
+    def test_a_takeover_during_a_poll_stops_the_window_mutating(self):
+        # F-2 of round 1: the window is fenced once, on entry, and then sleeps
+        # between polls -- longer than a lease, if the machine suspends. Every
+        # step it decides on asks the fence again, so a Story taken over
+        # mid-window is neither reviewed nor completed by its former holder.
+        head = "a" * 40
+        marked = ralph_review.MANAGED_PR_MARKER + "\n\nRefs #54\n"
+        self._gh([{"number": 70, "body": marked}],
+                 {"number": 70, "body": marked, "state": "OPEN",
+                  "headRefOid": head, "baseRefOid": "b" * 40,
+                  "reviews": [], "comments": []})
+        self._provider_that_must_not_run()
+        self.claimable(takeover_on="pr list")
+
+        proc, calls = self.run_await(slot="1")
+
+        self.assertEqual(proc.returncode, ralph_claim.EXIT_CLAIM_LOST, proc.stderr)
+        self.assertNotIn("LAUNCHED", calls)
+        self.assertIn(socket.gethostname() + ":2", proc.stderr)
+        self.assertIn("54", proc.stderr)
 
     def test_a_story_whose_pull_request_already_merged_is_closed_not_resumed(self):
         # The #61 stall: completion merged the pull request, then gh failed to

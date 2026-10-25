@@ -11,6 +11,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_failure  # noqa: E402
 import ralph_review  # noqa: E402
@@ -323,6 +324,15 @@ def _cmd_await(rest):
             return []
 
     def act(step, pull_request):
+        # Fenced per step, not once per window (#139, F-2): the entry fence ran
+        # before the first poll, and a window sleeps between polls -- past a
+        # lease, if the machine suspends. Every step here writes: a review, a
+        # response, an escalation, a label, a merge. `ClaimLost` is not caught:
+        # it ends the window at once, through `await_review`, rather than
+        # letting the next poll decide another step on a Story that is no
+        # longer this Slot's.
+        ralph_claim.fence_mutation(story["number"], root,
+                                   validated.config["concurrency"]["claim_ttl"])
         if step == HOLD:
             try:
                 protected = ralph_review_complete.protected_for(
@@ -386,12 +396,19 @@ def _cmd_await(rest):
             return ("(unknown -- the reviewed diff could not be read)",)
 
     policy = WaitPolicy.from_config(validated.config)
-    result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
-                          now=time.monotonic, read_comments=read_comments,
-                          read_protected=read_protected,
-                          approvers=ralph_review_human.approvers_from(
-                              validated.config),
-                          record_attempt=record_attempt)
+    try:
+        result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
+                              now=time.monotonic, read_comments=read_comments,
+                              read_protected=read_protected,
+                              approvers=ralph_review_human.approvers_from(
+                                  validated.config),
+                              record_attempt=record_attempt)
+    except ralph_claim.ClaimLost as exc:
+        # Another Slot holds the Story and its negotiation with it. The unit of
+        # work is over; the Tick reads this code as "Claim lost" and records no
+        # Attempt (#139).
+        sys.stderr.write("REFUSED: await-review (%s)\n" % exc)
+        return ralph_claim.EXIT_CLAIM_LOST
     number = story.get("number", "?")
     if result.kind == EXPIRED:
         print("OK: review window closed after %.0fs on #%s (%d poll%s, %d "
