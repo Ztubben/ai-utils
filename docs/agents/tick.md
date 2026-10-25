@@ -21,11 +21,40 @@ for the code it touches. Add a new learning here, in the file that owns it.
   scopes an EXIT trap in a subshell so every return releases; between units it
   releases before selecting again. It detaches before deleting the Claim so a
   new holder can immediately check out the Story branch. A claim race skips the
-  Story for this Tick without an Attempt. #137 owns expiry takeover and heartbeat;
-  until then existing Claims are conservatively treated as held. #139 owns
+  Story for this Tick without an Attempt. #139 owns
   mutation fencing; `--verify-claim` here is an observational read.
   Covered by `test_claim.py` (real bare remote, two independent clones racing,
   stale release, and a real Tick verifying its Claim from the launched agent).
+
+- **A Claim expires unless renewed** (#137, ADR-0008). `expired(lease, now)` and
+  `heartbeat_interval(ttl)` are pure: a lease is over the instant its `expiry` is
+  *reached*, and a Claim is renewed at `claim_ttl / 5` (the ADR's ten minutes, every
+  two), so four renewals may be lost before it lapses. `--renew-claim ISSUE OID
+  [CONFIG]` swaps a fresh expiry in from the last-seen id and prints the new one;
+  `--heartbeat-claim ISSUE OID [CONFIG]` does that on every interval and prints every
+  id it swaps to. `--claim` now *takes over* a Claim whose expiry has passed, by
+  compare-and-swap from the id it observed it at, so a crashed or suspended Slot
+  releases its issue within one lease and two Slots taking over at once still yield
+  one winner; `--claimed-issues` leaves expired Claims out for the same reason. The
+  Tick's `start_claim_heartbeat` runs one child per unit of work, next to the Claim
+  it renews, and `stop_claim_heartbeat` ends it before the release. GOTCHAS: (1) a
+  renewal makes the id the Claim was *taken* with stale, so `stop_claim_heartbeat`
+  adopts the last id the child printed as `CLAIM_OID`; releasing against the old one
+  is refused and would strand the ref until it expired. That is why the child's
+  stdout is a temp file: it must never be a command substitution's pipe, which the
+  Tick would then block on. `stop_claim_heartbeat` therefore sends TERM and *waits*:
+  the heartbeat treats TERM as a request to stop at its next safe point, because a
+  renewal origin has already accepted but not yet printed would leave the ref
+  releasable by nobody until it expired. (2) The heartbeat watches two processes and
+  stops when either goes — the process that started it, and the Tick named by
+  `RALPH_TICK_PID` (`$$`, which inside `work_backlog` is the Tick and not the
+  subshell that is the heartbeat's actual parent). A Tick killed outright runs no
+  trap and its `work_backlog` subshell survives it, and an orphan still renewing
+  would lock its issue away from every Slot for as long as the machine stays up — so
+  it sleeps in `POLL` slices rather than one long sleep. A heartbeat run by hand
+  without `RALPH_TICK_PID` watches its parent alone. (3) Renewal reads nothing
+  from the remote: the compare-and-swap *is* the check, so a holder that has lost its
+  Claim fails and the new holder's lease is left intact.
 
 - `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
   the TDD/gating happen inside the `claude` iteration it launches (driven by

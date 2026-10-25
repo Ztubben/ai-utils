@@ -66,6 +66,8 @@ usage: ralph --init [CONFIG]
        ralph --slot
        ralph --slot-ensure PATH [COMMITISH]
        ralph --claim ISSUE [CONFIG]
+       ralph --renew-claim ISSUE OID [CONFIG]
+       ralph --heartbeat-claim ISSUE OID [CONFIG]
        ralph --release-claim ISSUE OID
        ralph --verify-claim ISSUE
        ralph --claimed-issues
@@ -135,7 +137,16 @@ usage: ralph --init [CONFIG]
                           - for stdin) against the canonical Ralph backlog
                           format. Exits 0 when canonical, non-zero (reporting
                           the offending fields) otherwise.
-  --claim ISSUE [CONFIG]  Acquire a Story Claim on origin; print its object id.
+  --claim ISSUE [CONFIG]  Acquire a Story Claim on origin (taking over one whose
+                          lease has expired); print its object id.
+  --renew-claim ISSUE OID [CONFIG]
+                          Advance the lease from the last-seen object id; print
+                          the new one.
+  --heartbeat-claim ISSUE OID [CONFIG]
+                          Renew the Claim for as long as this process' parent
+                          and the Tick named by RALPH_TICK_PID (its parent, if
+                          unset) live, printing each object id it swaps to. It
+                          stops on TERM, never mid-renewal.
   --release-claim ISSUE OID
                           Release only the last-seen Claim object id.
   --verify-claim ISSUE    Verify this machine and Slot hold the remote Claim.
@@ -553,11 +564,13 @@ main() {
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" "$@"
       ;;
-    --claim|--release-claim|--verify-claim|--claimed-issues)
+    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claimed-issues)
       local command="$1"
       shift
       case "$command" in
         --claim) command=claim ;;
+        --renew-claim) command=renew ;;
+        --heartbeat-claim) command=heartbeat ;;
         --release-claim) command=release ;;
         --verify-claim) command=verify ;;
         --claimed-issues) command=list ;;
