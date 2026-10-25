@@ -71,6 +71,7 @@ usage: ralph --init [CONFIG]
        ralph --release-claim ISSUE OID
        ralph --verify-claim ISSUE
        ralph --claim-holder ISSUE
+       ralph --fence-claim ISSUE [CONFIG]
        ralph --claimed-issues
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
@@ -163,6 +164,13 @@ usage: ralph --init [CONFIG]
                           ISSUE, or nothing when it is unclaimed. Read-only,
                           and never fenced: it is what a Slot that has just
                           lost a Claim reads to log who took it over.
+  --fence-claim ISSUE [CONFIG]
+                          Run the mutation fence alone: confirm by compare-and-
+                          swap renewal that this Slot still holds ISSUE's Claim,
+                          or exit 21 naming the holder. It *is* the fence, so it
+                          is never fenced itself. The tick calls it before the
+                          writes it makes with `gh` directly, which no
+                          dispatcher fence can see (ADR-0008).
   --claimed-issues        Print issues held by other machines or Slots.
 
   --dry-run [PATH]        Scan the backlog and print the next action
@@ -658,7 +666,7 @@ dispatch() {
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" "$@"
       ;;
-    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claim-holder|--claimed-issues)
+    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claim-holder|--fence-claim|--claimed-issues)
       local command="$1"
       shift
       case "$command" in
@@ -668,6 +676,7 @@ dispatch() {
         --release-claim) command=release ;;
         --verify-claim) command=verify ;;
         --claim-holder) command=holder ;;
+        --fence-claim) command=fence ;;
         --claimed-issues) command=list ;;
       esac
       exec python3 "$RALPH_HOME/lib/ralph_claim.py" "$command" "$@"
