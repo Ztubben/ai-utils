@@ -89,6 +89,18 @@ def _apply_defaults(schema, instance):
     return instance
 
 
+def defaults(schema_path=DEFAULT_SCHEMA):
+    """The shipped schema's defaults alone, with no config file read.
+
+    For a caller that must still act when the target repository's `.ralph.yml`
+    cannot be read: the mutation fence (#139) renews a Claim from
+    `concurrency.claim_ttl` and must not hard-code the lease the schema
+    already ships. A fresh copy each call, so one caller's edit is not the
+    next caller's default.
+    """
+    return _apply_defaults(_load_schema(schema_path), {})
+
+
 def format_error(err):
     """Render a jsonschema error as '<field path>: <message>'.
 

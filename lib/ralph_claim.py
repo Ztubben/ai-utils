@@ -30,6 +30,20 @@ RENEWALS_PER_LEASE = 5
 # How often the heartbeat looks up from its sleep to see whether the Tick that
 # started it is still there. A heartbeat must never outlive its Tick.
 POLL = 0.05
+# How many times a compare-and-swap on a Claim that lost its race is retried
+# before the caller is told. A fenced mutation renews the Claim too (#139), so
+# a holder's own lease moves under its heartbeat; each retry re-reads the ref.
+CAS_RETRIES = 3
+# A mutation refused because the calling Slot no longer holds the issue's
+# Claim (#139). Its own code, distinct from every other refusal (2) and from
+# the codes the agent launcher and the review stages already use, because the
+# Tick must act on it differently: abandon the unit of work, record no Attempt
+# and write nothing further. See docs/agents/tick.md.
+EXIT_CLAIM_LOST = 21
+
+
+class ClaimLost(ValueError):
+    """This Slot does not hold the Claim on the issue it is trying to change."""
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,14 @@ class Plan:
     ok: bool = True
     errors: list = field(default_factory=list)
     commands: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Fenced:
+    """What a mutation fenced on the caller's Claim may do (#139)."""
+    ok: bool
+    renew: bool = False
+    error: str = None
 
 
 def decode(value):
@@ -140,6 +162,27 @@ def verify_plan(issue):
     return error or Plan(commands=[["git", "ls-remote", "origin", ref]])
 
 
+def fence_decision(issue, who, lease):
+    """Whether `who` may still change `issue` (ADR-0008, #139).
+
+    A Slot that has lost its Claim can no longer change the issue, so every
+    mutating subcommand asks this first. Three answers:
+
+    * no Claim at all -- pass, unfenced. The fence refuses a *lost* Claim, not
+      a mutation nobody claimed: the completion, arbitration and unpark passes
+      hold no Claim of their own, and refusing them would stop the Loop.
+    * another holder -- refuse, naming it, so the Tick can log who took over.
+    * this holder -- pass, *by renewing*. The compare-and-swap is the check
+      (#137): a takeover inside this window makes the renewal fail, and the
+      mutation is refused then. A second read could not be atomic with it.
+    """
+    if lease is None:
+        return Fenced(True)
+    if lease.holder != who:
+        return Fenced(False, error="claim #%s held by %s" % (issue, lease.holder))
+    return Fenced(True, renew=True)
+
+
 # --- CLI I/O: the plans above never execute commands -----------------------
 
 def _git(args, cwd, input=None):
@@ -193,11 +236,75 @@ def write_lease(who, ttl, cwd):
     return _git(["commit-tree", tree], cwd, input=value)
 
 
+def _moved_by_a_fence(issue, who, last_seen, cwd):
+    """The object id to swap from when a compare-and-swap found something other
+    than the value this caller last wrote, or None when it must not retry.
+
+    A fenced mutation renews the Claim too (#139), so a holder's own lease
+    moves under its heartbeat and under the release that ends its unit of
+    work. Only this holder's *live* lease may be swapped from again: a Claim
+    another Slot has taken over is never overwritten, and one that has lapsed
+    is never resurrected (#137). An id equal to the one that just failed means
+    the ref did not move at all, so the failure was not a lost race.
+    """
+    try:
+        oid, lease = observe(issue, cwd)
+    except (ValueError, OSError):
+        return None
+    if not oid or oid == last_seen or lease.holder != who:
+        return None
+    return None if expired(lease, time.time()) else oid
+
+
+def _swap(plan, issue, who, last_seen, cwd):
+    """Run one compare-and-swap on a Claim, re-reading the ref when it loses.
+
+    A holder's own lease legitimately moves under it: every fenced mutation
+    renews the Claim (#139), so the value the heartbeat last wrote -- and the
+    one the release at the end of the unit of work deletes against -- can be
+    stale through no fault of its own. Each retry swaps from what the ref
+    actually holds, and only while that is still this holder's live lease, so
+    another Slot's Claim is never overwritten and a lapsed one is never
+    resurrected (#137). Bounded, because losing every race in a row means
+    something other than a fence is writing the ref.
+    """
+    for attempt in range(CAS_RETRIES + 1):
+        try:
+            return run_plan(plan(last_seen), cwd)
+        except ValueError:
+            moved = (None if attempt == CAS_RETRIES
+                     else _moved_by_a_fence(issue, who, last_seen, cwd))
+            if not moved:
+                raise
+            last_seen = moved
+
+
 def renew(issue, who, ttl, last_seen, cwd):
     """One heartbeat: a fresh expiry swapped in for the value last written."""
     oid = write_lease(who, ttl, cwd)
-    run_plan(renew_plan(issue, oid, last_seen), cwd)
+    _swap(lambda last: renew_plan(issue, oid, last), issue, who, last_seen, cwd)
     return oid
+
+
+def fence(issue, who, ttl, cwd):
+    """Refuse a mutation of `issue` by a Slot that has lost its Claim (#139).
+
+    Fails closed: a Claim this Slot cannot verify is not a Claim it holds, and
+    a Tick that cannot reach origin could do nothing useful with the issue
+    anyway -- so a read or push failure refuses as well, naming its reason and
+    whatever holder can still be read.
+    """
+    try:
+        observed_oid, lease = observe(issue, cwd)
+        decision = fence_decision(issue, who, lease)
+        if not decision.ok:
+            raise ClaimLost(decision.error)
+        if decision.renew:
+            renew(issue, who, ttl, observed_oid, cwd)
+    except ClaimLost:
+        raise
+    except (ValueError, OSError) as exc:
+        raise ClaimLost(_refusal(issue, cwd, str(exc))) from exc
 
 
 def _alive(pid):
@@ -262,9 +369,11 @@ def _refusal(issue, cwd, detail):
     return "claim #%s: %s" % (issue, detail)
 
 
-COMMANDS = ("claim", "renew", "heartbeat", "release", "verify", "list")
+COMMANDS = ("claim", "renew", "heartbeat", "release", "verify", "list",
+            "fence", "holder")
 USAGE = ("usage: ralph_claim.py {claim ISSUE [CONFIG]|renew ISSUE OID [CONFIG]"
-         "|heartbeat ISSUE OID [CONFIG]|release ISSUE OID|verify ISSUE|list}\n")
+         "|heartbeat ISSUE OID [CONFIG]|release ISSUE OID|verify ISSUE|list"
+         "|fence ISSUE [CONFIG]|holder ISSUE}\n")
 
 
 def _tick_pid(env):
@@ -283,6 +392,17 @@ def _ttl(path):
     if not config.ok:
         raise ValueError("; ".join(config.errors))
     return config.config["concurrency"]["claim_ttl"]
+
+
+def _fence_ttl(path):
+    """The lease a fenced renewal writes. The fence is a pre-step of whatever
+    subcommand it guards, and those carry their config argument in different
+    positions, so it reads the target repository's `.ralph.yml` when it can
+    and falls back to the lease the schema ships -- never a hard-coded one."""
+    try:
+        return _ttl(path)
+    except (ValueError, OSError):
+        return ralph_config.defaults()["concurrency"]["claim_ttl"]
 
 
 def main(argv):
@@ -313,7 +433,23 @@ def main(argv):
         if command == "release":
             if len(args) != 2:
                 raise ValueError("release-claim requires ISSUE and last-seen OID")
-            run_plan(release_plan(issue, args[1]), cwd)
+            # A fenced mutation of this Slot's own may have moved the ref
+            # since the Claim was taken or last renewed (#139).
+            _swap(lambda last: release_plan(issue, last), issue, who, args[1], cwd)
+            return 0
+        if command == "fence":
+            if len(args) > 2:
+                raise ValueError("fence requires ISSUE [CONFIG]")
+            fence(issue, who, _fence_ttl(args[1] if len(args) > 1 else None), cwd)
+            return 0
+        if command == "holder":
+            # Read-only, for the Tick's "Claim lost" log line: an unclaimed
+            # issue prints nothing and is still a success.
+            if len(args) != 1:
+                raise ValueError("claim-holder requires ISSUE")
+            _, lease = observe(issue, cwd)
+            if lease:
+                print(lease.holder)
             return 0
         if command == "verify":
             if len(args) != 1:
@@ -349,6 +485,11 @@ def main(argv):
             heartbeat(issue, who, ttl, args[1], cwd, sys.stdout,
                       _tick_pid(os.environ))
         return 0
+    except ClaimLost as exc:
+        # Already names the holder and the reason; its own exit code, so the
+        # Tick can tell "another Slot owns this now" from any other refusal.
+        sys.stderr.write("REFUSED: %s\n" % exc)
+        return EXIT_CLAIM_LOST
     except (ValueError, OSError) as exc:
         detail = _refusal(issue, cwd, str(exc)) if issue else str(exc)
         sys.stderr.write("REFUSED: %s\n" % detail)

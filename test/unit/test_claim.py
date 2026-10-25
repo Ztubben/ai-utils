@@ -109,6 +109,34 @@ class ClaimPlans(unittest.TestCase):
         lease = ralph_claim.Lease("another:1", NOW)
         self.assertFalse(ralph_claim.claim_plan(136, B, lease, None, NOW + 1).ok)
 
+    def test_a_mutation_by_the_holder_is_fenced_by_a_renewal(self):
+        # The renewal *is* the check (#137): a takeover inside the window makes
+        # the compare-and-swap fail, so the fence needs no second read.
+        decision = ralph_claim.fence_decision(136, "machine:1",
+                                              ralph_claim.Lease("machine:1", NOW))
+        self.assertTrue(decision.ok, decision.error)
+        self.assertTrue(decision.renew)
+
+    def test_a_mutation_by_another_slot_is_refused_naming_the_holder(self):
+        decision = ralph_claim.fence_decision(136, "machine:1",
+                                              ralph_claim.Lease("machine:2", NOW))
+        self.assertFalse(decision.ok)
+        self.assertFalse(decision.renew)
+        self.assertIn("machine:2", decision.error)
+        self.assertIn("136", decision.error)
+
+    def test_a_mutation_on_an_unclaimed_issue_is_unfenced(self):
+        # The fence refuses a *lost* Claim, not a mutation nobody claimed: the
+        # completion, arbitration and unpark passes hold no Claim of their own.
+        decision = ralph_claim.fence_decision(136, "machine:1", None)
+        self.assertTrue(decision.ok, decision.error)
+        self.assertFalse(decision.renew, "nothing to renew")
+
+    def test_the_lost_claim_exit_code_is_its_own(self):
+        # The Tick tells a lost Claim from every other refusal by this code.
+        self.assertEqual(ralph_claim.EXIT_CLAIM_LOST, 21)
+        self.assertNotIn(ralph_claim.EXIT_CLAIM_LOST, (0, 1, 2))
+
     def test_renewal_swaps_from_the_value_last_written(self):
         plan = ralph_claim.renew_plan(136, B, A)
         self.assertTrue(plan.ok, plan.errors)
@@ -393,6 +421,184 @@ exec "$SLOW_REAL_GIT" "$@"
         # ...so the release the Tick makes next names the live lease.
         released = self.cli("--release-claim", "136", swapped[-1])
         self.assertEqual(released.returncode, 0, released.stderr)
+
+    # --- mutation fencing (#139) ---------------------------------------
+    # A Slot that has lost its Claim can no longer change the issue: every
+    # mutating subcommand verifies the Claim by compare-and-swap renewal
+    # first, and refuses with EXIT_CLAIM_LOST naming the holder.
+
+    def story_file(self, number=7):
+        path = os.path.join(self.tmp.name, "story-%d.json" % number)
+        with open(path, "w") as fh:
+            json.dump(ready_story(number), fh)
+        return path
+
+    def park(self, *args, slot="1", stdin=None, env=None):
+        """`--park-story`, standing for every mutating subcommand: it writes to
+        GitHub alone, so the mock gh's log says exactly whether it ran."""
+        story = self.story_file()
+        argv = [RALPH, "--park-story", "-" if stdin else story,
+                "do the thing", os.path.join(self.world.checkout, ".ralph.yml")]
+        full = dict(self.world.env(), **(env or {}))
+        if slot is None:
+            full.pop("RALPH_SLOT", None)
+        else:
+            full["RALPH_SLOT"] = slot
+        with open(story) as fh:
+            piped = fh.read() if stdin else None
+        return subprocess.run(argv, cwd=self.world.checkout, env=full, text=True,
+                              input=piped, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=30)
+
+    def mutated(self):
+        return [ln for ln in self.world.log_lines()
+                if ln.startswith("gh issue edit") or ln.startswith("gh issue comment")]
+
+    def claim_oid(self):
+        listing = self.world.git("ls-remote", "origin", "refs/ralph/claims/7")
+        return listing.split()[0] if listing else ""
+
+    def test_a_mutation_by_the_claim_holder_passes_and_advances_the_lease(self):
+        self.assertEqual(self.cli("--claim", "7").returncode, 0)
+        taken = self.claim_oid()
+        got = self.park()
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.mutated(), "the subcommand ran")
+        # The fence verified the Claim *by renewing* it, so the ref moved on.
+        self.assertNotEqual(self.claim_oid(), taken)
+        self.assertEqual(json.loads(self.world.git(
+            "show", "-s", "--format=%B", self.claim_oid()))["holder"], HOST + ":1")
+
+    def test_a_mutation_after_another_slot_took_the_claim_is_refused(self):
+        self.assertEqual(self.cli("--claim", "7", slot="2").returncode, 0)
+        held = self.claim_oid()
+        got = self.park()
+        self.assertEqual(got.returncode, ralph_claim.EXIT_CLAIM_LOST, got.stdout)
+        self.assertIn(HOST + ":2", got.stderr)
+        self.assertIn("7", got.stderr)
+        # Nothing was written, and the holder's lease is untouched.
+        self.assertEqual(self.mutated(), [])
+        self.assertEqual(self.claim_oid(), held)
+
+    def test_a_mutation_on_an_issue_nobody_claims_is_unfenced(self):
+        # The fence refuses a *lost* Claim, not a mutation nobody claimed: the
+        # completion, arbitration and unpark passes hold no Claim of their own.
+        got = self.park()
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.mutated())
+        self.assertEqual(self.claim_oid(), "")
+
+    def test_without_a_slot_a_mutating_subcommand_behaves_as_before(self):
+        self.assertEqual(self.cli("--claim", "7", slot="2").returncode, 0)
+        got = self.park(slot=None)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.mutated(), "a hand-run subcommand is unfenced")
+
+    def test_a_fenced_subcommand_reading_its_story_from_stdin(self):
+        # The Tick pipes `gh issue view` into these: the fence must resolve the
+        # issue from that stream and still hand the whole document on.
+        self.assertEqual(self.cli("--claim", "7", slot="2").returncode, 0)
+        refused = self.park(stdin=True)
+        self.assertEqual(refused.returncode, ralph_claim.EXIT_CLAIM_LOST, refused.stdout)
+        self.assertIn(HOST + ":2", refused.stderr)
+        self.assertEqual(self.mutated(), [])
+        self.assertEqual(self.cli("--release-claim", "7", self.claim_oid(),
+                                  slot="2").returncode, 0)
+        passed = self.park(stdin=True)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertTrue(self.mutated())
+
+    def test_read_only_subcommands_are_never_fenced(self):
+        self.assertEqual(self.cli("--claim", "7", slot="2").returncode, 0)
+        story = self.story_file()
+        config = os.path.join(self.world.checkout, ".ralph.yml")
+        for args in (["--lint-story", story], ["--branch-name", story, config],
+                     ["--blocked-stories"], ["--claimed-issues"],
+                     ["--claim-holder", "7"]):
+            with self.subTest(args=args):
+                got = self.cli(*args)
+                self.assertNotEqual(got.returncode, ralph_claim.EXIT_CLAIM_LOST,
+                                    got.stderr)
+
+    def test_the_claim_holder_is_readable_for_the_tick_s_log(self):
+        self.assertEqual(self.cli("--claim-holder", "7").stdout.strip(), "")
+        self.assertEqual(self.cli("--claim", "7", slot="2").returncode, 0)
+        got = self.cli("--claim-holder", "7")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout.strip(), HOST + ":2")
+
+    def test_a_heartbeat_and_a_release_survive_a_fenced_mutation(self):
+        # GOTCHA: the fence renews, so it moves the ref out from under the
+        # oid the heartbeat swaps from and the one the release deletes
+        # against. Both must recover, or every fenced mutation would kill the
+        # heartbeat and strand the Claim until it expired.
+        config = self.config(2)
+        got = self.cli("--claim", "7", config)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        oid = got.stdout.strip()
+        proc, out = self.heartbeat("7", oid, config)
+        self.until(lambda: os.path.getsize(out), "the heartbeat renewed once")
+        fenced = self.park()
+        self.assertEqual(fenced.returncode, 0, fenced.stderr)
+        self.assertNotEqual(self.claim_oid(), self.renewed(out)[-1],
+                            "the fence moved the ref under the heartbeat")
+        time.sleep(0.9)   # more than two renewal intervals of the lease above
+        self.assertIsNone(proc.poll(), proc.stderr.read() if proc.poll() else "")
+        self.until(lambda: self.renewed(out)[-1] == self.claim_oid(),
+                   "the heartbeat caught up with the fence's renewals")
+        proc.terminate()
+        proc.wait(timeout=30)
+        released = self.cli("--release-claim", "7", self.renewed(out)[-1])
+        self.assertEqual(released.returncode, 0, released.stderr)
+        self.assertEqual(self.claim_oid(), "")
+
+    def taken_over_by_slot_two(self):
+        """A mock agent under whose feet another Slot takes the Story over.
+
+        It writes the lease Slot 2 would have written when this Slot's own
+        lapsed, which is a lid-close without the waiting: from here on every
+        mutation this Tick makes is fenced on a Claim it no longer holds."""
+        for provider in ("claude", "codex"):
+            _write_exec(os.path.join(self.world.mockbin, provider), """#!/usr/bin/env bash
+cat >/dev/null
+ref="refs/ralph/claims/$RALPH_ITERATION_ISSUE"
+tree="$(git mktree </dev/null)"
+lease="$(printf '{"expiry":%s,"holder":"%s:2"}\\n' "$(( $(date +%s) + 600 ))" \\
+         "$(hostname)" | git commit-tree "$tree")"
+git push -q --force origin "$lease:$ref"
+echo "taken-over=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
+""")
+
+    def test_a_tick_that_lost_its_claim_ends_the_unit_without_an_attempt(self):
+        # The iteration ends with no done-signal and no Handoff, which is
+        # normally a failed Attempt -- but the Claim is gone, so the Story is
+        # another Slot's and this Tick must charge it nothing and write
+        # nothing. Unfenced, this Tick would comment on, label and possibly
+        # block a Story the new holder is working.
+        self.world.set_backlog([ready_story()])
+        self.taken_over_by_slot_two()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("taken-over=7", self.world.log_lines(), proc.stdout)
+        self.assertIn("Claim lost for #7 (held by %s:2)" % HOST, proc.stdout)
+        self.assertIn("recording no Attempt", proc.stdout)
+        # No Attempt recorded, and no state label moved by it. The one comment
+        # left is the token ledger of the invocation that really did run:
+        # telemetry of this Slot's own spend, which gates nothing and is no
+        # part of the Story's state, so the launch stays unfenced.
+        comments = [ln for ln in self.world.log_lines()
+                    if ln.startswith("gh issue comment")]
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn("Token ledger", comments[0])
+        self.assertNotIn("state:blocked", " ".join(self.world.log_lines()))
+        # The new holder's Claim is left exactly as it found it: this Tick
+        # neither renewed it nor released it on its way out.
+        self.assertEqual(json.loads(self.world.git(
+            "show", "-s", "--format=%B", self.claim_oid()))["holder"], HOST + ":2")
+        self.assertNotIn("could not release", proc.stdout)
+        # ...and the Slot let the Story branch go, so its holder can have it.
+        self.assertEqual(self.world.git("branch", "--show-current",
+                                        cwd=self.world.checkout + ".ralph-slot-1"), "")
 
     def test_a_long_iteration_renews_its_claim_and_still_releases_it(self):
         # The lease the Slot reads is origin/main's, so the short one lands there.

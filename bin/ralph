@@ -70,6 +70,7 @@ usage: ralph --init [CONFIG]
        ralph --heartbeat-claim ISSUE OID [CONFIG]
        ralph --release-claim ISSUE OID
        ralph --verify-claim ISSUE
+       ralph --claim-holder ISSUE
        ralph --claimed-issues
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
@@ -150,6 +151,10 @@ usage: ralph --init [CONFIG]
   --release-claim ISSUE OID
                           Release only the last-seen Claim object id.
   --verify-claim ISSUE    Verify this machine and Slot hold the remote Claim.
+  --claim-holder ISSUE    Print "<host>:<slot>" for whoever holds the Claim on
+                          ISSUE, or nothing when it is unclaimed. Read-only,
+                          and never fenced: it is what a Slot that has just
+                          lost a Claim reads to log who took it over.
   --claimed-issues        Print issues held by other machines or Slots.
 
   --dry-run [PATH]        Scan the backlog and print the next action
@@ -543,7 +548,88 @@ usage: ralph --init [CONFIG]
 EOF
 }
 
+# --- mutation fencing (#139, ADR-0008, PRD #133) ---------------------------
+# A Slot that has lost its Claim can no longer change the issue. Every
+# subcommand below writes to GitHub, pushes or merges, and names the issue it
+# changes in its *first* positional argument -- a `gh --json` document, or -
+# for stdin -- so the dispatcher can verify the Claim by compare-and-swap
+# renewal before the module runs, and refuse with RC_CLAIM_LOST if this Slot
+# no longer holds it. `RALPH_SLOT` reaches an agent through the environment it
+# already inherits, so the agent's own calls are fenced too.
+#
+# Deliberately *not* fenced (docs/agents/tick.md has the reasoning): every
+# read-only subcommand; the Claim plane itself, which *is* the
+# compare-and-swap; `--check-breaker` and `--unpark-stories`, which name no
+# single issue; and `--render-review`, whose subject is a pull request and
+# which is only reached through an already-fenced round.
+RALPH_FENCED=(
+  --assign-models --reassign-model --implementation-green --review-round
+  --await-review --respond-review --escalate-review --arbitrate-review
+  --complete-story --complete-afk --complete-hil --complete-feature
+  --checkpoint --resume --record-attempt --reset-on-block --park-story
+  --record-idle-handoff
+)
+
+is_fenced() {
+  local sub
+  for sub in "${RALPH_FENCED[@]}"; do
+    if [[ "$sub" == "$1" ]]; then return 0; fi
+  done
+  return 1
+}
+
+# The issue a `gh --json` document is about. Empty when the document names
+# none: such a call changes nothing anyway -- the module refuses it on its own
+# terms -- so an unfencable argument is left to behave exactly as before.
+# Isolated (-I): the document sits in the repository an agent is editing, and
+# the fence must not import a `json.py` a Story happened to add next to it.
+issue_of() {
+  python3 -I -c 'import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        print(json.load(fh).get("number", "") or "")
+except (OSError, ValueError, AttributeError):
+    pass' "$1" 2>/dev/null
+}
+
+# Verify the Claim, then dispatch. Nothing here may `exec` while a slurped
+# stdin is still on disk: the temp file has to be removed and the module's own
+# exit code propagated, so that one path runs the dispatcher in a subshell.
+run_fenced() {
+  local sub="$1" token="${2:-}" tmp="" issue rc=0
+  if [[ "$token" == "-" ]]; then
+    tmp="$(mktemp "${TMPDIR:-/tmp}/ralph-fence-XXXXXX")"
+    cat >"$tmp"
+    token="$tmp"
+  fi
+  issue="$(issue_of "$token" || true)"
+  if [[ -n "$issue" ]]; then
+    rc=0
+    python3 "$RALPH_HOME/lib/ralph_claim.py" fence "$issue" || rc=$?
+    if (( rc != 0 )); then
+      if [[ -n "$tmp" ]]; then rm -f "$tmp"; fi
+      exit "$rc"
+    fi
+  fi
+  if [[ -z "$tmp" ]]; then
+    dispatch "$@"
+    return
+  fi
+  # The module still reads its story from stdin, which is now the temp file.
+  ( dispatch "$@" ) <"$tmp" || rc=$?
+  rm -f "$tmp"
+  exit "$rc"
+}
+
 main() {
+  if [[ -n "${RALPH_SLOT:-}" ]] && is_fenced "${1:-}"; then
+    run_fenced "$@"
+    return
+  fi
+  dispatch "$@"
+}
+
+dispatch() {
   case "${1:-}" in
     --init)
       shift
@@ -564,7 +650,7 @@ main() {
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" "$@"
       ;;
-    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claimed-issues)
+    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claim-holder|--claimed-issues)
       local command="$1"
       shift
       case "$command" in
@@ -573,6 +659,7 @@ main() {
         --heartbeat-claim) command=heartbeat ;;
         --release-claim) command=release ;;
         --verify-claim) command=verify ;;
+        --claim-holder) command=holder ;;
         --claimed-issues) command=list ;;
       esac
       exec python3 "$RALPH_HOME/lib/ralph_claim.py" "$command" "$@"
