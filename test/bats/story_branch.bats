@@ -15,6 +15,10 @@ setup() {
     RALPH_OWN_TMPDIR="$BATS_TEST_TMPDIR"
   fi
   SP="$BATS_TEST_TMPDIR/sp"
+  # Where the tick actually works: its Slot, a worktree of $SP (#134). The
+  # operator's checkout is left alone, so every assertion about a branch being
+  # checked out, a merge in flight or a dirty tree belongs here.
+  SLOT="$SP.ralph-slot-1"
   ORIGIN="$BATS_TEST_TMPDIR/origin.git"
   MB="$BATS_TEST_TMPDIR/mockbin"
   GHQ="$BATS_TEST_TMPDIR/ghq"
@@ -25,7 +29,8 @@ setup() {
   export RALPH_SESSION_LIMIT_EXIT=91
   unset RALPH_ITERATION_ACTION RALPH_ITERATION_ISSUE RALPH_SESSION_LIMIT_MARKER \
         RALPH_CONFIG RALPH_MAX_ITERATIONS RALPH_CLI \
-        RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT RALPH_CLAUDE RALPH_CODEX
+        RALPH_TOOLING_COMMIT RALPH_TOOLING_KIND RALPH_TOOLING_MOUNT RALPH_CLAUDE RALPH_CODEX \
+        RALPH_SLOT RALPH_SLOT_DIR
   # The world's git must not read the developer's own configuration.
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -128,7 +133,7 @@ cross_feature_world() {
   grep -q "^claude issue=183 branch=$STORY_BRANCH\$" "$RALPH_LOG"
   # The previous Story's branch was neither reset nor merged into.
   [ "$(git -C "$SP" rev-parse ralph/65-story)" = "$PREVIOUS_HEAD" ]
-  [ ! -e "$SP/.git/MERGE_HEAD" ]
+  [ -z "$(git -C "$SLOT" rev-parse -q --verify MERGE_HEAD)" ]
   # Its Feature branch already contains main, so there was nothing to merge.
   [[ "$output" == *"already contains origin/main"* ]]
   [ "$(git -C "$SP" rev-list --merges "$STORY_BRANCH" | wc -l)" -eq 0 ]
@@ -137,9 +142,9 @@ cross_feature_world() {
 @test "a conflicting freshness merge is aborted and the Story parked on a human (#121, #114)" {
   cross_feature_world stale
   run bash -c "cd '$SP' && '$RALPH_SH'"
-  [ ! -e "$SP/.git/MERGE_HEAD" ]
-  [ -z "$(git -C "$SP" ls-files -u)" ]
-  [ -z "$(git -C "$SP" status --porcelain --untracked-files=no)" ]
+  [ -z "$(git -C "$SLOT" rev-parse -q --verify MERGE_HEAD)" ]
+  [ -z "$(git -C "$SLOT" ls-files -u)" ]
+  [ -z "$(git -C "$SLOT" status --porcelain --untracked-files=no)" ]
   ! grep -q '^claude ' "$RALPH_LOG"
   [[ "$output" == *"shared.txt"* ]]
   # Only a human can merge it: the Story is parked, naming the paths -- not an
@@ -151,13 +156,32 @@ cross_feature_world() {
   [ "$(git -C "$SP" rev-parse ralph/65-story)" = "$PREVIOUS_HEAD" ]
 }
 
-@test "a tick refuses to run on a checkout left mid-merge (#121)" {
+@test "a tick runs through a checkout the operator left mid-merge (#134)" {
   cross_feature_world fresh
   git -C "$SP" merge -q origin/main >/dev/null 2>&1 || true
   [ -e "$SP/.git/MERGE_HEAD" ]
   run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"refusing to tick"* ]]
+  grep -q "^claude issue=183 branch=$STORY_BRANCH\$" "$RALPH_LOG"
+  # The operator's half-finished merge is still theirs to finish.
+  [ -e "$SP/.git/MERGE_HEAD" ]
+}
+
+@test "a tick refuses to run on a slot left mid-merge (#121, #134)" {
+  cross_feature_world fresh
+  # A first tick provisions the Slot; a crash then leaves it mid-merge.
+  run bash -c "cd '$SP' && '$RALPH_SH'"
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" merge -q origin/main >/dev/null 2>&1 || true
+  git -C "$SLOT" rev-parse -q --verify MERGE_HEAD >/dev/null \
+    || echo "$(git -C "$SLOT" rev-parse HEAD)" >"$(git -C "$SLOT" rev-parse --absolute-git-dir)/MERGE_HEAD"
+  : >"$RALPH_LOG"
+  echo "[$(cat "$GHQ/view-181.json"),$(cat "$GHQ/view-4.json"),$(cat "$GHQ/view-183.json")]" >"$GHQ/2.json"
+  run bash -c "cd '$SP' && '$RALPH_SH'"
   [ "$status" -eq 2 ]
   [[ "$output" == *"mid-merge"* ]]
+  [[ "$output" == *"$SLOT"* ]]
   ! grep -q 'gh issue edit' "$RALPH_LOG"
   ! grep -q '^claude ' "$RALPH_LOG"
 }

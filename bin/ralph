@@ -7,6 +7,8 @@
 #   ralph --lint-story PATH       Validate a canonical Ralph story issue (JSON, or - for stdin).
 #   ralph --dry-run [PATH]        Scan the backlog and print the next action, changing nothing.
 #   ralph --run                   Run one unattended tick (bin/ralph.sh): select, work, promote.
+#   ralph --slot                  Print "NUMBER LOCK SLOT_PATH" for the Slot this Tick runs in (ADR-0008).
+#   ralph --slot-ensure PATH [COMMITISH]  Provision or repair the Slot worktree at PATH.
 #   ralph --tooling-commit [CONFIG]  Print the Tooling Commit this checkout's Tick runs (ADR-0009).
 #   ralph --tooling-copy COMMIT REPO  Make sure COMMIT's frozen tooling copy exists; print its path.
 #   ralph --prune-tooling COPIES KEEP...  Remove the frozen tooling copies nothing needs any more.
@@ -61,6 +63,8 @@ usage: ralph --init [CONFIG]
        ralph --lint-story PATH
        ralph --dry-run [PATH]
        ralph --run
+       ralph --slot
+       ralph --slot-ensure PATH [COMMITISH]
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
        ralph --prune-tooling COPIES KEEP...
@@ -137,6 +141,18 @@ usage: ralph --init [CONFIG]
                           then drives --dry-run and works each selected story in
                           sequence, promoting green ones, until no eligible work
                           remains. Extra arguments are passed through.
+  --slot                  Print "NUMBER LOCK SLOT_PATH" for the Slot this Tick
+                          runs in (ADR-0008): the number from RALPH_SLOT
+                          (default 1), the per-Slot Tick lock in the git common
+                          directory, and the Slot worktree's path
+                          (<repo>.ralph-slot-<N>, overridden by RALPH_SLOT_DIR).
+                          Reads git only; exits 2 outside a repository or on an
+                          unusable slot number.
+  --slot-ensure           Make sure the Slot worktree at PATH exists and is a
+       PATH [COMMITISH]   worktree of this clone, creating it detached (at
+                          COMMITISH when given) or repairing it when it was
+                          deleted or is something else, and print what it did
+                          (created|repaired|reused). Exits 2 when it cannot.
   --tooling-commit        Print the Tooling Commit the Tick runs (ADR-0009) as
        [CONFIG]           "KIND COMMIT REPO MOUNT COPIES": origin/<base> after a fetch
                           when ai-utils is the checkout root (self-hosted), the
@@ -536,6 +552,14 @@ main() {
     --run)
       shift
       exec "$RALPH_HOME/bin/ralph.sh" "$@"
+      ;;
+    --slot)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_slot.py" resolve "$@"
+      ;;
+    --slot-ensure)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_slot.py" ensure "$@"
       ;;
     --tooling-commit)
       shift

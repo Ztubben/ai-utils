@@ -12,6 +12,23 @@ for the code it touches. Add a new learning here, in the file that owns it.
   pass's gating steps shell `make` (from `full.yml`), so a test that expects the pass to
   reach `gh pr create` must call `harness.mock_make()` — otherwise gating fails and the
   blocker path runs instead, which looks like "nothing happened".
+- GOTCHA (tick tests, #134) — a tick runs in a **Slot**, a worktree of the clone, so a harness
+  whose `git` is a logging mock must answer enough of it: `worktree list --porcelain` (one
+  `worktree <main>` line, the clone's main worktree, which is what `ralph_tooling` and
+  `ralph_pointer` resolve against too), `worktree add` (make the directory, a `.git` file
+  pointing at an admin dir, a `commondir` leading back, and the config visible inside),
+  `rev-parse --git-common-dir` and `rev-parse --show-toplevel` (which working tree the caller
+  stands in: reuse accepts a Slot only when it is a worktree *root*, so a mock that answers
+  the superproject for the Slot's own path makes every second tick refuse it). Both mocks
+  answer those from the **environment**
+  (`RALPH_MOCK_SUPERPROJECT`, `RALPH_MOCK_COMMON_DIR`) rather than `$PWD`: a tick is launched
+  with a `cwd=`, which does not update `$PWD` for the mock, and the tick then `cd`s again into
+  its Slot. The harnesses also pin `RALPH_SLOT_DIR` inside the throwaway tmpdir — the
+  conventional Slot path is a *sibling* of the repository, which a `tmp`-scoped cleanup would
+  not own — and strip the inherited `RALPH_SLOT`. On real git (`story_branch.bats`,
+  `test_slot.py`, the frozen-tooling world) there is nothing to mock, but every assertion
+  about a checked-out branch, a merge in flight or a dirty tree belongs to the Slot
+  (`$SP.ralph-slot-1`), not to the operator's checkout.
 - GOTCHA (tick tests) — the tick test harnesses (`test_orchestrate.py`, `test_freshness.py`,
   `orchestration.bats`) mock `claude`/`gh`/`git` on PATH but build their env from
   `os.environ`. When the suite is run *from inside a Ralph iteration* (the normal case — Ralph
