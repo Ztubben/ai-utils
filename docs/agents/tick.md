@@ -299,3 +299,16 @@ for the code it touches. Add a new learning here, in the file that owns it.
   marker out of a Ralph PR's body does not waive it). It runs on every pull request, not
   just those into `main`: a GitHub stack holds each of its pull requests to `main`'s rules,
   and hand-built stacks could otherwise only merge by admin bypass.
+
+- **Reconciliation Claims** (#140). `reconcile_with_claim` scopes one PRD
+  integration or blocked Story arbitration to a subshell with the same heartbeat,
+  detach and EXIT release as Story work. Claim refusal skips that issue without
+  an Attempt. Fetch the issue only after acquisition; completion checks the fresh
+  PRD is still open and ready, because the earlier scan may be stale.
+  `fence_reconciliation_claim` stops the heartbeat, adopts its latest object id,
+  renews by compare-and-swap, then restarts it before delegating: racing the
+  heartbeat's renewal would falsely refuse our own Claim. A replaced lease
+  refuses delegation. The scenarios in `test_reconciliation_claims.py` pause at
+  the fake GitHub's issue read before taking its state lock, so another Slot can
+  reconcile while the first is suspended; they cover integration, the blocker
+  path, one human approval, stale eligibility and replaced leases.
