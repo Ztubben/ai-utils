@@ -4,22 +4,6 @@ Notes for `lib/ralph_models.py`, model assignment and role alternation, `lib/ral
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
-- Moving family selectors are opt-in catalog values: Claude's `opus` passes
-  through to its CLI; Codex's `sol` is resolved at every `CodexAdapter.launch`
-  using `codex debug models` (30-second timeout). `latest_sol` selects the
-  highest numeric stable `gpt-<version>-sol` whose visibility is `list`; an
-  unusable catalog is infrastructure failure, never a guessed fallback.
-  Explicit IDs skip discovery. Story labels retain the configured selector,
-  so a moving family can change releases between retries or review rounds;
-  only explicit IDs guarantee the same release. `profile_for_model` first
-  honors an exact catalog entry, then permits a numeric versioned Opus/Sol
-  assignment to use an allowlisted moving selector for that same provider and
-  family. This keeps in-flight Stories resumable after switching to selectors;
-  other families and previews remain refused. Codex's Outcome and usage
-  event carry the concrete launched version. Keep the discovery environment
-  credential-free for the review role, just like the invocation itself.
-  `test_latest_models.py` covers discovery, upgrades and failure paths.
-
 - `lib/ralph_models.py` is the model-profile seam (#44, PRD #42): pure logic, **no**
   `Plan`/git/gh (resolution decides, it does not mutate). `profiles(config)` reads the
   catalog into `{key: ModelProfile(key, provider, model)}`; `resolve_roles(config,

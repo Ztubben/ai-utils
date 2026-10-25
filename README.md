@@ -317,10 +317,10 @@ models:
   profiles:
     - key: claude-opus         # stable profile key; roles are selected by key
       provider: claude         # provider adapter: claude | codex
-      model: opus                # latest Opus via Claude Code
+      model: claude-opus-5     # exact model identity, persisted on the story
     - key: codex-sol
       provider: codex
-      model: sol                 # latest listed stable Sol via Codex catalog
+      model: gpt-6.1-sol
   defaults:
     implementation: claude-opus   # must name a profile above
     review: codex-sol
@@ -386,31 +386,14 @@ printf '%s' "$prompt" | ralph --launch-agent implementation
 A target repository that has not declared a `models:` catalog keeps ticking on
 the `claude` adapter at that CLI's own default model.
 
-The `opus` selector is Claude Code's moving Opus alias. The `sol` selector is
-resolved by Ralph before each Codex invocation: `codex debug models` supplies the
-catalog, and Ralph selects the highest numeric `gpt-<version>-sol` with
-`visibility: list`. Hidden and preview models are excluded. A failed catalog
-lookup or a catalog with no listed stable Sol model stops the launch as an
-infrastructure failure. Explicit model IDs continue to pin a version.
-
-Keep both provider CLIs updated: these selectors follow the models their current
-catalogs expose, subject to account access and provider configuration. Story
-labels retain `opus` or `sol`, so retries and later review rounds can use a newer
-release. Codex usage events record the resolved version; Claude usage events
-retain the configured alias. When a versioned assignment no longer has an
-explicit catalog entry, an allowlisted moving selector for that same family
-also handles it. Existing Opus and Sol Stories therefore resume after switching
-to these selectors. Retaining an explicit versioned entry keeps that assignment
-pinned.
-
 ### The assignment is durable, on the story
 
 Resolution decides which two models a story runs; the tick then **records that
-decision on the story itself**, as two labels carrying the configured model
-identifiers or family selectors:
+decision on the story itself**, as two labels carrying the exact model
+identities:
 
 ```
-model:impl:opus      model:review:sol
+model:impl:claude-opus-5      model:review:gpt-6.1-sol
 ```
 
 The labels are created on demand the first time an identity is assigned, so the
@@ -442,9 +425,9 @@ The resolved role order — the committed defaults, or the operator's
 the next newly assigned story runs the same pair the other way round:
 
 ```
-#61  impl opus   review sol
-#62  impl sol    review opus
-#63  impl opus   review sol
+#61  impl claude-opus-5   review gpt-6.1-sol
+#62  impl gpt-6.1-sol     review claude-opus-5
+#63  impl claude-opus-5   review gpt-6.1-sol
 ```
 
 Alternation advances **only when a story that carries no assignment starts**. A
@@ -647,7 +630,7 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 
 | What | Where | ai-utils' choice |
 | --- | --- | --- |
-| Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`opus`) implements, `codex-sol` (`sol`) reviews, alternating |
+| Model profiles + role defaults | `.ralph.yml` | `claude-opus` (`claude-opus-5`) implements, `codex-sol` (`gpt-6.1-sol`) reviews, alternating |
 | Quality gate | `.ralph.yml` `gating` | one step, `test`, running `test/run.sh` |
 | CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `main` and pushes to it; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |

@@ -22,11 +22,6 @@ run that was actually made rather than the configuration that happens to be
 current. Independence is decided once, when the pair is chosen; re-litigating it
 on every resume would strand an in-flight Story on an unrelated config change.
 
-Moving selectors (`opus` and `sol`) deliberately trade release pinning for
-automatic upgrades. They remain recorded as selectors; an allowlisted moving
-family also accepts that family's older numeric assignments when their exact
-catalog entry has been removed. Explicit entries always take precedence.
-
 Alternation (#47) is the third layer: the two profiles are a *pair*, and a Story
 that carries no assignment at all takes its turn in swapping which one implements
 and which one reviews. `assign_plan` stays pure -- it takes the phase and reports
@@ -40,7 +35,6 @@ place a broken catalog is reported. This module trusts a validated config.
 """
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -102,28 +96,15 @@ class RoleResolution:
 
 
 def profile_for_model(catalog, model):
-    """The exact catalog entry for `model`, else its opted-in moving family.
+    """The catalog entry whose exact model identifier is `model`, or None.
 
     Assignment labels record the identity, not the profile key, so this is how a
     persisted role gets back its provider adapter. Two keys naming one model are
-    one identity (`same_identity`), so either entry answers equally. A moving
-    family can also accept that family's versioned assignment when its exact
-    entry is no longer present.
+    one identity (`same_identity`), so either entry answers equally.
     """
     for key in sorted(catalog):
         if catalog[key].model.strip() == model.strip():
             return catalog[key]
-    # Opting into a moving family also lets existing assignments from that
-    # family resume after its versioned catalog entry has been replaced.
-    # An explicitly retained versioned entry above still wins.
-    families = (("claude", "opus", r"claude-opus-\d+(?:-\d+)*"),
-                ("codex", "sol", r"gpt-\d+(?:\.\d+)*-sol"))
-    for provider, selector, pattern in families:
-        if re.fullmatch(pattern, model.strip()):
-            for key in sorted(catalog):
-                profile = catalog[key]
-                if profile.provider == provider and profile.model == selector:
-                    return profile
     return None
 
 
