@@ -132,6 +132,26 @@ class ClaimPlans(unittest.TestCase):
         self.assertTrue(decision.ok, decision.error)
         self.assertFalse(decision.renew, "nothing to renew")
 
+    def test_a_claim_this_slot_was_holding_and_that_is_gone_is_lost(self):
+        # F-1 of round 1: a replacement holder releases at the end of its unit,
+        # so the ref is absent again. Absent means "unclaimed" to a pass that
+        # never held a Claim and "lost" to the Slot that did -- and only the
+        # caller knows which it is, which is what `claimed` tells the fence.
+        decision = ralph_claim.fence_decision(136, "machine:1", None, claimed="136")
+        self.assertFalse(decision.ok)
+        self.assertFalse(decision.renew)
+        self.assertIn("136", decision.error)
+        self.assertIn("machine:1", decision.error)
+        # Another issue's Claim says nothing about this one.
+        self.assertTrue(ralph_claim.fence_decision(136, "machine:1", None,
+                                                   claimed="137").ok)
+
+    def test_a_mutation_is_unfenced_inside_a_process_that_holds_no_slot(self):
+        # The in-process re-fence (#139, F-2) is the dispatcher's fence asked
+        # again from inside a long-running subcommand, so it is unfenced on
+        # exactly the same terms: without RALPH_SLOT, nothing is fenced.
+        self.assertIsNone(ralph_claim.fence_mutation(136, ".", env={}))
+
     def test_the_lost_claim_exit_code_is_its_own(self):
         # The Tick tells a lost Claim from every other refusal by this code.
         self.assertEqual(ralph_claim.EXIT_CLAIM_LOST, 21)
@@ -552,7 +572,7 @@ exec "$SLOW_REAL_GIT" "$@"
         self.assertEqual(released.returncode, 0, released.stderr)
         self.assertEqual(self.claim_oid(), "")
 
-    def taken_over_by_slot_two(self):
+    def taken_over_by_slot_two(self, then_released=False):
         """A mock agent under whose feet another Slot takes the Story over.
 
         It writes the lease Slot 2 would have written when this Slot's own
@@ -566,8 +586,9 @@ tree="$(git mktree </dev/null)"
 lease="$(printf '{"expiry":%s,"holder":"%s:2"}\\n' "$(( $(date +%s) + 600 ))" \\
          "$(hostname)" | git commit-tree "$tree")"
 git push -q --force origin "$lease:$ref"
+RELEASED && git push -q --force origin ":$ref"
 echo "taken-over=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
-""")
+""".replace("RELEASED", "true" if then_released else "false"))
 
     def test_a_tick_that_lost_its_claim_ends_the_unit_without_an_attempt(self):
         # The iteration ends with no done-signal and no Handoff, which is
@@ -599,6 +620,80 @@ echo "taken-over=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
         # ...and the Slot let the Story branch go, so its holder can have it.
         self.assertEqual(self.world.git("branch", "--show-current",
                                         cwd=self.world.checkout + ".ralph-slot-1"), "")
+
+    def test_a_mutation_after_the_takeover_was_released_is_still_refused(self):
+        # F-1 of round 1: Slot 2 takes the Claim over and then releases it at
+        # the end of its own unit, so the ref is absent again when Slot 1 wakes.
+        # Absent is not "free to write": Slot 1's Claim is gone, and the Story
+        # is not its business any more.
+        held = self.cli("--claim", "7", slot="2")
+        self.assertEqual(held.returncode, 0, held.stderr)
+        self.assertEqual(self.cli("--release-claim", "7", held.stdout.strip(),
+                                  slot="2").returncode, 0)
+        self.assertEqual(self.claim_oid(), "")
+        got = self.park(env={ralph_claim.CLAIMED_ENV: "7"})
+        self.assertEqual(got.returncode, ralph_claim.EXIT_CLAIM_LOST, got.stdout)
+        self.assertIn("7", got.stderr)
+        self.assertEqual(self.mutated(), [])
+        # The fence refuses; it never takes a Claim of its own on the way out.
+        self.assertEqual(self.claim_oid(), "")
+
+    def test_a_tick_whose_claim_was_taken_over_and_released_writes_nothing(self):
+        # F-1 at Tick level: the Slot that took the Story over finishes its own
+        # unit and releases, so this Tick comes back to an *unclaimed* issue it
+        # still believes is its own. Unfenced, it would comment on and label a
+        # Story another Slot has already worked.
+        self.world.set_backlog([ready_story()])
+        self.taken_over_by_slot_two(then_released=True)
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("taken-over=7", self.world.log_lines(), proc.stdout)
+        self.assertIn("Claim lost for #7", proc.stdout)
+        self.assertIn("recording no Attempt", proc.stdout)
+        comments = [ln for ln in self.world.log_lines()
+                    if ln.startswith("gh issue comment")]
+        self.assertEqual(len(comments), 1, comments)   # the token ledger alone
+        self.assertIn("Token ledger", comments[0])
+        self.assertNotIn("state:blocked", " ".join(self.world.log_lines()))
+
+    def taken_over_the_instant_the_claim_lands(self):
+        """A `git` that hands Slot 2 the Claim the moment Slot 1's lands.
+
+        F-3 of round 1: the Tick's own first write -- `begin_story`'s label
+        move -- is a direct `gh` call, so no dispatcher fence sees it, and it
+        runs before every fenced subcommand of the unit. This wrapper is the
+        takeover at exactly that instant: the push that creates the Claim
+        succeeds, and the next thing the Tick does is already too late.
+        """
+        real = shutil.which("git")
+        _write_exec(os.path.join(self.world.mockbin, "git"), """#!/usr/bin/env bash
+"%s" "$@"; rc=$?
+if (( rc == 0 )) && [[ "$*" == *push* && "$*" == *refs/ralph/claims/* \
+      && ! -e "%s" ]]; then
+  : > "%s"
+  tree="$("%s" mktree </dev/null)"
+  lease="$(printf '{"expiry":%%s,"holder":"%%s:2"}\\n' "$(( $(date +%%s) + 600 ))" \
+           "$(hostname)" | "%s" commit-tree "$tree")"
+  "%s" push -q --force origin "$lease:refs/ralph/claims/7"
+fi
+exit "$rc"
+""" % (real, os.path.join(self.tmp.name, "took-over"),
+       os.path.join(self.tmp.name, "took-over"), real, real, real))
+
+    def test_the_ticks_first_label_move_is_fenced_like_every_other_write(self):
+        # F-3 of round 1: `begin_story` moves state:ready -> state:in-progress
+        # with its own `gh`, before any fenced subcommand runs. A Slot whose
+        # Claim was taken over between acquiring it and this write must leave
+        # the new holder's labels exactly as they are.
+        self.world.set_backlog([ready_story()])
+        self.taken_over_the_instant_the_claim_lands()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("Claim lost for #7 (held by %s:2)" % HOST, proc.stdout)
+        self.assertEqual(self.mutated(), [], proc.stdout)
+        self.assertNotIn("state:in-progress", " ".join(self.world.log_lines()))
+        # Not an Attempt, and no agent was launched on another Slot's Story.
+        self.assertNotIn("ralph=", " ".join(self.world.log_lines()))
 
     def test_a_long_iteration_renews_its_claim_and_still_releases_it(self):
         # The lease the Slot reads is origin/main's, so the short one lands there.

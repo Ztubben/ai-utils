@@ -454,7 +454,14 @@ record_idle_handoff() {
 # Best-effort: a failure here almost always means the labels were never created,
 # so point at `ralph --init` and continue (the iteration can still do work).
 begin_story() {
-  local issue="$1"
+  local issue="$1" rc=0
+  # Fenced before the label move (#139, F-3 of PR #160 round 1): this is the
+  # tick's own `gh` write, not a subcommand's, so the dispatcher's fence never
+  # sees it -- and it is the *first* write of a `start`, before every fenced
+  # subcommand of the unit. A Slot whose Claim was taken over between
+  # acquiring it and here must leave the new holder's labels alone.
+  "$RALPH_BIN" --fence-claim "$issue" "$RALPH_CONFIG" || rc=$?
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return "$RC_CLAIM_LOST"; fi
   log "moving #$issue to state:in-progress"
   gh issue edit "$issue" \
      --add-label state:in-progress --remove-label state:ready \
@@ -656,7 +663,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claim-holder --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claim-holder --fence-claim --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -939,7 +946,7 @@ claim_lost() {
   holder="$("$RALPH_BIN" --claim-holder "$issue" 2>/dev/null || true)"
   log "Claim lost for #$issue (held by ${holder:-another Slot}); ending the unit of work, recording no Attempt"
   stop_claim_heartbeat
-  CLAIM_ISSUE="" CLAIM_OID=""
+  CLAIM_ISSUE="" CLAIM_OID="" RALPH_CLAIM_ISSUE=""
   # Free the Story branch for its new holder; it is working the issue now.
   git checkout -q --detach || log "could not detach the Slot after #$issue"
 }
@@ -959,13 +966,14 @@ release_story_claim() {
     return 2
   fi
   log "released Claim for #$CLAIM_ISSUE; Slot detached"
-  CLAIM_ISSUE="" CLAIM_OID=""
+  CLAIM_ISSUE="" CLAIM_OID="" RALPH_CLAIM_ISSUE=""
 }
 
 work_backlog() (
   # A subshell scopes the EXIT trap to story work: every early return releases
   # its Claim, before the reconciliation passes run in the parent Tick.
   CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  RALPH_CLAIM_ISSUE=""
   trap 'release_story_claim' EXIT
   trap 'exit 143' TERM
   trap 'exit 130' INT
@@ -1006,6 +1014,11 @@ work_backlog() (
           continue
         fi
         CLAIM_ISSUE="$issue"
+        # What tells a fence that an *absent* Claim is a lost one rather than
+        # an unclaimed mutation (#139): this Slot took one on this issue, so a
+        # ref that is gone means the Slot that took it over has since released
+        # it. Exported, so the agent's own calls read it too.
+        export RALPH_CLAIM_ISSUE="$issue"
         start_claim_heartbeat "$issue"
         log "$kind #$issue"
         # In Review has resume priority so the negotiation path owns the tick,
@@ -1074,7 +1087,11 @@ work_backlog() (
         # checkpoint/partial pass/completion all see the expected state. `resume`
         # is already active (in-progress or in-review), so it is left alone.
         if [[ "$kind" == "start" ]]; then
-          begin_story "$issue"
+          # Its own refusal, for the same reason the assignment below has one.
+          if ! begin_story "$issue"; then
+            n=$(( n + 1 ))
+            continue
+          fi
         fi
         # The unit's first write, so it is also where a Claim this Slot
         # already lost shows up first (#139): the Story belongs to another

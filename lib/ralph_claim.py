@@ -40,6 +40,12 @@ CAS_RETRIES = 3
 # Tick must act on it differently: abandon the unit of work, record no Attempt
 # and write nothing further. See docs/agents/tick.md.
 EXIT_CLAIM_LOST = 21
+# The issue this Slot took a Claim on, exported by the Tick and inherited by
+# every subcommand and agent it runs. It is what tells the fence that an
+# *absent* Claim is a lost one: a ref that is gone reads the same whether
+# nobody ever claimed the issue or a replacement holder took it over and then
+# released it at the end of its own unit, and only the caller knows which (#139).
+CLAIMED_ENV = "RALPH_CLAIM_ISSUE"
 
 
 class ClaimLost(ValueError):
@@ -162,21 +168,29 @@ def verify_plan(issue):
     return error or Plan(commands=[["git", "ls-remote", "origin", ref]])
 
 
-def fence_decision(issue, who, lease):
+def fence_decision(issue, who, lease, claimed=None):
     """Whether `who` may still change `issue` (ADR-0008, #139).
 
     A Slot that has lost its Claim can no longer change the issue, so every
     mutating subcommand asks this first. Three answers:
 
-    * no Claim at all -- pass, unfenced. The fence refuses a *lost* Claim, not
-      a mutation nobody claimed: the completion, arbitration and unpark passes
-      hold no Claim of their own, and refusing them would stop the Loop.
+    * no Claim at all -- pass, unfenced, *unless* `claimed` says this caller
+      took one on this very issue. The fence refuses a *lost* Claim, not a
+      mutation nobody claimed: the completion, arbitration and unpark passes
+      hold no Claim of their own, and refusing them would stop the Loop. But a
+      Slot that did hold one and finds the ref gone has lost it -- the Slot
+      that took the issue over has since released it at the end of its own
+      unit -- and must write nothing more.
     * another holder -- refuse, naming it, so the Tick can log who took over.
     * this holder -- pass, *by renewing*. The compare-and-swap is the check
       (#137): a takeover inside this window makes the renewal fail, and the
       mutation is refused then. A second read could not be atomic with it.
     """
     if lease is None:
+        if claimed is not None and str(claimed) == str(issue):
+            return Fenced(False, error="claim #%s is no longer held by %s (it "
+                                       "was taken over and released)"
+                                       % (issue, who))
         return Fenced(True)
     if lease.holder != who:
         return Fenced(False, error="claim #%s held by %s" % (issue, lease.holder))
@@ -286,7 +300,7 @@ def renew(issue, who, ttl, last_seen, cwd):
     return oid
 
 
-def fence(issue, who, ttl, cwd):
+def fence(issue, who, ttl, cwd, claimed=None):
     """Refuse a mutation of `issue` by a Slot that has lost its Claim (#139).
 
     Fails closed: a Claim this Slot cannot verify is not a Claim it holds, and
@@ -296,7 +310,7 @@ def fence(issue, who, ttl, cwd):
     """
     try:
         observed_oid, lease = observe(issue, cwd)
-        decision = fence_decision(issue, who, lease)
+        decision = fence_decision(issue, who, lease, claimed)
         if not decision.ok:
             raise ClaimLost(decision.error)
         if decision.renew:
@@ -305,6 +319,27 @@ def fence(issue, who, ttl, cwd):
         raise
     except (ValueError, OSError) as exc:
         raise ClaimLost(_refusal(issue, cwd, str(exc))) from exc
+
+
+def fence_mutation(issue, cwd, ttl=None, env=None):
+    """Ask the fence again, from inside a subcommand that is already running.
+
+    The dispatcher fences a subcommand once, before it starts (`bin/ralph`).
+    That is enough for the short ones, and not enough for the review path
+    (#139, F-2 of PR #160 round 1): `--await-review` sleeps between polls and
+    waits out whole agent invocations -- a suspended machine being the case
+    this fence exists for -- and both the review round and the response
+    publish only once the agent has returned. Each of those writes asks here
+    first, so a Story taken over mid-window is not published to, answered on
+    or completed by its former holder. Raises `ClaimLost`; unfenced on exactly
+    the dispatcher's terms, so without `RALPH_SLOT` it does nothing at all.
+    """
+    env = os.environ if env is None else env
+    if not env.get(ralph_slot.SLOT_ENV):
+        return None
+    fence(issue, holder(env), _fence_ttl(None) if ttl is None else ttl, cwd,
+          env.get(CLAIMED_ENV))
+    return None
 
 
 def _alive(pid):
@@ -440,7 +475,8 @@ def main(argv):
         if command == "fence":
             if len(args) > 2:
                 raise ValueError("fence requires ISSUE [CONFIG]")
-            fence(issue, who, _fence_ttl(args[1] if len(args) > 1 else None), cwd)
+            fence(issue, who, _fence_ttl(args[1] if len(args) > 1 else None), cwd,
+                  os.environ.get(CLAIMED_ENV))
             return 0
         if command == "holder":
             # Read-only, for the Tick's "Claim lost" log line: an unclaimed
