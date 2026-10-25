@@ -26,6 +26,7 @@ checkpointed and resumed, never counted as a crash.
 import atexit
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -300,6 +301,24 @@ class CodexAdapter(AgentAdapter):
     # already ignores. The seam is here for the day that changes.
     memory_env = {}
 
+    def launch(self, prompt, run=None):
+        if self.model != "sol":
+            return super().launch(prompt, run=run)
+        try:
+            catalog = subprocess.run(
+                [self.binary(), "debug", "models"],
+                env=self.environment(), stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=30, check=True)
+            model = latest_sol(json.loads(catalog.stdout))
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return Outcome(INFRASTRUCTURE_FAILURE, self.provider, self.model,
+                           None, "models/sol: could not resolve latest Sol: %s" % exc)
+        # Resolve afresh for each invocation; keep the configured selector on
+        # this adapter so reusing it cannot accidentally pin a moving family.
+        return CodexAdapter(model, role=self.role,
+                            handoff_tokens=self.handoff_tokens).launch(prompt, run=run)
+
     def argv(self):
         if self.role == "review":
             argv = [self.binary(), "exec", "--sandbox", "read-only",
@@ -343,6 +362,26 @@ class CodexAdapter(AgentAdapter):
         # raw stream through then is better than reporting the agent said
         # nothing at all.
         return ("\n".join(messages) if messages else output), usage
+
+
+def latest_sol(catalog):
+    """Newest listed stable Sol version in the Codex CLI's model catalog."""
+    models = catalog.get("models") if isinstance(catalog, dict) else None
+    if not isinstance(models, list):
+        raise ValueError("expected a models list from codex debug models")
+    candidates = []
+    for entry in models:
+        if not isinstance(entry, dict) or entry.get("visibility") != "list":
+            continue
+        slug = entry.get("slug")
+        if not isinstance(slug, str):
+            continue
+        match = re.fullmatch(r"gpt-(\d+(?:\.\d+)*)-sol", slug)
+        if match:
+            candidates.append((tuple(int(n) for n in match[1].split(".")), slug))
+    if not candidates:
+        raise ValueError("no listed stable Sol model in codex debug models")
+    return max(candidates)[1]
 
 
 # Every provider the schema allows in a Model Profile has an adapter here, so a

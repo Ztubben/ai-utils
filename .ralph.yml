@@ -19,10 +19,10 @@ models:
   profiles:
     - key: claude-opus
       provider: claude
-      model: claude-opus-5
+      model: opus
     - key: codex-sol
       provider: codex
-      model: gpt-6.1-sol
+      model: sol
   defaults:
     implementation: claude-opus
     review: codex-sol
