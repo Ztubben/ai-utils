@@ -19,7 +19,8 @@ the bare remote, so every new scenario gets every invariant for free.
   prompt-contract           every prompt an agent received carries its phase's
                             required instructions and none of its forbidden
                             ones (`contracts.py`)
-  claim-held-for-mutation  every Slot write has its unexpired issue Claim
+  claim-held-for-mutation  every Slot write has its unexpired issue Claim,
+                            except the token ledger, which is telemetry
   terminal-within-budget    by the scenario's last Tick every Story is Passing
                             (closed), state:blocked, needs-human or
                             state:awaiting-bench
@@ -38,6 +39,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "lib"))
 
 import contracts  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_wait  # noqa: E402
 
@@ -249,10 +251,22 @@ def prompt_contract(obs):
     return found
 
 
+# The Story's token ledger is the one issue write a Claim does not cover. It is
+# telemetry of a Slot's own spend, written *after* the invocation it accounts
+# for, so a Slot whose lease lapsed during that invocation still spent those
+# tokens and still has to say so -- and no dispatcher fence can reach a write
+# that happens after the launch it reports (#139). It gates nothing and moves
+# no state; the only alternative is losing the row. Read through the Loop's own
+# marker, so nothing else can claim the exemption.
+def _is_token_ledger(call):
+    return (call['tool'] == 'gh'
+            and ralph_ledger.LEDGER_MARKER in ' '.join(call.get('argv') or []))
+
+
 def claim_held_for_mutation(obs):
     found = []
     for call in obs.calls:
-        if not call.get('slot') or call.get('rc') != 0:
+        if not call.get('slot') or call.get('rc') != 0 or _is_token_ledger(call):
             continue
         for issue in call.get('issues', []):
             lease = call.get('claims', {}).get(str(issue))

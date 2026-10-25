@@ -625,3 +625,40 @@ echo "lease-after=$(lease)" >> "$RALPH_LOG"
         # stale one the Claim was taken with.
         self.assertEqual(self.world.git("ls-remote", "origin", "refs/ralph/claims/*"), "")
         self.assertNotIn("could not release", proc.stdout)
+
+    def test_the_agent_s_own_calls_are_fenced_through_its_environment(self):
+        # AC: the agent inherits `RALPH_SLOT`, so the mutating subcommands it
+        # runs itself -- `--checkpoint`, `--record-attempt` -- are fenced on
+        # the same Claim the Tick is fenced on, with nothing said in its
+        # prompt. Here another Slot takes the Story over mid-iteration: both
+        # of the agent's writes must be refused with EXIT_CLAIM_LOST.
+        self.world.set_backlog([ready_story()])
+        for provider in ("claude", "codex"):
+            _write_exec(os.path.join(self.world.mockbin, provider), """#!/usr/bin/env bash
+cat >/dev/null
+echo "slot=${RALPH_SLOT:-unset}" >> "$RALPH_LOG"
+ref="refs/ralph/claims/$RALPH_ITERATION_ISSUE"
+tree="$(git mktree </dev/null)"
+lease="$(printf '{"expiry":%s,"holder":"%s:2"}\\n' "$(( $(date +%s) + 600 ))" \\
+         "$(hostname)" | git commit-tree "$tree")"
+git push -q --force origin "$lease:$ref"
+story="$(gh issue view "$RALPH_ITERATION_ISSUE" --json number,title,labels,body,state)"
+for call in --checkpoint --record-attempt; do
+  rc=0
+  printf '%s' "$story" | ralph "$call" - "out of context" >/dev/null 2>&1 || rc=$?
+  echo "agent $call rc=$rc" >> "$RALPH_LOG"
+done
+""")
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        log = self.world.log_lines()
+        self.assertIn("slot=1", log, proc.stdout)
+        for call in ("--checkpoint", "--record-attempt"):
+            self.assertIn("agent %s rc=%d" % (call, ralph_claim.EXIT_CLAIM_LOST),
+                          log, proc.stdout)
+        # Neither wrote: the Handoff comment and the Attempt are both absent,
+        # and the only comment left is this Slot's own token ledger.
+        comments = [ln for ln in log if ln.startswith("gh issue comment")]
+        self.assertEqual(len(comments), 1, comments)
+        self.assertIn("Token ledger", comments[0])
+        self.assertNotIn("ralph:handoff", " ".join(log))

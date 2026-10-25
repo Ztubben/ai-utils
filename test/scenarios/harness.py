@@ -35,6 +35,9 @@ RALPH = os.path.join(REPO_ROOT, "bin", "ralph")
 FAKES = os.path.join(HERE, "fakes")
 WORLDS = os.path.join(HERE, "worlds")
 
+# The machine every Slot runs on unless a world says otherwise.
+DEFAULT_MACHINE = 'a'
+
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 import yaml  # noqa: E402
 
@@ -229,6 +232,16 @@ class World:
         for number in self.slots:
             if ralph_slot.slot_number({'RALPH_SLOT': number}) is None:
                 raise ScenarioFailure('invalid Slot: %s' % number)
+        # Which machine each Slot runs on. The Slots of one machine are
+        # worktrees of one clone (ADR-0008), so they share its refs; a Slot on
+        # another machine has its own clone of the same remote. Omitting
+        # `machines` puts every Slot on one machine, as before.
+        declared = {str(k): str(v) for k, v in (spec.get('machines') or {}).items()}
+        unknown = sorted(set(declared) - set(self.slots))
+        if unknown:
+            raise ScenarioFailure('machines name undeclared Slots: %s'
+                                  % ', '.join(unknown))
+        self.machines = {s: declared.get(s, DEFAULT_MACHINE) for s in self.slots}
         self.env = self._environment()
         self._build()
 
@@ -302,6 +315,18 @@ class World:
             _git(["checkout", "-q", "HEAD~1", "--", "schema"], home, self.env)
             _git(["commit", "-q", "-m", "fix the schema"], home, self.env)
         _git(["push", "-q", "-u", "origin", base], self.checkout, self.env)
+        # A Slot on another machine works from that machine's own clone of the
+        # same remote: it shares the backlog, the bare remote and the Claim
+        # refs, and nothing else. Two Slots of *one* machine share a clone, so
+        # git refuses the second a branch the first has checked out -- which is
+        # what a takeover across machines (ADR-0008) does not have to live with.
+        self.checkouts = {DEFAULT_MACHINE: self.checkout}
+        for machine in sorted(set(self.machines.values())):
+            if machine in self.checkouts:
+                continue
+            path = os.path.join(self.root, "checkout-" + machine)
+            _git(["clone", "-q", self.remote, path], self.root, self.env)
+            self.checkouts[machine] = path
         state = initial_state(self.spec)
         self.oid_map = {}
         capture = self.spec.get("github", {}).get("capture")
@@ -393,12 +418,17 @@ class World:
         return subprocess.run([GH_FAKE] + list(args), cwd=self.checkout, env=self.env,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    def slot_env(self, slot):
+    def slot_checkout(self, slot):
+        """The clone this Slot's machine works from."""
         slot = str(slot)
         if slot not in self.slots:
             raise ScenarioFailure('undeclared Slot %s' % slot)
+        return self.checkouts[self.machines[slot]]
+
+    def slot_env(self, slot):
+        slot = str(slot)
         return dict(self.env, RALPH_SLOT=slot,
-                    RALPH_SLOT_DIR=ralph_slot.slot_dir(self.checkout, slot))
+                    RALPH_SLOT_DIR=ralph_slot.slot_dir(self.slot_checkout(slot), slot))
 
     def tick(self, timeout=300, slot='1'):
         return self.step({'action': 'tick', 'slot': slot}, timeout)
@@ -435,8 +465,16 @@ class World:
                     if os.path.exists(gate + suffix):
                         os.unlink(gate + suffix)
                 env['SCENARIO_PAUSE'] = gate
+            # One Tick's own profiles, over the world's. A Slot that resumes
+            # into a Claim another Slot took over has to behave differently
+            # from the Slot that took it (#139), and the agent reads its
+            # behaviour from the environment of the Tick that launched it.
+            if step.get('agents'):
+                env['SCENARIO_AGENTS'] = json.dumps(
+                    dict(self.spec.get('agents', {}), **step['agents']))
             output = tempfile.TemporaryFile(mode='w+')
-            proc = subprocess.Popen([self.ralph, '--run'], cwd=self.checkout, env=env,
+            proc = subprocess.Popen([self.ralph, '--run'],
+                                    cwd=self.slot_checkout(slot), env=env,
                                     stdout=output, stderr=subprocess.STDOUT,
                                     text=True, start_new_session=True)
             self.active[slot] = (proc, output)
