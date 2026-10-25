@@ -90,6 +90,18 @@ A world may declare `"slots": ["1", "2", "3"]`. Each is a real worktree of
 one checkout, sharing the bare remote and fake GitHub state. Omitting `slots`
 keeps the existing single-Slot world and `ticks` behaviour.
 
+`"machines": {"2": "b"}` puts a Slot on **another machine**: its own clone of
+the same remote, so it shares the backlog, the refs and the Claims and nothing
+else. Omitting `machines` puts every Slot on one machine, as before, and naming
+an undeclared Slot is an error. Reach for it when a scenario models a
+**takeover**: the Slots of one machine are worktrees of one clone (ADR-0008),
+so git refuses the second one a Story branch the first still has checked out.
+Releasing a Claim detaches first, which keeps that out of an orderly
+hand-over's way — but a takeover is precisely the case where the previous
+holder never released and so never detached, and ADR-0008's takeover is
+cross-machine by construction ("the next unit may be taken by any Slot on any
+machine").
+
 Use `steps` for deterministic interleaving, within the `ticks` budget:
 
 ```json
@@ -109,6 +121,12 @@ Use `steps` for deterministic interleaving, within the `ticks` budget:
 | `resume` | Release that agent's barrier and continue the paused Tick to its end. |
 | `expire` | Replace the paused Slot's Story lease on the real remote with an expired lease of the same holder, by compare-and-swap. No wall-clock lease wait is needed. |
 
+A step may also carry its own `"agents"`, merged over the world's for that one
+Tick (`{"slot": "1", "action": "tick", "agents": {"iteration": "needs-human"}}`).
+An agent reads its behaviour from the environment of the Tick that launched it,
+so this is how one Slot's agent behaves differently from another's — a Slot
+resuming into a Claim another Slot took over has to.
+
 Every step names a declared Slot. A Slot must be paused before `resume` or
 `expire`; another `tick` cannot start while it is active. Explicit steps all
 run, even if the expectations are reached early. Invariants run after each
@@ -117,6 +135,10 @@ Cleanup kills any still-paused process group before deleting the world.
 
 `two_slots_different_stories.json` pauses Slot 1 on an in-progress Story while
 Slot 2 skips that Claim and completes a Ready Story. Slot 1 then resumes.
+`lid_close_fences_the_resumed_slot.json` is the takeover: Slot 1 claims and its
+machine sleeps, the lease expires, Slot 2 (on machine `b`) takes the Claim over
+and is working the Story when Slot 1 wakes, and Slot 1's next mutation is
+refused on the Claim it no longer holds.
 
 The call log identifies each Slot. Git remains real: a receive hook on the bare remote
 observes accepted pushes, and the GitHub fake observes issue, pull request, review,
@@ -127,7 +149,9 @@ instant, including branch deletion and pushes by the scripted agent. A later
 Claim release or takeover cannot hide an earlier violation. Claim-ref pushes
 are coordination operations, and harness setup/control operations outside a
 Slot are excluded. This invariant observes writes; it does not enforce the
-product's mutation fencing.
+product's mutation fencing (#139, `docs/agents/tick.md`), which refuses a
+fenced subcommand with exit 21 — the invariant is what catches a write the
+fence let through.
 
 ### The profile matrix
 
@@ -180,7 +204,7 @@ Tick, the invariant, the records involved and the last calls.
 | `branch-only-grows` | Every branch head descends from the head it had after the previous Tick. |
 | `empty-runs-never-count` | A run with no output or zero usage never backs a recorded result, a recorded response or a promotion into review. |
 | `prompt-contract` | Every prompt an agent received carries its phase's required instructions and none of its forbidden ones. |
-| `claim-held-for-mutation` | Every successful issue-related push or GitHub write by a Slot has that Slot’s unexpired Claim at write time; failures name the Slot and issue. |
+| `claim-held-for-mutation` | Every successful issue-related push or GitHub write by a Slot has that Slot’s unexpired Claim at write time; failures name the Slot and issue. The one exemption is the **token ledger** (read through `ralph_ledger.LEDGER_MARKER`): it is written *after* the invocation it accounts for, so no Claim can cover it and no dispatcher fence can reach it, and a Slot whose lease lapsed mid-invocation still spent those tokens. It gates nothing and moves no state; the alternative is losing the row. |
 | `terminal-within-budget` | By the last Tick every Story is Passing, `state:blocked`, `needs-human` or `state:awaiting-bench`. |
 
 Records are always read with the Loop's own parsers (`ralph_review`), never by

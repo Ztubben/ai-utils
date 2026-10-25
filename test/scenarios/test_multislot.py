@@ -133,5 +133,73 @@ class SeveralSlots(unittest.TestCase):
         self.assertIn('#1', violation.detail)
 
 
+class SlotsOnSeveralMachines(unittest.TestCase):
+    """`machines` gives a Slot its own clone of the same remote (#139).
+
+    The Slots of one machine are worktrees of one clone (ADR-0008), so git
+    refuses the second one a branch the first has checked out. Releasing a
+    Claim detaches, which keeps that out of the way of an orderly hand-over --
+    but a *takeover* is the case where the previous holder never released and
+    so never detached, and that is a cross-machine case by construction.
+    """
+
+    def world(self, **overrides):
+        world = harness.World(dict(harness.load('two_slots_different_stories'),
+                                   **overrides))
+        self.addCleanup(world.cleanup)
+        return world
+
+    def git(self, checkout, *args, env):
+        return subprocess.run(['git'] + list(args), cwd=checkout, env=env,
+                              capture_output=True, text=True)
+
+    def test_every_slot_shares_one_clone_unless_a_world_says_otherwise(self):
+        world = self.world()
+        self.assertEqual({world.slot_checkout(slot) for slot in world.slots},
+                         {world.checkout})
+
+    def test_a_slot_on_another_machine_works_from_its_own_clone(self):
+        world = self.world(machines={'2': 'b'})
+        self.assertEqual(world.slot_checkout('1'), world.checkout)
+        other = world.slot_checkout('2')
+        self.assertNotEqual(other, world.checkout)
+        # Its own clone of the *same* remote: one backlog, one set of refs and
+        # Claims. Its Slot worktree is a sibling of that clone, not of Slot 1's.
+        url = self.git(other, 'remote', 'get-url', 'origin', env=world.env)
+        self.assertEqual(url.stdout.strip(), world.remote, url.stderr)
+        self.assertTrue(world.slot_env('2')['RALPH_SLOT_DIR'].startswith(other))
+
+    def test_another_machine_is_not_refused_a_branch_slot_one_checked_out(self):
+        branch = 'ralph/1-add-the-greeting'
+
+        def take_over(world):
+            """Each Slot puts the same Story branch in its own worktree."""
+            self.git(world.checkout, 'push', '-q', 'origin', 'HEAD:refs/heads/' + branch,
+                     env=world.env)
+            results = []
+            for slot in ('1', '2'):
+                checkout = world.slot_checkout(slot)
+                self.git(checkout, 'fetch', '-q', 'origin', env=world.env)
+                results.append(self.git(
+                    checkout, 'worktree', 'add', '-q',
+                    world.slot_env(slot)['RALPH_SLOT_DIR'], '-B', branch,
+                    'origin/' + branch, env=world.env))
+            return results
+
+        first, second = take_over(self.world())
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn('already used by worktree', second.stderr)
+
+        first, second = take_over(self.world(machines={'2': 'b'}))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+
+    def test_machines_must_name_declared_slots(self):
+        with self.assertRaises(harness.ScenarioFailure) as caught:
+            self.world(machines={'3': 'b'})
+        self.assertIn('machines name undeclared Slots: 3', str(caught.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

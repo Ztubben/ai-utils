@@ -114,6 +114,14 @@ usage: ralph --init [CONFIG]
        ralph --learn-target PATH [ROOT]
        ralph --capture STORY [--out DIR] [--redact]
 
+  Exit codes are per subcommand, documented with each below. One is shared: when
+  RALPH_SLOT names a Slot -- as it does inside a tick, and for the agent it
+  launches -- every mutating subcommand first confirms by compare-and-swap renewal
+  that this Slot still holds its issue's Claim, and exits 21 naming the current
+  holder if another Slot has taken the issue over (ADR-0008). The tick reads 21 as
+  "Claim lost" and ends the unit of work without recording an Attempt. Read-only
+  subcommands are never fenced, and without RALPH_SLOT nothing is.
+
   --init [CONFIG]         Bootstrap the superproject for the Ralph Loop:
                           idempotently create the canonical state:/type:/prio:/
                           needs-human/ready-for-human GitHub labels and, if the

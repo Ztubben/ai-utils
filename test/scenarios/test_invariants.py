@@ -16,6 +16,7 @@ import harness
 import invariants
 
 sys.path.insert(0, os.path.join(harness.REPO_ROOT, "lib"))
+import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
 
 
@@ -166,6 +167,36 @@ class HandBuiltWorld(unittest.TestCase):
         self.assertEqual(violation.invariant, 'claim-held-for-mutation')
         self.assertIn('Slot intruder', violation.detail)
         self.assertIn('#1', violation.detail)
+
+    def test_the_token_ledger_is_the_one_write_a_claim_does_not_cover(self):
+        # The ledger row is written *after* the invocation it accounts for, so
+        # a Slot whose lease lapsed during that invocation still spent those
+        # tokens and still has to say so (#139). The exemption is read through
+        # the Loop's own marker, so the same unclaimed Slot's ordinary comment
+        # is still caught -- both shapes of the write, create and edit.
+        self.world.env['RALPH_SLOT'] = 'intruder'
+        event = {"round": 1, "phase": "iteration", "provider": "claude",
+                 "model": "m", "usage": {"input": 10}}
+        plan = ralph_ledger.ledger_plan(1, [], event)
+        self.assertTrue(plan.created)
+        for command in plan.commands:
+            proc = self.world.gh(*command[1:])
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.red(), [])
+
+        comments = self.world.state()["issues"]["1"]["comments"]
+        edit = ralph_ledger.ledger_plan(1, comments, event)
+        self.assertFalse(edit.created)
+        for command in edit.commands:
+            proc = self.world.gh(*command[1:])
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.red(), [])
+
+        proc = self.world.gh('issue', 'comment', '1', '--body', 'not telemetry')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        violation, = self.watch.check()
+        self.assertEqual(violation.invariant, 'claim-held-for-mutation')
+        self.assertIn('Slot intruder', violation.detail)
 
     def test_a_story_still_open_when_the_budget_ends(self):
         self.edit_state(lambda s: s["issues"]["1"]["labels"].append("state:in-review"))

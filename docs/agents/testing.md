@@ -27,6 +27,24 @@ for the code it touches. Add a new learning here, in the file that owns it.
   writing without the PRD's Claim; it is a `known_defect` for #140, which owns
   reconciliation Claims. Remove that declaration when #140 makes it green.
 
+- Fencing a takeover in a scenario (#139) needed three harness seams. (1) A **step**
+  may carry its own `agents`, merged over the world's for that Tick: an agent reads its
+  behaviour from the environment of the Tick that launched it, so this is the only way
+  one Slot's agent behaves differently from another's. (2) A world may put a Slot on
+  another **machine** (`"machines": {"2": "b"}`): its own clone of the same remote.
+  Not optional for a takeover — the Slots of one machine are worktrees of one clone, so
+  Slot 2's `--resume` died on `fatal: '<story branch>' is already used by worktree at
+  …slot-1`. ADR-0008 rejected separate clones because detaching on release removes that
+  refusal, but a takeover is exactly the case where the previous holder never released
+  and so never detached; cross-machine is the ADR's own takeover case.
+  (3) `claim-held-for-mutation` exempts the **token ledger** (matched on
+  `ralph_ledger.LEDGER_MARKER`): the row is written after the invocation it accounts
+  for, so no Claim covers it and no dispatcher fence could reach it either — fencing
+  the launch would not have helped. Both exemption and `machines` are seen red in
+  `test_invariants.py` / `test_multislot.py`, and the world is verified red by taking
+  `--park-story` out of `bin/ralph`'s `RALPH_FENCED`: Slot 1 then parks the Story Slot 2
+  is working and the invariant catches it.
+
 - Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
   namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
   no coordination semantics: `test_claim.py` uses real git and independent clones
