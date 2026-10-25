@@ -144,7 +144,9 @@ usage: ralph --init [CONFIG]
                           the new one.
   --heartbeat-claim ISSUE OID [CONFIG]
                           Renew the Claim for as long as this process' parent
-                          lives, printing each object id it swaps to.
+                          and the Tick named by RALPH_TICK_PID (its parent, if
+                          unset) live, printing each object id it swaps to. It
+                          stops on TERM, never mid-renewal.
   --release-claim ISSUE OID
                           Release only the last-seen Claim object id.
   --verify-claim ISSUE    Verify this machine and Slot hold the remote Claim.

@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -199,11 +200,24 @@ def renew(issue, who, ttl, last_seen, cwd):
     return oid
 
 
-def _tick_alive(interval, tick):
-    """Sleep out one interval, unless the Tick that started us goes away."""
+def _alive(pid):
+    """Whether a process we do not own as a child is still around."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _tick_alive(interval, parent, tick, stopping):
+    """Sleep out one interval, unless the unit of work has ended: the Tick was
+    asked to stop us, the process that started us went away, or the Tick
+    itself did."""
     deadline = time.time() + interval
     while True:
-        if os.getppid() != tick:
+        if stopping or os.getppid() != parent or not _alive(tick):
             return False
         remaining = deadline - time.time()
         if remaining <= 0:
@@ -211,14 +225,21 @@ def _tick_alive(interval, tick):
         time.sleep(min(POLL, remaining))
 
 
-def heartbeat(issue, who, ttl, oid, cwd, out):
+def heartbeat(issue, who, ttl, oid, cwd, out, tick=None):
     """Keep a Claim alive for as long as its unit of work runs, and no longer.
-    The heartbeat is a child of the Tick and watches it: a Tick killed outright
-    runs no trap, and an orphan still renewing would lock its issue away from
-    every other Slot for as long as the machine stays up. Each oid swapped to
-    is reported, because releasing the Claim must name the last one."""
-    interval, tick = heartbeat_interval(ttl), os.getppid()
-    while _tick_alive(interval, tick):
+    A Tick killed outright runs no trap, and an orphan still renewing would
+    lock its issue away from every other Slot for as long as the machine stays
+    up, so the heartbeat watches both the process that started it and the
+    *Tick* it belongs to -- which is not the same process, because the Tick
+    starts it inside the `work_backlog` subshell and that subshell outlives a
+    kill of the Tick. Each oid swapped to is reported, because releasing the
+    Claim must name the last one; a TERM is therefore a request to stop at the
+    next safe point, never mid-renewal -- origin may already have accepted a
+    renewal whose oid nobody has been told about yet."""
+    interval, parent = heartbeat_interval(ttl), os.getppid()
+    stopping = []
+    signal.signal(signal.SIGTERM, lambda *_: stopping.append(True))
+    while _tick_alive(interval, parent, tick or parent, stopping):
         oid = renew(issue, who, ttl, oid, cwd)
         out.write(oid + "\n")
         out.flush()
@@ -244,6 +265,17 @@ def _refusal(issue, cwd, detail):
 COMMANDS = ("claim", "renew", "heartbeat", "release", "verify", "list")
 USAGE = ("usage: ralph_claim.py {claim ISSUE [CONFIG]|renew ISSUE OID [CONFIG]"
          "|heartbeat ISSUE OID [CONFIG]|release ISSUE OID|verify ISSUE|list}\n")
+
+
+def _tick_pid(env):
+    """The Tick a heartbeat belongs to. Unset (a hand-run heartbeat), its own
+    parent is the best it knows."""
+    value = env.get("RALPH_TICK_PID")
+    if value is None:
+        return None
+    if not re.fullmatch(r"[1-9][0-9]*", value):
+        raise ValueError("RALPH_TICK_PID: expected a process id")
+    return int(value)
 
 
 def _ttl(path):
@@ -314,7 +346,8 @@ def main(argv):
         if command == "renew":
             print(renew(issue, who, ttl, args[1], cwd))
         else:
-            heartbeat(issue, who, ttl, args[1], cwd, sys.stdout)
+            heartbeat(issue, who, ttl, args[1], cwd, sys.stdout,
+                      _tick_pid(os.environ))
         return 0
     except (ValueError, OSError) as exc:
         detail = _refusal(issue, cwd, str(exc)) if issue else str(exc)

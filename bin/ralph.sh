@@ -869,14 +869,23 @@ tick() {
 # watches this Tick, so a Tick that is killed outright takes it with it (#137).
 start_claim_heartbeat() {
   CLAIM_OID_FILE="$(mktemp "${TMPDIR:-/tmp}/ralph-claim-XXXXXX")"
-  "$RALPH_BIN" --heartbeat-claim "$1" "$CLAIM_OID" "$RALPH_CONFIG" \
+  # $$ is this Tick, which is *not* the heartbeat's parent: story work runs in
+  # the `work_backlog` subshell, and that subshell survives a kill of the Tick.
+  # A heartbeat watching only its parent would go on renewing from there.
+  RALPH_TICK_PID=$$ \
+    "$RALPH_BIN" --heartbeat-claim "$1" "$CLAIM_OID" "$RALPH_CONFIG" \
     >"$CLAIM_OID_FILE" &
   CLAIM_HEARTBEAT=$!
 }
 
 stop_claim_heartbeat() {
   [[ -z "${CLAIM_HEARTBEAT:-}" ]] && return 0
-  kill "$CLAIM_HEARTBEAT" 2>/dev/null || true
+  # TERM asks the heartbeat to stop at its next safe point and we wait it out:
+  # a renewal already in flight has moved the Claim on origin, and killing it
+  # before it reports that object id would leave nothing able to release the
+  # ref until it expired. A renewal wedged on the network blocks here exactly
+  # as any other git push of this tick would.
+  kill -TERM "$CLAIM_HEARTBEAT" 2>/dev/null || true
   wait "$CLAIM_HEARTBEAT" 2>/dev/null || true
   # Whatever the heartbeat last swapped to *is* the Claim now: releasing it
   # against the value it was taken with would be refused as stale.

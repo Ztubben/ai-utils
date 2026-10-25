@@ -42,10 +42,17 @@ for the code it touches. Add a new learning here, in the file that owns it.
   adopts the last id the child printed as `CLAIM_OID`; releasing against the old one
   is refused and would strand the ref until it expired. That is why the child's
   stdout is a temp file: it must never be a command substitution's pipe, which the
-  Tick would then block on. (2) The heartbeat records its parent pid and stops when
-  it changes — a Tick killed outright runs no trap, and an orphan still renewing
+  Tick would then block on. `stop_claim_heartbeat` therefore sends TERM and *waits*:
+  the heartbeat treats TERM as a request to stop at its next safe point, because a
+  renewal origin has already accepted but not yet printed would leave the ref
+  releasable by nobody until it expired. (2) The heartbeat watches two processes and
+  stops when either goes — the process that started it, and the Tick named by
+  `RALPH_TICK_PID` (`$$`, which inside `work_backlog` is the Tick and not the
+  subshell that is the heartbeat's actual parent). A Tick killed outright runs no
+  trap and its `work_backlog` subshell survives it, and an orphan still renewing
   would lock its issue away from every Slot for as long as the machine stays up — so
-  it sleeps in `POLL` slices rather than one long sleep. (3) Renewal reads nothing
+  it sleeps in `POLL` slices rather than one long sleep. A heartbeat run by hand
+  without `RALPH_TICK_PID` watches its parent alone. (3) Renewal reads nothing
   from the remote: the compare-and-swap *is* the check, so a holder that has lost its
   Claim fails and the new holder's lease is left intact.
 

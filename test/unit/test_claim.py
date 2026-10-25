@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -32,6 +33,11 @@ def alive(pid):
             return fh.read().rsplit(") ", 1)[1].split()[0] not in ("Z", "X")
     except FileNotFoundError:
         return False
+
+
+def parent_of(pid):
+    with open("/proc/%d/stat" % pid) as fh:
+        return int(fh.read().rsplit(") ", 1)[1].split()[1])
 
 
 class ClaimPlans(unittest.TestCase):
@@ -204,14 +210,15 @@ echo "worked=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
             fh.write(src.read() + "concurrency:\n  claim_ttl: %d\n" % ttl)
         return path
 
-    def heartbeat(self, issue, oid, config, cwd=None, wrap=None):
+    def heartbeat(self, issue, oid, config, cwd=None, wrap=None, env=None):
         """The heartbeat as the Tick runs it: a child writing the oids it swaps
         to, so whoever releases the Claim can name the lease last written."""
         out = os.path.join(self.tmp.name, "oids-%s" % issue)
         argv = [RALPH, "--heartbeat-claim", str(issue), oid, config]
         with open(out, "w") as sink:
             proc = subprocess.Popen((wrap or []) + argv, cwd=cwd or self.world.checkout,
-                                    env=dict(self.world.env(), RALPH_SLOT="1"),
+                                    env=dict(self.world.env(), RALPH_SLOT="1",
+                                             **(env or {})),
                                     stdout=sink, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self.stop, proc)
         return proc, out
@@ -323,6 +330,69 @@ echo "worked=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
         renewals = os.path.getsize(out)
         time.sleep(0.6)   # three renewal intervals of the lease above
         self.assertEqual(os.path.getsize(out), renewals)
+
+    def test_a_heartbeat_never_outlives_the_tick_even_in_a_subshell(self):
+        # The Tick starts its heartbeat inside `work_backlog`, which is a
+        # subshell, so the heartbeat's parent is *not* the Tick: a Tick killed
+        # outright leaves that subshell behind, and a heartbeat watching only
+        # its immediate parent would go on renewing a Claim no other Slot
+        # could ever take over. It watches the Tick it was told about (#137).
+        config = self.config(1)
+        oid = self.cli("--claim", "136", config).stdout.strip()
+        pidfile = os.path.join(self.tmp.name, "subshell-heartbeat.pid")
+        proc, out = self.heartbeat(
+            "136", oid, config,
+            wrap=["bash", "-c",
+                  '( export RALPH_TICK_PID=$$; "$@" & echo $! >"$0"; wait )',
+                  pidfile])
+        self.until(lambda: os.path.getsize(out), "the heartbeat renewed once")
+        with open(pidfile) as fh:
+            child = int(fh.read())
+        subshell = parent_of(child)
+        self.assertNotEqual(subshell, proc.pid, "the Tick is not the parent")
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait()
+        self.until(lambda: not alive(child), "the heartbeat stopped with its Tick")
+
+    def slow_push(self, seconds="2"):
+        """A `git` whose push returns only once the remote has long accepted
+        it: the window in which the Claim has already moved to an object id
+        the heartbeat has not reported yet."""
+        shim = os.path.join(self.tmp.name, "slow-git")
+        os.makedirs(shim, exist_ok=True)
+        mark = os.path.join(self.tmp.name, "pushed")
+        _write_exec(os.path.join(shim, "git"), """#!/usr/bin/env bash
+if [[ "$1" == push ]]; then
+  "$SLOW_REAL_GIT" "$@"; rc=$?
+  echo accepted >> "$SLOW_PUSH_MARK"
+  sleep %s
+  exit "$rc"
+fi
+exec "$SLOW_REAL_GIT" "$@"
+""" % seconds)
+        return {"PATH": shim + os.pathsep + self.world.env()["PATH"],
+                "SLOW_REAL_GIT": shutil.which("git"),
+                "SLOW_PUSH_MARK": mark}, mark
+
+    def test_a_renewal_in_flight_is_reported_before_the_unit_of_work_ends(self):
+        # Stopping the heartbeat must not lose a renewal origin has already
+        # accepted: that object id *is* the Claim, and a release naming the
+        # previous one is refused, stranding the ref until it expires (#137).
+        config = self.config(1)
+        oid = self.cli("--claim", "136", config).stdout.strip()
+        env, mark = self.slow_push()
+        proc, out = self.heartbeat("136", oid, config, env=env)
+        self.until(lambda: os.path.exists(mark), "origin accepted a renewal")
+        proc.terminate()   # the unit of work ends with that renewal in flight
+        proc.wait(timeout=30)
+        swapped = self.renewed(out)
+        self.assertTrue(swapped, proc.stderr.read())
+        remote = self.world.git("ls-remote", "origin", "refs/ralph/claims/136").split()[0]
+        self.assertNotEqual(remote, oid, "the renewal did reach origin")
+        self.assertEqual(swapped[-1], remote)
+        # ...so the release the Tick makes next names the live lease.
+        released = self.cli("--release-claim", "136", swapped[-1])
+        self.assertEqual(released.returncode, 0, released.stderr)
 
     def test_a_long_iteration_renews_its_claim_and_still_releases_it(self):
         # The lease the Slot reads is origin/main's, so the short one lands there.
