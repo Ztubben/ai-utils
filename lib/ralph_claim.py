@@ -1,4 +1,4 @@
-"""Story Claims on origin (ADR-0008, #136, #137).
+"""Story Claims on origin (ADR-0008, #136, #137, #141).
 
 Lease encoding, expiry and command plans are pure. The CLI below reads the
 remote, creates an empty-tree commit, and executes a plan; no branch or
@@ -21,6 +21,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config
 import ralph_slot
+import ralph_story
 
 PREFIX = "refs/ralph/claims/"
 OID_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -77,6 +78,19 @@ def heartbeat_interval(ttl):
             or not math.isfinite(ttl) or ttl <= 0):
         raise ValueError("concurrency/claim_ttl: expected a positive number of seconds")
     return ttl / RENEWALS_PER_LEASE
+
+
+def feature_claim(issue, exclusive):
+    """The PRD whose Claim a unit of work on *issue* (gh JSON) also holds, or
+    None. One Slot per Feature (#141): a Feature Story holds its PRD's Claim
+    while `concurrency.feature_exclusive` is on; an Orphan Story, a PRD, or any
+    Story with exclusivity lifted holds only its own."""
+    if not exclusive:
+        return None
+    fields = ralph_story.validate_story(issue).fields
+    if fields.get("is_prd"):
+        return None
+    return fields.get("parent")
 
 
 def claim_ref(issue):
@@ -262,9 +276,10 @@ def _refusal(issue, cwd, detail):
     return "claim #%s: %s" % (issue, detail)
 
 
-COMMANDS = ("claim", "renew", "heartbeat", "release", "verify", "list")
+COMMANDS = ("claim", "renew", "heartbeat", "release", "verify", "list", "feature")
 USAGE = ("usage: ralph_claim.py {claim ISSUE [CONFIG]|renew ISSUE OID [CONFIG]"
-         "|heartbeat ISSUE OID [CONFIG]|release ISSUE OID|verify ISSUE|list}\n")
+         "|heartbeat ISSUE OID [CONFIG]|release ISSUE OID|verify ISSUE|list"
+         "|feature ISSUE_JSON [CONFIG]}\n")
 
 
 def _tick_pid(env):
@@ -278,11 +293,32 @@ def _tick_pid(env):
     return int(value)
 
 
-def _ttl(path):
+def _concurrency(path):
     config = ralph_config.load_and_validate(path or ".ralph.yml")
     if not config.ok:
         raise ValueError("; ".join(config.errors))
-    return config.config["concurrency"]["claim_ttl"]
+    return config.config["concurrency"]
+
+
+def _ttl(path):
+    return _concurrency(path)["claim_ttl"]
+
+
+def _feature(args):
+    """Print the PRD a unit of work on the issue in ISSUE_JSON (- for stdin)
+    must also claim; print nothing when it holds only its own Claim."""
+    if not 1 <= len(args) <= 2:
+        raise ValueError("feature-claim requires ISSUE_JSON [CONFIG]")
+    exclusive = _concurrency(args[1] if len(args) > 1 else None)["feature_exclusive"]
+    if args[0] == "-":
+        issue = json.load(sys.stdin)
+    else:
+        with open(args[0]) as fh:
+            issue = json.load(fh)
+    prd = feature_claim(issue, exclusive)
+    if prd is not None:
+        print(prd)
+    return 0
 
 
 def main(argv):
@@ -293,6 +329,8 @@ def main(argv):
     cwd = os.getcwd()
     issue = None
     try:
+        if command == "feature":
+            return _feature(args)
         who = holder(os.environ)
         if command == "list":
             if args:

@@ -65,6 +65,32 @@ class ResumeFirst(unittest.TestCase):
                 self.assertEqual((action.kind, action.number), (ralph_select.START, 2))
                 self.assertEqual(ralph_select.next_action(backlog).number, 1)
 
+    def test_a_claimed_prd_holds_back_its_feature_and_selection_goes_elsewhere(self):
+        # One Slot per Feature (#141): another holder has PRD #10's Claim, so
+        # neither of its Stories is offered -- resumed or started -- and the
+        # next eligible Story of another Feature or an Orphan Story is.
+        for state in ("ready", "in-progress", "in-review"):
+            with self.subTest(state=state):
+                backlog = [story(10, prio=None, prd=True),
+                           story(11, state=state, type_="afk", prio=1, parent=10),
+                           story(12, state="ready", type_="afk", prio=1, parent=10),
+                           story(21, state="ready", type_="afk", prio=2, parent=20),
+                           story(3, state="ready", type_="afk", prio=3)]
+                action = ralph_select.next_action(backlog, claimed={10})
+                self.assertEqual((action.kind, action.number), (ralph_select.START, 21))
+                action = ralph_select.next_action(backlog, claimed={10, 21})
+                self.assertEqual((action.kind, action.number), (ralph_select.START, 3))
+                self.assertEqual(ralph_select.next_action(backlog).number, 11)
+
+    def test_an_unclaimed_prd_leaves_sibling_stories_selectable(self):
+        # Without exclusivity no Story's unit takes its PRD's Claim, so a
+        # Slot holding only #11 leaves #12 open to the next Slot.
+        backlog = [story(10, prio=None, prd=True),
+                   story(11, state="in-progress", type_="afk", prio=1, parent=10),
+                   story(12, state="ready", type_="afk", prio=1, parent=10)]
+        action = ralph_select.next_action(backlog, claimed={11})
+        self.assertEqual((action.kind, action.number), (ralph_select.START, 12))
+
     def test_in_review_is_resumed_before_any_ready_scan(self):
         act = action_for(
             story(1, state="ready", type_="afk", prio=1),

@@ -118,6 +118,9 @@ Cleanup kills any still-paused process group before deleting the world.
 
 `two_slots_different_stories.json` pauses Slot 1 on an in-progress Story while
 Slot 2 skips that Claim and completes a Ready Story. Slot 1 then resumes.
+`two_slots_one_feature.json` (#141) pauses Slot 1 on a Feature Story, holding
+its PRD's Claim too; Slot 2 skips the sibling and completes the Orphan Story,
+and Slot 1 then works both siblings in turn.
 
 The call log identifies each Slot. Git remains real: a receive hook on the bare remote
 observes accepted pushes, and the GitHub fake observes issue, pull request, review,

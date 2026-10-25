@@ -132,6 +132,40 @@ class SeveralSlots(unittest.TestCase):
         self.assertIn('Slot 1', violation.detail)
         self.assertIn('#1', violation.detail)
 
+class OneSlotPerFeature(unittest.TestCase):
+    """#141: sibling Feature Stories never run at once; an Orphan Story does."""
+
+    def test_siblings_never_run_at_once_while_the_orphan_runs_alongside(self):
+        world = harness.World(harness.load('two_slots_one_feature'))
+        self.addCleanup(world.cleanup)
+        watch = invariants.Watch(world)
+        world.step({'slot': '1', 'action': 'tick', 'pause': 'after-claim'})
+        self.assertEqual(world.paused_story('1'), 1)
+        # Slot 1's unit holds the Story's and the Feature's Claim.
+        claims = subprocess.run(['git', 'ls-remote', 'origin', 'refs/ralph/claims/*'],
+                                cwd=world.checkout, env=world.env, check=True,
+                                capture_output=True, text=True).stdout
+        self.assertEqual(sorted(line.split()[1] for line in claims.splitlines()),
+                         ['refs/ralph/claims/1', 'refs/ralph/claims/10'])
+        proc = world.step({'slot': '2', 'action': 'tick'})
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        issues = world.state()['issues']
+        self.assertEqual(issues['3']['state'], 'CLOSED')
+        self.assertIn('state:ready', issues['2']['labels'])
+        self.assertEqual(watch.check(), [])
+        proc = world.step({'slot': '1', 'action': 'resume'})
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(watch.check(final=True), [])
+        issues = world.state()['issues']
+        self.assertEqual([issues[n]['state'] for n in '123'], ['CLOSED'] * 3)
+        calls = [(c['slot'], c['story']) for c in world.calls()
+                 if c.get('phase') == 'iteration']
+        self.assertEqual(sorted(set(calls)), [('1', 1), ('1', 2), ('2', 3)])
+        claims = subprocess.run(['git', 'ls-remote', 'origin', 'refs/ralph/claims/*'],
+                                cwd=world.checkout, env=world.env, check=True,
+                                capture_output=True, text=True).stdout
+        self.assertEqual(claims, '')
+
 
 if __name__ == '__main__':
     unittest.main()

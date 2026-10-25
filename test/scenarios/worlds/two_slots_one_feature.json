@@ -1,0 +1,120 @@
+{
+  "description": "One Slot per Feature (#141): Slot 1 pauses holding a Feature Story and its PRD's Claim; Slot 2 skips the sibling and works the Orphan Story alongside, then Slot 1 resumes and works both siblings in turn.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "main",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 10,
+        "title": "The salutations Feature",
+        "labels": [
+          "prd"
+        ],
+        "body": "## Problem\nNo salutations.\n\nDepends on: None\n"
+      },
+      {
+        "number": 1,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
+        "body": "## What to build\nAdd the greeting.\n\n## Acceptance Criteria\n- [ ] it exists\n\nParent: #10\nDepends on: None\n"
+      },
+      {
+        "number": 2,
+        "title": "Add the farewell",
+        "labels": [
+          "type:afk",
+          "prio:2",
+          "state:ready"
+        ],
+        "body": "## What to build\nAdd the farewell.\n\n## Acceptance Criteria\n- [ ] it exists\n\nParent: #10\nDepends on: None\n"
+      },
+      {
+        "number": 3,
+        "title": "Add the license",
+        "labels": [
+          "type:afk",
+          "prio:3",
+          "state:ready"
+        ],
+        "body": "## What to build\nAdd the license.\n\n## Acceptance Criteria\n- [ ] it exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative"
+  },
+  "ticks": 3,
+  "expect": {
+    "1": "passing",
+    "2": "passing",
+    "3": "passing"
+  },
+  "slots": [
+    "1",
+    "2"
+  ],
+  "steps": [
+    {
+      "slot": "1",
+      "action": "tick",
+      "pause": "after-claim"
+    },
+    {
+      "slot": "2",
+      "action": "tick"
+    },
+    {
+      "slot": "1",
+      "action": "resume"
+    }
+  ]
+}
