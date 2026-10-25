@@ -84,6 +84,51 @@ adds a test; no harness code is needed.
 - `mount_ai_utils: committed | drifted` mounts a copy of the ai-utils under
   test inside the world as a submodule, for the Superproject pointer check.
 
+### Several Slots against one backlog
+
+A world may declare `"slots": ["1", "2", "3"]`. Each is a real worktree of
+one checkout, sharing the bare remote and fake GitHub state. Omitting `slots`
+keeps the existing single-Slot world and `ticks` behaviour.
+
+Use `steps` for deterministic interleaving, within the `ticks` budget:
+
+```json
+"slots": ["1", "2"],
+"ticks": 3,
+"steps": [
+  {"slot": "1", "action": "tick", "pause": "after-claim"},
+  {"slot": "2", "action": "tick"},
+  {"slot": "1", "action": "resume"}
+]
+```
+
+| Step | Behaviour |
+|---|---|
+| `tick` | Run the named Slot's real Tick to its end. |
+| `tick`, `pause: after-claim` | Wait until the scripted Implementation Agent starts with its Story's Claim, then suspend the entire Tick process group before the agent does work. The heartbeat pauses too. |
+| `resume` | Release that agent's barrier and continue the paused Tick to its end. |
+| `expire` | Replace the paused Slot's Story lease on the real remote with an expired lease of the same holder, by compare-and-swap. No wall-clock lease wait is needed. |
+
+Every step names a declared Slot. A Slot must be paused before `resume` or
+`expire`; another `tick` cannot start while it is active. Explicit steps all
+run, even if the expectations are reached early. Invariants run after each
+step, including pauses and expiry; the final step checks the terminal budget.
+Cleanup kills any still-paused process group before deleting the world.
+
+`two_slots_different_stories.json` pauses Slot 1 on an in-progress Story while
+Slot 2 skips that Claim and completes a Ready Story. Slot 1 then resumes.
+
+The call log identifies each Slot. Git remains real: a receive hook on the bare remote
+observes accepted pushes, and the GitHub fake observes issue, pull request, review,
+reply, comment-edit and status writes. Each write records its issue numbers
+and a snapshot of remote Claims at the write. The
+`claim-held-for-mutation` invariant checks the holder and expiry at that
+instant, including branch deletion and pushes by the scripted agent. A later
+Claim release or takeover cannot hide an earlier violation. Claim-ref pushes
+are coordination operations, and harness setup/control operations outside a
+Slot are excluded. This invariant observes writes; it does not enforce the
+product's mutation fencing.
+
 ### The profile matrix
 
 A world's `matrix` runs it again with one profile swapped in, once per pair,
@@ -135,6 +180,7 @@ Tick, the invariant, the records involved and the last calls.
 | `branch-only-grows` | Every branch head descends from the head it had after the previous Tick. |
 | `empty-runs-never-count` | A run with no output or zero usage never backs a recorded result, a recorded response or a promotion into review. |
 | `prompt-contract` | Every prompt an agent received carries its phase's required instructions and none of its forbidden ones. |
+| `claim-held-for-mutation` | Every successful issue-related push or GitHub write by a Slot has that Slot’s unexpired Claim at write time; failures name the Slot and issue. |
 | `terminal-within-budget` | By the last Tick every Story is Passing, `state:blocked`, `needs-human` or `state:awaiting-bench`. |
 
 Records are always read with the Loop's own parsers (`ralph_review`), never by

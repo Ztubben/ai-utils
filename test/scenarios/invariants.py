@@ -19,6 +19,7 @@ the bare remote, so every new scenario gets every invariant for free.
   prompt-contract           every prompt an agent received carries its phase's
                             required instructions and none of its forbidden
                             ones (`contracts.py`)
+  claim-held-for-mutation  every Slot write has its unexpired issue Claim
   terminal-within-budget    by the scenario's last Tick every Story is Passing
                             (closed), state:blocked, needs-human or
                             state:awaiting-bench
@@ -103,7 +104,7 @@ class Observation:
         return [c for pr in self.state["pulls"].values() for c in pr["comments"]]
 
     def agent_calls(self, **match):
-        return [c for c in self.calls if c["tool"] != "gh"
+        return [c for c in self.calls if c["tool"] not in ("gh", "git")
                 and all(c.get(k) == v for k, v in match.items())]
 
 
@@ -248,6 +249,22 @@ def prompt_contract(obs):
     return found
 
 
+def claim_held_for_mutation(obs):
+    found = []
+    for call in obs.calls:
+        if not call.get('slot') or call.get('rc') != 0:
+            continue
+        for issue in call.get('issues', []):
+            lease = call.get('claims', {}).get(str(issue))
+            if (lease is None or lease['holder'] != call['holder']
+                    or lease['expiry'] <= call['at']):
+                found.append(Violation(
+                    'claim-held-for-mutation',
+                    'Slot %s mutated #%s without holding its Claim (%s)' % (
+                        call['slot'], issue, call['tool']), [call]))
+    return found
+
+
 def terminal_within_budget(obs):
     if not obs.final:
         return []
@@ -270,6 +287,7 @@ INVARIANTS = [
     ("empty-runs-never-count", empty_runs_never_count),
     ("prompt-contract", prompt_contract),
     ("terminal-within-budget", terminal_within_budget),
+    ("claim-held-for-mutation", claim_held_for_mutation),
 ]
 
 

@@ -262,7 +262,10 @@ class SelfHostedWorld:
         e["RALPH_MAX_ITERATIONS"] = "1"
         if getattr(self, "state", None):
             e.update({"SCENARIO_STATE": self.state, "SCENARIO_LOG": self.calls,
-                      "SCENARIO_REMOTE": self.origin})
+                      "SCENARIO_REMOTE": self.origin,
+                      "SCENARIO_GIT": shutil.which("git"),
+                      "SCENARIO_LIB": os.path.join(REPO_ROOT, "lib"),
+                      "SCENARIO_BRANCHING": "{}"})
         return e
 
     def tick(self, **overrides):
