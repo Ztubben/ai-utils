@@ -178,7 +178,7 @@ def breaker_tripped(story):
     return bool(story.get("needs_human")) and story.get("state") == "blocked"
 
 
-def select_next(stories):
+def select_next(stories, claimed=()):
     """Pure selection over a normalized story list. Returns an Action."""
     open_stories = [s for s in stories if not s.get("closed")]
 
@@ -190,6 +190,8 @@ def select_next(stories):
     # A prd-labeled issue is never work (ADR-0002): whatever state:* it
     # carries, it must not come back as a start or resume action.
     open_stories = [s for s in open_stories if not s.get("is_prd")]
+    # Runtime coordination is supplied by the caller; selection never reads git.
+    open_stories = [s for s in open_stories if s["number"] not in claimed]
 
     active = [s for s in open_stories
               if s["state"] in ("in-progress", "in-review")
@@ -207,9 +209,9 @@ def select_next(stories):
     return Action(NO_WORK, reason="no eligible ready or active stories")
 
 
-def next_action(raw_issues):
+def next_action(raw_issues, claimed=()):
     """Convenience: normalize a raw gh backlog then select the next action."""
-    return select_next(normalize(raw_issues))
+    return select_next(normalize(raw_issues), claimed=claimed)
 
 
 def ready_features(raw_issues):
@@ -264,6 +266,16 @@ def blocked_stories(raw_issues):
 
 
 def main(argv):
+    claimed = set()
+    if "--claimed-issues" in argv:
+        argv = list(argv)
+        index = argv.index("--claimed-issues")
+        try:
+            claimed = {int(n) for n in argv[index + 1].replace(",", " ").split()}
+        except (IndexError, ValueError):
+            sys.stderr.write("ralph: --claimed-issues requires issue numbers\n")
+            return 2
+        del argv[index:index + 2]
     mode = "dry-run"
     if argv and argv[0] == "blocked-stories":
         mode = "blocked-stories"
@@ -323,7 +335,7 @@ def main(argv):
         print("yes" if needs_freshness_merge(target, stories) else "no")
         return 0
 
-    action = next_action(raw)
+    action = next_action(raw, claimed=claimed)
     if action.number is not None:
         print("%s #%s" % (action.kind, action.number))
     else:

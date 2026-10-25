@@ -249,6 +249,16 @@ class TickHarness:
         _write_exec(os.path.join(mb, "git"), textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "git $*" >> "$RALPH_LOG"
+            # Real Claim races are covered by test_claim.py. This logging mock
+            # only needs an empty remote namespace and plumbing object ids.
+            if [[ "$1" == "mktree" || "$1" == "commit-tree" ]]; then
+              cat >/dev/null
+              echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              exit 0
+            fi
+            if [[ "$1" == "ls-remote" && "${@: -1}" == refs/ralph/claims/* ]]; then
+              exit 0
+            fi
             # The tick runs in a Slot (#134): a worktree of the clone, which it
             # resolves through the common directory and the main worktree. Both
             # are answered from the environment, not from $PWD -- a tick is run
@@ -371,6 +381,17 @@ class OrchestrationTest(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
         return TickHarness(tmp)
+
+    def test_a_claim_refusal_skips_the_story_without_spending_an_attempt(self):
+        h = self.harness()
+        h.break_subcommand("--claim")
+        h.set_backlogs([story(7, "ready")], [])
+        proc = h.run()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("could not claim #7", proc.stdout)
+        self.assertEqual(h.agent_calls(), [])
+        self.assertFalse(any("issue edit 7" in ln or "ralph:attempt" in ln
+                             for ln in h.log_lines()), h.log_lines())
 
     def test_overlapping_tick_exits_immediately(self):
         # AC: only one tick per superproject; an overlapping tick exits at once.
@@ -643,8 +664,19 @@ class OrchestrationTest(unittest.TestCase):
         handoff = [ln for ln in log
                    if ln.startswith("gh issue comment 7") and "ralph:handoff" in ln]
         self.assertEqual(len(handoff), 1, log)
-        self.assertFalse(any(ln.startswith("git commit") or ln.startswith("git push")
+        # Claim commits and pushes coordinate the wait without moving a branch.
+        self.assertFalse(any(ln.startswith("git commit ") or
+                             (ln.startswith("git push ") and "refs/ralph/claims/" not in ln)
                              for ln in log), log)
+        acquired = next(i for i, ln in enumerate(log)
+                        if ln.startswith("git push ") and
+                        "--force-with-lease=refs/ralph/claims/7: " in ln)
+        released = next(i for i, ln in enumerate(log)
+                        if ln.startswith("git push ") and ln.endswith(" :refs/ralph/claims/7"))
+        handoff_index = log.index(handoff[0])
+        self.assertLess(acquired, handoff_index, log)
+        self.assertLess(handoff_index, released, log)
+        self.assertIn("git checkout -q --detach", log[handoff_index:released])
         self.assertIn("window", proc.stdout)
         # The Story stays In Review, which is what makes the next tick resume it
         # (and rediscover its pull request) ahead of any state:ready work.
@@ -1200,7 +1232,8 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         self.assertIn("--base main", create)
         self.assertIn("--head ralph/7-story-7", create)
         # No Feature, so origin is never asked about one and none is created.
-        self.assertFalse(any("ls-remote" in ln for ln in log), log)
+        self.assertFalse(any("ls-remote" in ln and "refs/ralph/claims/" not in ln
+                             for ln in log), log)
         self.assertFalse(any("refs/heads/feature/" in ln for ln in log), log)
 
 

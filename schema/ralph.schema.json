@@ -58,6 +58,19 @@
         }
       }
     },
+    "concurrency": {
+      "description": "Slot coordination through Claims on origin.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claim_ttl": {
+          "description": "Claim lease duration in seconds (default ten minutes).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 600
+        }
+      }
+    },
     "limits": {
       "description": "Failure-handling limits.",
       "type": "object",
