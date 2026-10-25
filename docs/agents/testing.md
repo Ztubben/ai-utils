@@ -4,6 +4,12 @@ Notes for the tick harnesses, the scenario harness (`test/scenarios/`), incident
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
+- Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
+  namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
+  no coordination semantics: `test_claim.py` uses real git and independent clones
+  against a bare remote for acquisition races, holder reporting and stale deletion,
+  and the real Tick for Claim lifetime, selection and detachment.
+
 - The tick harness (`test/unit/test_orchestrate.py`) mocks `git ls-remote --exit-code --heads
   origin <branch>` from `TickHarness.set_remote_branches(...)` — unpinned means "origin has
   none", which is what an unstarted Feature looks like, so a Feature Story's first green

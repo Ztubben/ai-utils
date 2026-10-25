@@ -69,6 +69,14 @@ EOF
   cat >"$MB/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*" >> "$RALPH_LOG"
+if [[ "$1" == "mktree" || "$1" == "commit-tree" ]]; then
+  cat >/dev/null
+  echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  exit 0
+fi
+if [[ "$1" == "ls-remote" && "${@: -1}" == refs/ralph/claims/* ]]; then
+  exit 0
+fi
 if [[ "$1" == "worktree" ]]; then
   case "$2" in
     list) echo "worktree $RALPH_MOCK_SUPERPROJECT" ;;

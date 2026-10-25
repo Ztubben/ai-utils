@@ -46,6 +46,7 @@ class ValidationResult:
         limits = c.get("limits", {})
         lines.append("max attempts: %s" % limits.get("max_attempts"))
         lines.append("circuit breaker: %s" % limits.get("circuit_breaker"))
+        lines.append("claim ttl: %s" % c.get("concurrency", {}).get("claim_ttl"))
         protected = (c.get("control_plane") or {}).get("protected") or []
         lines.append("protected control plane: %s"
                      % (", ".join(protected) if protected else "(none)"))
@@ -97,10 +98,10 @@ def format_error(err):
     """
     path = "/".join(str(p) for p in err.absolute_path)
     # For an unexpected/extra property (additionalProperties), surface its name.
-    if not path and err.validator == "additionalProperties" and err.instance:
+    if err.validator == "additionalProperties" and err.instance:
         extra = [k for k in err.instance if k not in err.schema.get("properties", {})]
         if extra:
-            path = ", ".join(extra)
+            path = ", ".join((path + "/" if path else "") + k for k in extra)
     return "%s: %s" % (path or "(root)", err.message)
 
 

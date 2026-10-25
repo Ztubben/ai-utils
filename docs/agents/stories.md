@@ -18,6 +18,11 @@ for the code it touches. Add a new learning here, in the file that owns it.
   closed (an AFK dep once merged, a HIL dep once bench-verified — both surface as closed).
   Don't confuse gh's `state` (OPEN/CLOSED) with the `state:` label (ready/in-progress/…).
   Backlog fixtures (JSON arrays of gh-shaped issues) live under `test/fixtures/backlogs/`.
+  `select_next` / `next_action` accept a caller-supplied `claimed` set (#136);
+  those issue numbers are excluded from both resume and ready selection without
+  changing dependency satisfaction or the circuit breaker's global halt. The
+  CLI accepts `--claimed-issues NUMBERS` (comma or whitespace separated); the
+  Tick reads the Claim refs and supplies the set, keeping selection pure.
 - `lib/ralph_iterate.py` holds the deterministic seams of one iteration: `branch_name`/
   `slugify` (pure — story branch from `branch_pattern`, `{issue}`/`{slug}` substituted),
   `resolve_topology` (#70, PRD #69 — the two names one Story has: the working branch it

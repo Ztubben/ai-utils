@@ -4,6 +4,29 @@ Notes for `bin/ralph.sh`, `lib/ralph_tooling.py`, `lib/ralph_pointer.py`, `lib/r
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
+- **Story Claims** (#136, ADR-0008). `lib/ralph_claim.py` keeps pure lease JSON
+  encoding (`holder`, `expiry` as Unix seconds) and command plans above its CLI I/O.
+  `ralph --claim ISSUE [CONFIG]` writes an empty-tree commit and atomically creates
+  `refs/ralph/claims/ISSUE` on `origin` with an explicitly empty force-with-lease
+  expectation, printing the object id. `--release-claim ISSUE OID` deletes against
+  that last-seen id, so an old release cannot delete a replacement. `--verify-claim
+  ISSUE` reads the remote and checks this machine's hostname plus `RALPH_SLOT`;
+  `--claimed-issues` lists issues other holders claim. Refusals name the holder.
+  These refs are outside `refs/heads/`. Remote objects are fetched by observed
+  id without updating shared tracking refs or `FETCH_HEAD` (Slots share both).
+  `concurrency.claim_ttl` is a positive integer in seconds, default 600.
+  The Tick supplies the remote claimed set to selection, claims before changing
+  a Story, and holds it through the Iteration or bounded review wait (including
+  its Negotiation Rounds and resulting publication/checkpoint). `work_backlog`
+  scopes an EXIT trap in a subshell so every return releases; between units it
+  releases before selecting again. It detaches before deleting the Claim so a
+  new holder can immediately check out the Story branch. A claim race skips the
+  Story for this Tick without an Attempt. #137 owns expiry takeover and heartbeat;
+  until then existing Claims are conservatively treated as held. #139 owns
+  mutation fencing; `--verify-claim` here is an observational read.
+  Covered by `test_claim.py` (real bare remote, two independent clones racing,
+  stale release, and a real Tick verifying its Claim from the launched agent).
+
 - `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
   the TDD/gating happen inside the `claude` iteration it launches (driven by
   `prompts/iterate.v1.md`), but the tick owns the state transitions around it. Order: (1)
