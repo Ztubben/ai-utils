@@ -56,6 +56,15 @@ def action_for(*stories):
 
 
 class ResumeFirst(unittest.TestCase):
+    def test_caller_supplied_claims_skip_ready_and_active_stories(self):
+        for state in ("ready", "in-progress", "in-review"):
+            with self.subTest(state=state):
+                backlog = [story(1, state=state, type_="afk"),
+                           story(2, state="ready", type_="afk")]
+                action = ralph_select.next_action(backlog, claimed={1})
+                self.assertEqual((action.kind, action.number), (ralph_select.START, 2))
+                self.assertEqual(ralph_select.next_action(backlog).number, 1)
+
     def test_in_review_is_resumed_before_any_ready_scan(self):
         act = action_for(
             story(1, state="ready", type_="afk", prio=1),
