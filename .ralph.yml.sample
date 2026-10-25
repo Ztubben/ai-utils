@@ -25,9 +25,11 @@ branching:
   feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue (default shown)
   afk_merge: squash                 # one of: merge | squash | rebase (default: squash)
 
-# Claims coordinate Slots on origin; the lease duration is in seconds.
+# Claims coordinate Slots on origin; the lease duration is in seconds. A Claim
+# is renewed every fifth of it while its unit of work runs, and may be taken
+# over by another Slot once it has expired.
 concurrency:
-  claim_ttl: 600       # default: ten minutes
+  claim_ttl: 600       # default: ten minutes, renewed every two
 
 # Failure-handling limits.
 limits:
