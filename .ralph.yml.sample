@@ -27,9 +27,12 @@ branching:
 
 # Claims coordinate Slots on origin; the lease duration is in seconds. A Claim
 # is renewed every fifth of it while its unit of work runs, and may be taken
-# over by another Slot once it has expired.
+# over by another Slot once it has expired. By default a Feature Story's unit of
+# work also holds its PRD's Claim, so one Slot at a time works a Feature;
+# `feature_exclusive: false` lets sibling Stories run in parallel.
 concurrency:
   claim_ttl: 600       # default: ten minutes, renewed every two
+  feature_exclusive: true  # default: one Slot per Feature
 
 # Failure-handling limits.
 limits:

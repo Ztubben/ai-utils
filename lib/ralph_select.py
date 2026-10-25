@@ -31,6 +31,9 @@ Rules (ADR-0002, CONTEXT.md):
     a same-Feature story -- from another Feature's story or an Orphan Story it
     is never satisfied. Deps on Orphan Stories and PRDs keep closed-means-
     satisfied (a closed PRD means the whole Feature merged into base).
+  - Claims (ADR-0008): a Story another holder claims is skipped, and so is
+    every Story of a Feature whose PRD another holder claims (one Slot per
+    Feature, #141); selection goes on with the rest of the backlog.
   - `needs-human` on a `state:blocked` story is the circuit breaker's mark:
     the loop halts. On any other story it parks that story alone (#114): it is
     waiting on a human, so it is neither resumed nor started, and selection
@@ -191,7 +194,11 @@ def select_next(stories, claimed=()):
     # carries, it must not come back as a start or resume action.
     open_stories = [s for s in open_stories if not s.get("is_prd")]
     # Runtime coordination is supplied by the caller; selection never reads git.
-    open_stories = [s for s in open_stories if s["number"] not in claimed]
+    # A claimed PRD holds back its whole Feature (#141): only a unit of work
+    # under `concurrency.feature_exclusive` or the Feature's own integration
+    # takes it, and neither may run beside another of the Feature's Stories.
+    open_stories = [s for s in open_stories if s["number"] not in claimed
+                    and s.get("parent") not in claimed]
 
     active = [s for s in open_stories
               if s["state"] in ("in-progress", "in-review")

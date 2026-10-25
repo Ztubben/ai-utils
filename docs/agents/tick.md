@@ -312,3 +312,22 @@ for the code it touches. Add a new learning here, in the file that owns it.
   the fake GitHub's issue read before taking its state lock, so another Slot can
   reconcile while the first is suspended; they cover integration, the blocker
   path, one human approval, stale eligibility and replaced leases.
+
+- **One Slot per Feature** (#141, ADR-0008). A Feature Story's unit of work --
+  an Iteration, a review wait, an arbitration -- also holds its PRD's Claim
+  while `concurrency.feature_exclusive` is on (default true). The pure decision
+  is `ralph_claim.feature_claim(issue, exclusive)` (`ralph --feature-claim
+  ISSUE_JSON [CONFIG]` prints the PRD, or nothing for an Orphan Story, a PRD, or
+  exclusivity lifted). The Tick's `claim_story_feature` takes it right after the
+  Story's own Claim, keeping it in `FEATURE_CLAIM_*` with its own heartbeat
+  (`start_claim_heartbeat`/`stop_claim_heartbeat` take the variable prefix and
+  use namerefs); `release_story_claim` releases the Story's Claim first and the
+  PRD's last, and `fence_reconciliation_claim` renews both. Losing the PRD race,
+  or failing to read the Story to tell, skips the Story for this Tick without an
+  Attempt; its own Claim is released at the top of the next pass. Selection
+  skips every Story whose `Parent:` is in the claimed set, unconditionally: only
+  an exclusive unit or the Feature's own integration ever claims a PRD, and
+  neither may run beside a sibling, so `ralph --dry-run` needs no config.
+  Covered by `FeatureClaims` and the Feature tests in `ClaimsOnGit`
+  (`test_claim.py`, real git, including the lost PRD race), selection's
+  claimed-PRD tests, and the `two_slots_one_feature` scenario world.

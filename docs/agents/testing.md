@@ -26,6 +26,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   The cooperative #64 replay exposes the existing Feature completion pass
   writing without the PRD's Claim; it is a `known_defect` for #140, which owns
   reconciliation Claims. Remove that declaration when #140 makes it green.
+  The scripted agent works Feature Stories (#141): it passes the PRD to
+  `ralph --branch-name` and, until the Feature branch exists, cuts from the
+  configured base's *fresh* tip -- not the Tick's earlier cut -- because the
+  fake GitHub refuses (as unemulated) merging a head that is behind its base.
 
 - Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
   namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
