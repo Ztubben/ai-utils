@@ -576,18 +576,26 @@ complete_story() {
 # A human deciding while the Story is still In Review needs none of this -- the
 # bounded wait sees the decision on its next poll and acts on it immediately.
 arbitration_pass() {
-  local issue story_file
+  local issue
   while IFS= read -r issue; do
     [[ -z "$issue" ]] && continue
-    story_file="$(mktemp)"
-    if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
-      "$RALPH_BIN" --arbitrate-review "$story_file" "$RALPH_CONFIG" \
-        || log "could not act on a human decision for #$issue; the next tick retries"
-    else
-      log "cannot fetch blocked #$issue to check for a human decision; continuing"
-    fi
-    rm -f "$story_file"
+    reconcile_with_claim "$issue" arbitrate_story "$issue" \
+      || log "could not act on a human decision for #$issue; the next tick retries"
   done < <("$RALPH_BIN" --blocked-stories 2>/dev/null)
+}
+
+arbitrate_story() {
+  local issue="$1" story_file rc=0
+  story_file="$(mktemp)"
+  if gh issue view "$issue" --json number,title,labels,body,state >"$story_file" 2>/dev/null; then
+    fence_reconciliation_claim &&
+      "$RALPH_BIN" --arbitrate-review "$story_file" "$RALPH_CONFIG" || rc=$?
+  else
+    log "cannot fetch blocked #$issue to check for a human decision; continuing"
+    rc=1
+  fi
+  rm -f "$story_file"
+  return "$rc"
 }
 
 # Run the Feature completion pass for a single eligible PRD (ADR-0006, US-029).
@@ -600,8 +608,25 @@ complete_feature() {
     rm -f "$prd_file"
     return 1
   fi
+  # The scan happened before acquisition: a previous holder may have closed
+  # or blocked this PRD before we obtained its Claim. Re-read under the lease.
+  if ! python3 - "$prd_file" <<'PY_ELIGIBLE'
+import json, sys
+with open(sys.argv[1]) as source:
+    prd = json.load(source)
+labels = [label['name'] if isinstance(label, dict) else label
+          for label in prd.get('labels', [])]
+sys.exit(0 if prd.get('state', '').upper() == 'OPEN'
+         and 'state:ready' in labels and 'ready-for-human' not in labels else 1)
+PY_ELIGIBLE
+  then
+    log "PRD #$prd_number is no longer eligible; skipping completion"
+    rm -f "$prd_file"
+    return 0
+  fi
   log "eligible PRD #$prd_number; running completion pass (--complete-feature)"
-  "$RALPH_BIN" --complete-feature "$prd_file" "$RALPH_CONFIG" || rc=$?
+  fence_reconciliation_claim &&
+    "$RALPH_BIN" --complete-feature "$prd_file" "$RALPH_CONFIG" || rc=$?
   rm -f "$prd_file"
   return "$rc"
 }
@@ -914,6 +939,35 @@ release_story_claim() {
   CLAIM_ISSUE="" CLAIM_OID=""
 }
 
+# Stop renewal before this compare-and-swap so it cannot race our last-seen
+# object id. Losing the lease refuses the delegation without an Attempt.
+fence_reconciliation_claim() {
+  stop_claim_heartbeat
+  local renewed
+  renewed="$("$RALPH_BIN" --renew-claim "$CLAIM_ISSUE" "$CLAIM_OID" "$RALPH_CONFIG")" || return 1
+  CLAIM_OID="$renewed"
+  start_claim_heartbeat "$CLAIM_ISSUE"
+}
+
+# Reconciliation owns the same lease lifecycle as Story work. Scope the trap
+# to one issue, including failures and blockers, and release only after the
+# branch is detached so another Slot can immediately resume it.
+reconcile_with_claim() (
+  local issue="$1"
+  shift
+  CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  trap 'release_story_claim' EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
+  if ! CLAIM_OID="$("$RALPH_BIN" --claim "$issue" "$RALPH_CONFIG")"; then
+    log "could not claim #$issue; skipping reconciliation for this tick"
+    return 0
+  fi
+  CLAIM_ISSUE="$issue"
+  start_claim_heartbeat "$issue"
+  "$@"
+)
+
 work_backlog() (
   # A subshell scopes the EXIT trap to story work: every early return releases
   # its Claim, before the reconciliation passes run in the parent Tick.
@@ -1129,7 +1183,7 @@ completion_pass() {
   local prd_number
   while IFS= read -r prd_number; do
     [[ -z "$prd_number" ]] && continue
-    complete_feature "$prd_number" \
+    reconcile_with_claim "$prd_number" complete_feature "$prd_number" \
       || log "completion pass for PRD #$prd_number failed (see above); continuing"
   done < <("$RALPH_BIN" --ready-features 2>/dev/null)
 }
