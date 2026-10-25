@@ -4,6 +4,29 @@ Notes for the tick harnesses, the scenario harness (`test/scenarios/`), incident
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
+- Multi-Slot scenarios (#138) declare `slots` and interleave explicit `steps`
+  (`tick`, `tick` with `pause: after-claim`, `resume`, `expire`); the default stays
+  Slot 1. All Slots share the real bare remote and locked fake GitHub state.
+  The after-claim barrier is in the scripted agent, before any work, and the
+  harness suspends the entire Tick process group, including its heartbeat.
+  Expiry replaces the real Claim commit by compare-and-swap; it never sleeps
+  out a TTL. Cleanup must kill paused groups before removing their worktrees.
+  The `claim-held-for-mutation` invariant checks successful issue-related pushes
+  and GitHub writes against remote Claim snapshots at the write (holder **and**
+  expiry), not end-of-Tick refs, which have usually been released. The bare remote’s
+  receive hook observes every accepted update, including partial pushes,
+  wildcard refspecs and deletions; reads use the real binary in `SCENARIO_GIT`.
+  Claim-ref pushes and harness controls are excluded. `fakes/support.py` shares canonical
+  branch naming, write targets and locked log appends. GOTCHA: a call-log entry
+  with `tool: git` is a push, never an agent invocation; agent readers must
+  exclude both `gh` and `git`. See `docs/scenario-harness.md` for the vocabulary
+  and `test_multislot.py` / `test_invariants.py` for deliberate violations.
+  A harness reusing the stateful fake (`SelfHostedWorld.use_fake_gh`) must also
+  supply `SCENARIO_GIT`, `SCENARIO_LIB` and `SCENARIO_BRANCHING`.
+  The cooperative #64 replay exposes the existing Feature completion pass
+  writing without the PRD's Claim; it is a `known_defect` for #140, which owns
+  reconciliation Claims. Remove that declaration when #140 makes it green.
+
 - Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
   namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
   no coordination semantics: `test_claim.py` uses real git and independent clones

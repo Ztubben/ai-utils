@@ -16,6 +16,10 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import support
 
 RALPH = os.environ.get("SCENARIO_RALPH", "ralph")
 DONE_MARKER = os.environ.get("RALPH_STORY_COMPLETE_MARKER", "RALPH-STORY-COMPLETE")
@@ -358,6 +362,14 @@ def main(argv):
              "argv": argv, "model": context["model"], "prompt": prompt,
              "story": context["story"], "head": context["head"],
              "round": context["round"]}
+    entry['slot'] = os.environ.get('RALPH_SLOT')
+    gate = os.environ.get('SCENARIO_PAUSE')
+    if gate and phase == 'iteration' and not os.path.exists(gate + '.paused'):
+        with open(gate + '.tmp', 'w') as fh:
+            json.dump({'story': context['story']}, fh)
+        os.replace(gate + '.tmp', gate + '.paused')
+        while not os.path.exists(gate + '.resume'):
+            time.sleep(0.01)
     rc = 0
     try:
         behaviour = PROFILES[profile][phase]
@@ -376,8 +388,7 @@ def main(argv):
         sys.stderr.write("scripted agent failed: %s\n" % entry["error"])
         rc = 70
     entry["rc"] = rc
-    with open(os.environ["SCENARIO_LOG"], "a") as fh:
-        fh.write(json.dumps(entry) + "\n")
+    support.log(entry)
     return rc
 
 

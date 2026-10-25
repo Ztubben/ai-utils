@@ -23,9 +23,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -37,7 +39,9 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 import yaml  # noqa: E402
 
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_init  # noqa: E402
+import ralph_slot  # noqa: E402
 
 import invariants  # noqa: E402
 
@@ -218,6 +222,13 @@ class World:
         self.bin = os.path.join(self.root, "bin")
         self.state_path = os.path.join(self.root, "github.json")
         self.log_path = os.path.join(self.root, "calls.jsonl")
+        self.active = {}
+        self.slots = [str(n) for n in spec.get('slots', ['1'])]
+        if not self.slots or len(set(self.slots)) != len(self.slots):
+            raise ScenarioFailure('slots must name distinct Slots')
+        for number in self.slots:
+            if ralph_slot.slot_number({'RALPH_SLOT': number}) is None:
+                raise ScenarioFailure('invalid Slot: %s' % number)
         self.env = self._environment()
         self._build()
 
@@ -236,6 +247,9 @@ class World:
             "SCENARIO_STATE": self.state_path,
             "SCENARIO_LOG": self.log_path,
             "SCENARIO_REMOTE": self.remote,
+            "SCENARIO_GIT": shutil.which('git'),
+            "SCENARIO_LIB": os.path.join(REPO_ROOT, 'lib'),
+            "SCENARIO_BRANCHING": json.dumps(self.spec['config'].get('branching', {})),
             "SCENARIO_RALPH": RALPH,
             "SCENARIO_AGENTS": json.dumps(self.spec.get("agents", {})),
             "GIT_AUTHOR_NAME": "Scenario", "GIT_AUTHOR_EMAIL": "scenario@example.invalid",
@@ -254,6 +268,8 @@ class World:
                        os.path.join(self.bin, adapter.default_binary))
         base = self.spec["config"].get("branching", {}).get("base", "main")
         _git(["init", "-q", "--bare", "-b", base, self.remote], self.root, self.env)
+        os.symlink(os.path.join(FAKES, 'post-receive'),
+                   os.path.join(self.remote, 'hooks', 'post-receive'))
         _git(["clone", "-q", self.remote, self.checkout], self.root, self.env)
         _git(["checkout", "-q", "-b", base], self.checkout, self.env)
         with open(os.path.join(self.checkout, ".ralph.yml"), "w") as fh:
@@ -377,21 +393,109 @@ class World:
         return subprocess.run([GH_FAKE] + list(args), cwd=self.checkout, env=self.env,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    def tick(self, timeout=300):
-        return subprocess.run([self.ralph, "--run"], cwd=self.checkout, env=self.env,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, timeout=timeout)
+    def slot_env(self, slot):
+        slot = str(slot)
+        if slot not in self.slots:
+            raise ScenarioFailure('undeclared Slot %s' % slot)
+        return dict(self.env, RALPH_SLOT=slot,
+                    RALPH_SLOT_DIR=ralph_slot.slot_dir(self.checkout, slot))
+
+    def tick(self, timeout=300, slot='1'):
+        return self.step({'action': 'tick', 'slot': slot}, timeout)
+
+    def paused_story(self, slot):
+        with open(os.path.join(self.root, 'pause-' + str(slot) + '.paused')) as fh:
+            return json.load(fh)['story']
+
+    def _finish_tick(self, slot, timeout):
+        proc, output = self.active[slot]
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise ScenarioFailure('Slot %s Tick timed out' % slot) from exc
+        output.seek(0)
+        text = output.read()
+        output.close()
+        del self.active[slot]
+        return subprocess.CompletedProcess(proc.args, rc, text)
+
+    def step(self, step, timeout=300):
+        slot = str(step['slot'])
+        env = self.slot_env(slot)
+        action = step['action']
+        gate = os.path.join(self.root, 'pause-' + slot)
+        if action == 'tick':
+            if slot in self.active:
+                raise ScenarioFailure('Slot %s already has an active Tick' % slot)
+            pause = step.get('pause')
+            if pause not in (None, 'after-claim'):
+                raise ScenarioFailure('unknown pause point: %s' % pause)
+            if pause:
+                for suffix in ('.paused', '.resume'):
+                    if os.path.exists(gate + suffix):
+                        os.unlink(gate + suffix)
+                env['SCENARIO_PAUSE'] = gate
+            output = tempfile.TemporaryFile(mode='w+')
+            proc = subprocess.Popen([self.ralph, '--run'], cwd=self.checkout, env=env,
+                                    stdout=output, stderr=subprocess.STDOUT,
+                                    text=True, start_new_session=True)
+            self.active[slot] = (proc, output)
+            if pause:
+                deadline = time.monotonic() + timeout
+                while not os.path.exists(gate + '.paused'):
+                    if proc.poll() is not None:
+                        result = self._finish_tick(slot, timeout)
+                        raise ScenarioFailure('Slot %s exited before pause:\n%s' % (slot, result.stdout))
+                    if time.monotonic() >= deadline:
+                        raise ScenarioFailure('Slot %s never reached after-claim' % slot)
+                    time.sleep(0.01)
+                # Stop the whole unit, including its heartbeat. The scripted
+                # agent is at a barrier before any work, already holding a Claim.
+                os.killpg(proc.pid, signal.SIGSTOP)
+                os.waitpid(proc.pid, os.WUNTRACED)
+                return subprocess.CompletedProcess(proc.args, 0, '')
+            return self._finish_tick(slot, timeout)
+        if action not in ('resume', 'expire') or slot not in self.active:
+            raise ScenarioFailure('Slot %s cannot %s without a paused Tick' % (slot, action))
+        if action == 'resume':
+            open(gate + '.resume', 'w').close()
+            os.killpg(self.active[slot][0].pid, signal.SIGCONT)
+            return self._finish_tick(slot, timeout)
+        # Change only the real remote lease's expiry, retaining its holder.
+        # This is harness control, so run without RALPH_SLOT and outside the log.
+        issue = self.paused_story(slot)
+        ref = 'refs/ralph/claims/%s' % issue
+        oid = _git(['--git-dir', self.remote, 'rev-parse', ref], self.checkout, self.env)
+        lease = ralph_claim.decode(_git(['--git-dir', self.remote, 'show', '-s', '--format=%B', oid], self.checkout, self.env))
+        tree = _git(['mktree'], self.checkout, self.env)
+        value = ralph_claim.encode(ralph_claim.Lease(lease.holder, 1))
+        new = subprocess.run(['git', 'commit-tree', tree], input=value, cwd=self.checkout,
+                             env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+        _git(['push', '-q', '--force-with-lease=%s:%s' % (ref, oid), 'origin',
+              '%s:%s' % (new, ref)], self.checkout, self.env)
+        return subprocess.CompletedProcess([], 0, '')
+
+    def stop(self):
+        for proc, output in self.active.values():
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+            output.close()
+        self.active.clear()
 
     def cleanup(self):
+        self.stop()
         shutil.rmtree(self.root, ignore_errors=True)
 
 
 def trace(calls, last=25):
     lines = []
     for call in calls[-last:]:
-        if call["tool"] == "gh":
+        if call["tool"] in ("gh", "git"):
             argv = " ".join(a if len(a) < 60 else a[:57] + "..." for a in call["argv"])
-            lines.append("  gh %s -> %s%s" % (argv, call.get("rc"),
+            lines.append("  %s[Slot %s] %s -> %s%s" % (call["tool"], call.get("slot"), argv, call.get("rc"),
                                                " UNEMULATED" if call.get("unemulated") else ""))
         else:
             lines.append("  %s[%s/%s] #%s -> %s%s" % (
@@ -433,19 +537,23 @@ def run_scenario(spec, keep=False):
     outputs = []
     try:
         expect = spec["expect"]
-        for tick_no in range(1, spec["ticks"] + 1):
-            proc = world.tick()
+        steps = spec.get('steps') or [dict(action='tick', slot=world.slots[0])
+                                     for _ in range(spec['ticks'])]
+        if len(steps) > spec['ticks']:
+            raise ScenarioFailure('steps exceed the Tick budget')
+        for tick_no, step in enumerate(steps, 1):
+            proc = world.step(step)
             outputs.append(proc.stdout)
             check_calls(world, tick_no, proc.stdout)
             if proc.returncode != spec.get("tick_exit", 0):
                 raise ScenarioFailure("tick %d exited %d\n%s\nlast calls:\n%s" % (
                     tick_no, proc.returncode, proc.stdout[-3000:], trace(world.calls())))
             done = all(reached(world, expect).values())
-            violations = watch.check(final=done or tick_no == spec["ticks"])
+            violations = watch.check(final=(done and not world.active) or tick_no == len(steps))
             if violations:
                 raise ScenarioFailure(invariants.report(tick_no, violations,
                                                         trace(world.calls())))
-            if done:
+            if done and not world.active and (not spec.get("steps") or tick_no == len(steps)):
                 return Result(world, tick_no, outputs)
         issues = world.state()["issues"]
         raise ScenarioFailure(
@@ -457,5 +565,6 @@ def run_scenario(spec, keep=False):
                     for n, want in expect.items()),
                 trace(world.calls()), outputs[-1][-3000:] if outputs else ""))
     finally:
+        world.stop()
         if not keep:
             world.cleanup()

@@ -158,6 +158,15 @@ class HandBuiltWorld(unittest.TestCase):
         violation, = self.watch.check()
         self.assertIn("missing '%s'" % contracts.REVIEW_READ_ONLY, violation.detail)
 
+    def test_a_slot_mutates_an_issue_without_its_claim(self):
+        self.world.env['RALPH_SLOT'] = 'intruder'
+        proc = self.world.gh('issue', 'comment', '1', '--body', 'unclaimed mutation')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        violation, = self.watch.check()
+        self.assertEqual(violation.invariant, 'claim-held-for-mutation')
+        self.assertIn('Slot intruder', violation.detail)
+        self.assertIn('#1', violation.detail)
+
     def test_a_story_still_open_when_the_budget_ends(self):
         self.edit_state(lambda s: s["issues"]["1"]["labels"].append("state:in-review"))
         self.assertEqual(self.red(final=True), ["terminal-within-budget"])

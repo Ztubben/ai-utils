@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Observe accepted pushes on the real remote, including deletions/refspecs."""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import support
+
+updates = [line.split() for line in sys.stdin if line.strip()]
+if os.environ.get('RALPH_SLOT'):
+    try:
+        with open(os.environ['SCENARIO_STATE']) as fh:
+            names = support.branches(json.load(fh))
+        issues = sorted({number for _, _, ref in updates
+                         for number in names.get(ref.removeprefix('refs/heads/'), [])
+                         if ref.startswith('refs/heads/')})
+        support.log(dict(support.snapshot(), tool='git', argv=['push'], rc=0,
+                         issues=issues, refs=updates))
+    except Exception as exc:
+        # A receive-hook failure does not fail git push. Keep the observer
+        # fail-closed through the harness's ordinary call-log error check.
+        support.log({'tool': 'git', 'argv': ['push'], 'rc': 70,
+                     'slot': os.environ['RALPH_SLOT'], 'error': str(exc)})

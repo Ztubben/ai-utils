@@ -74,7 +74,7 @@ class HappyPathIsReallyDriven(unittest.TestCase):
         self.assertEqual(base, pr["mergeCommit"])
 
     def test_both_roles_ran_their_configured_provider_and_prompt_was_recorded(self):
-        agents = [c for c in self.calls if c["tool"] != "gh"]
+        agents = [c for c in self.calls if c["tool"] not in ("gh", "git")]
         self.assertEqual([(c["tool"], c["role"], c["phase"]) for c in agents],
                          [("claude", "implementation", "iteration"), ("codex", "review", "review")])
         self.assertIn("Next action: start #1", agents[0]["prompt"])
@@ -126,7 +126,7 @@ class NegotiationIsReallyDriven(unittest.TestCase):
         self.assertTrue(any("accepted" in c["body"] for c in self.pr["comments"]))
 
     def test_each_role_was_told_the_round_and_head_it_acted_on(self):
-        told = [(c["phase"], c["round"]) for c in self.calls if c["tool"] != "gh"]
+        told = [(c["phase"], c["round"]) for c in self.calls if c["tool"] not in ("gh", "git")]
         self.assertEqual(told, [("iteration", None), ("review", 1),
                                 ("response", 1), ("review", 2)])
         response = next(c for c in self.calls if c.get("phase") == "response")
@@ -206,7 +206,7 @@ class SuperprojectPointer(unittest.TestCase):
         self.assertIn("matches the committed pointer", proc.stdout)
         self.assertEqual(self.git(world, "rev-parse", "HEAD", cwd=copy), pinned)
         self.assertNotEqual(self.git(world, "rev-parse", "HEAD", cwd=home), pinned)
-        self.assertTrue(any(c["tool"] != "gh" for c in world.calls()))
+        self.assertTrue(any(c["tool"] not in ("gh", "git") for c in world.calls()))
 
     def test_a_pin_failing_preflight_is_refused_before_anything_moves(self):
         world = harness.World(harness.load("pointer_pin_fails_preflight"))
@@ -225,7 +225,7 @@ class SuperprojectPointer(unittest.TestCase):
                       % pinned, proc.stdout)
         self.assertNotIn("Last-Known-Good", proc.stdout)
         self.assertFalse(os.path.exists(os.path.join(copies, good)))
-        self.assertEqual([c for c in world.calls() if c["tool"] != "gh"], [])
+        self.assertEqual([c for c in world.calls() if c["tool"] not in ("gh", "git")], [])
         self.assertFalse(any(c["argv"][:2] == ["issue", "edit"] for c in world.calls()))
 
     def test_an_allowed_drift_is_logged_and_proceeds(self):

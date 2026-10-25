@@ -66,5 +66,10 @@
   },
   "expect": {
     "64": "passing"
+  },
+  "known_defect": {
+    "story": "#140",
+    "invariant": "claim-held-for-mutation",
+    "why": "After the Story passes, the Feature completion pass integrates PRD #52 without holding its Claim. Story #140 adds Claims to reconciliation passes."
   }
 }
