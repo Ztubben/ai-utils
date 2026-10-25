@@ -110,8 +110,9 @@ def variants(spec):
     return out
 
 
-def _git(args, cwd, env):
+def _git(args, cwd, env, *, input=None):
     return subprocess.run(["git"] + args, cwd=cwd, env=env, check=True,
+                          input=input,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True).stdout.strip()
 
@@ -505,7 +506,8 @@ class World:
         ref = 'refs/ralph/claims/%s' % issue
         oid = _git(['--git-dir', self.remote, 'rev-parse', ref], self.checkout, self.env)
         lease = ralph_claim.decode(_git(['--git-dir', self.remote, 'show', '-s', '--format=%B', oid], self.checkout, self.env))
-        tree = _git(['mktree'], self.checkout, self.env)
+        # An empty tree needs EOF, not the launching agent's open stdin (#162).
+        tree = _git(['mktree'], self.checkout, self.env, input='')
         value = ralph_claim.encode(ralph_claim.Lease(lease.holder, 1))
         new = subprocess.run(['git', 'commit-tree', tree], input=value, cwd=self.checkout,
                              env=self.env, check=True, capture_output=True, text=True).stdout.strip()

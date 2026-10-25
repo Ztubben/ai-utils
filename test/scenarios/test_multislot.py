@@ -2,6 +2,7 @@
 import os
 import subprocess
 import unittest
+from unittest import mock
 
 import harness
 import invariants
@@ -44,6 +45,35 @@ class SeveralSlots(unittest.TestCase):
                               env=env, capture_output=True, text=True, check=True)
         self.assertNotIn('1', proc.stdout.split())
         # Expiry is a control operation, not a simulated product mutation.
+        self.assertEqual(invariants.Watch(world).check(), [])
+
+    def test_expire_completes_with_inherited_stdin_held_open(self):
+        world = self.world()
+        world.step({'slot': '1', 'action': 'tick', 'pause': 'after-claim'})
+        read_fd, write_fd = os.pipe()
+        saved_stdin = os.dup(0)
+        run = subprocess.run
+
+        def bounded_run(args, **kwargs):
+            # Keep the regression bounded even when mktree inherits the open
+            # pipe. subprocess.run kills and reaps it on timeout; world.cleanup
+            # also kills the paused Tick group, including its heartbeat.
+            kwargs['timeout'] = 5
+            return run(args, **kwargs)
+
+        try:
+            os.dup2(read_fd, 0)
+            with mock.patch.object(harness.subprocess, 'run', bounded_run):
+                world.step({'slot': '1', 'action': 'expire'})
+        finally:
+            os.dup2(saved_stdin, 0)
+            os.close(saved_stdin)
+            os.close(read_fd)
+            os.close(write_fd)
+        proc = subprocess.run([world.ralph, '--claimed-issues'], cwd=world.checkout,
+                              env=world.slot_env('2'), capture_output=True,
+                              text=True, check=True)
+        self.assertNotIn('1', proc.stdout.split())
         self.assertEqual(invariants.Watch(world).check(), [])
 
     def test_unclaimed_github_write_names_the_slot_and_issue(self):

@@ -11,6 +11,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   harness suspends the entire Tick process group, including its heartbeat.
   Expiry replaces the real Claim commit by compare-and-swap; it never sleeps
   out a TTL. Cleanup must kill paused groups before removing their worktrees.
+  Expiry's `git mktree` must receive explicit empty input (#162): inherited
+  agent stdin can stay open indefinitely, hanging the gate while the Slot is
+  paused. The open-stdin regression bounds subprocess calls and cleans up the
+  paused group even on failure.
   The `claim-held-for-mutation` invariant checks successful issue-related pushes
   and GitHub writes against remote Claim snapshots at the write (holder **and**
   expiry), not end-of-Tick refs, which have usually been released. The bare remote’s
