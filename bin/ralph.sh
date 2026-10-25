@@ -628,7 +628,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --claim --release-claim --verify-claim --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -864,17 +864,40 @@ tick() {
 
 # Work eligible stories in sequence, resume-first via the engine. Returns what
 # the tick should exit with; every early end of the tick is a return from here.
-work_backlog() {
+release_story_claim() {
+  [[ -z "${CLAIM_ISSUE:-}" ]] && return 0
+  # Free the branch before making the Claim available to another Slot.
+  if ! git checkout -q --detach; then
+    log "could not detach the Slot after #$CLAIM_ISSUE"
+    return 2
+  fi
+  if ! "$RALPH_BIN" --release-claim "$CLAIM_ISSUE" "$CLAIM_OID"; then
+    log "could not release the Claim for #$CLAIM_ISSUE"
+    return 2
+  fi
+  log "released Claim for #$CLAIM_ISSUE; Slot detached"
+  CLAIM_ISSUE="" CLAIM_OID=""
+}
+
+work_backlog() (
+  # A subshell scopes the EXIT trap to story work: every early return releases
+  # its Claim, before the reconciliation passes run in the parent Tick.
+  CLAIM_ISSUE="" CLAIM_OID=""
+  trap 'release_story_claim' EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
   local base_branch="$1"
   # --- work eligible stories in sequence (resume-first via the engine) ---
   # promo_failed bounds promotion retries: a green story whose promotion fails
   # stays in-progress, so resume-first would re-select it forever within this
   # tick. One failed promotion per story per tick; hitting it again ends the
   # tick cleanly (the next tick retries once, which heals transient gh errors).
-  local n=0 action_line kind issue
+  local n=0 action_line kind issue claimed skipped=""
   local -A promo_failed=()
   while (( n < RALPH_MAX_ITERATIONS )); do
-    action_line="$("$RALPH_BIN" --dry-run)"
+    release_story_claim || return 2
+    claimed="$("$RALPH_BIN" --claimed-issues)" || return 2
+    action_line="$("$RALPH_BIN" --dry-run --claimed-issues "$claimed $skipped")" || return 2
     kind="${action_line%% *}"
     case "$kind" in
       no-work)
@@ -891,6 +914,15 @@ work_backlog() {
           log "promotion of #$issue already failed this tick; ending tick instead of retry-looping (next tick retries)"
           return 0
         fi
+        # Selection is a snapshot: another Slot can win before this push.
+        # Losing the race spends no Attempt and selection tries the next Story.
+        if ! CLAIM_OID="$("$RALPH_BIN" --claim "$issue" "$RALPH_CONFIG")"; then
+          log "could not claim #$issue; skipping it for this tick"
+          skipped="$skipped $issue"
+          n=$(( n + 1 ))
+          continue
+        fi
+        CLAIM_ISSUE="$issue"
         log "$kind #$issue"
         # In Review has resume priority so the negotiation path owns the tick,
         # but it is never more implementation work: wait out the review window
@@ -1051,7 +1083,7 @@ work_backlog() {
     esac
   done
   return 0
-}
+)
 
 # Completion pass: scan for Features ready to integrate (ADR-0006, US-029).
 # Each tick scans for eligible PRDs (all stories closed, PRD open + state:ready)

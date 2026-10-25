@@ -27,6 +27,28 @@ def invalid(name):
 
 
 class ValidConfigTests(unittest.TestCase):
+    def test_claim_ttl_is_defaulted_to_ten_minutes(self):
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        self.assertEqual(result.config["concurrency"]["claim_ttl"], 600)
+
+    def test_cli_validates_claim_ttl_and_names_unknown_concurrency_fields(self):
+        import tempfile
+        with open(valid("minimal.yml")) as fh:
+            minimal = fh.read()
+        for block, rc, message in (
+            ("claim_ttl: 120", 0, "claim ttl: 120"),
+            ("claim_ttl: 0", 1, "concurrency/claim_ttl"),
+            ("claim_ttl: tomorrow", 1, "concurrency/claim_ttl"),
+            ("typo: 10", 1, "concurrency/typo"),
+        ):
+            with self.subTest(block=block), tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as fh:
+                fh.write(minimal + "\nconcurrency:\n  " + block + "\n")
+                fh.flush()
+                proc = subprocess.run([RALPH, "--check-config", fh.name],
+                                      text=True, capture_output=True)
+                self.assertEqual(proc.returncode, rc, proc.stdout + proc.stderr)
+                self.assertIn(message, proc.stdout + proc.stderr)
+
     def test_minimal_config_is_valid(self):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
         self.assertTrue(result.ok, result.errors)

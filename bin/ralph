@@ -65,6 +65,10 @@ usage: ralph --init [CONFIG]
        ralph --run
        ralph --slot
        ralph --slot-ensure PATH [COMMITISH]
+       ralph --claim ISSUE [CONFIG]
+       ralph --release-claim ISSUE OID
+       ralph --verify-claim ISSUE
+       ralph --claimed-issues
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
        ralph --prune-tooling COPIES KEEP...
@@ -131,7 +135,14 @@ usage: ralph --init [CONFIG]
                           - for stdin) against the canonical Ralph backlog
                           format. Exits 0 when canonical, non-zero (reporting
                           the offending fields) otherwise.
+  --claim ISSUE [CONFIG]  Acquire a Story Claim on origin; print its object id.
+  --release-claim ISSUE OID
+                          Release only the last-seen Claim object id.
+  --verify-claim ISSUE    Verify this machine and Slot hold the remote Claim.
+  --claimed-issues        Print issues held by other machines or Slots.
+
   --dry-run [PATH]        Scan the backlog and print the next action
+                          (--claimed-issues NUMBERS supplies issues to skip).
                           (resume #N / start #N / no-work / halt) without
                           changing anything. Reads a JSON backlog from PATH
                           (or - for stdin); with no PATH, scans the live
@@ -539,11 +550,19 @@ main() {
       exec python3 "$RALPH_HOME/lib/ralph_story.py" "$2"
       ;;
     --dry-run)
-      if [[ -n "${2:-}" ]]; then
-        exec python3 "$RALPH_HOME/lib/ralph_select.py" "$2"
-      else
-        exec python3 "$RALPH_HOME/lib/ralph_select.py"
-      fi
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_select.py" "$@"
+      ;;
+    --claim|--release-claim|--verify-claim|--claimed-issues)
+      local command="$1"
+      shift
+      case "$command" in
+        --claim) command=claim ;;
+        --release-claim) command=release ;;
+        --verify-claim) command=verify ;;
+        --claimed-issues) command=list ;;
+      esac
+      exec python3 "$RALPH_HOME/lib/ralph_claim.py" "$command" "$@"
       ;;
     --check-pointer)
       shift

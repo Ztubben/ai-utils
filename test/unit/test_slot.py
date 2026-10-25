@@ -278,7 +278,7 @@ class TheOperatorsCheckoutIsLeftAlone(SlotTest):
                           w.tree_of(w.checkout)), before, proc.stdout)
         # The story work happened, and it happened in the Slot.
         self.assertIn("ralph/7-s7", w.git("branch", "--list", "ralph/7-s7"))
-        self.assertEqual(w.branch_of(w.slot()), "ralph/7-s7")
+        self.assertIsNone(w.branch_of(w.slot()))  # Claim release frees the branch.
 
     def test_a_slot_pointed_into_the_checkout_is_refused_not_reset(self):
         # Whatever the environment says, a Tick that would have to work inside
@@ -345,7 +345,8 @@ class TheSlotStartsDetached(SlotTest):
         w = self.world()
         w.set_backlog([ready_story(7)])
         self.ticked(w)
-        # The previous tick left the Slot on the Story's branch.
+        # Simulate a crash before Claim cleanup could detach the Slot.
+        w.git("checkout", "-q", "ralph/7-s7", cwd=w.slot())
         self.assertEqual(w.branch_of(w.slot()), "ralph/7-s7")
         w.set_backlog([])
         proc = self.ticked(w)

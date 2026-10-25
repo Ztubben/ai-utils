@@ -59,7 +59,7 @@ Before changing a module, read its notes file; put a new learning in the file th
 - `docs/agents/agents.md` — model profiles, assignment and alternation, agent launch and
   the context hand-off signal (`ralph_agent`, `ralph_context`), session limits, token
   usage and the ledger, two-tier memory.
-- `docs/agents/tick.md` — `bin/ralph.sh`, frozen tooling (Tooling Commit copies, pruning,
+- `docs/agents/tick.md` — `bin/ralph.sh`, Story Claims (`ralph_claim`), frozen tooling (Tooling Commit copies, pruning,
   Last-Known-Good and its fallback issue, PRD #145), the Superproject pointer check, `ralph --init`,
   schedulers, `ai-utils`' own deployment.
 - `docs/agents/testing.md` — tick harnesses, the scenario harness and its invariants,
