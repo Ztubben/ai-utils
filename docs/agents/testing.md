@@ -45,11 +45,22 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `--park-story` out of `bin/ralph`'s `RALPH_FENCED`: Slot 1 then parks the Story Slot 2
   is working and the invariant catches it.
 
-- Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
-  namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
-  no coordination semantics: `test_claim.py` uses real git and independent clones
-  against a bare remote for acquisition races, holder reporting and stale deletion,
-  and the real Tick for Claim lifetime, selection and detachment.
+- Claim plumbing (#136) in the logging git mocks answers object ids for `mktree` /
+  `commit-tree` and a Claim namespace that **remembers the pushes it accepted**: a
+  claim push touches a file under the mock common dir, `ls-remote` answers the fixed
+  object id for a name that file exists for, and `show` renders that id as this Slot's
+  own unexpired lease. It deliberately proves no coordination semantics: `test_claim.py`
+  uses real git and independent clones against a bare remote for acquisition races,
+  holder reporting and stale deletion, and the real Tick for Claim lifetime, selection
+  and detachment. GOTCHA (#139): the namespace used to answer *empty*, which the fence
+  read as a Claim this Tick had taken and lost (`RALPH_CLAIM_ISSUE`, F-1), so every tick
+  in both harnesses ended at its first write with "Claim lost" — a mock that accepts a
+  claim push must be able to answer for it afterwards. GOTCHA: `test_orchestrate.py`
+  builds its mocks as `textwrap.dedent` of a Python string, so a `\t` or `\n` meant for
+  the mock's own `printf` has to be written `\\t` / `\\n`. Unescaped, the newline ends
+  the line at column 0, `dedent` then finds no common indent and strips nothing, and the
+  shebang keeps its leading spaces: every `git` call dies with `Exec format error`, which
+  surfaces as the unrelated "is not a git repository, so it has no slot".
 
 - The tick harness (`test/unit/test_orchestrate.py`) mocks `git ls-remote --exit-code --heads
   origin <branch>` from `TickHarness.set_remote_branches(...)` — unpinned means "origin has

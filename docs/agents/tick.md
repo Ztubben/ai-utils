@@ -100,8 +100,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   re-reads the ref each time, retrying only while it is still this holder's *live*
   lease: under contention a second fence can move the ref between the recovery's read
   and its push, and one retry flaked exactly there. (4) Every tick harness runs with
-  `RALPH_SLOT` set, so every tick mutation in those suites is really fenced; the fence
-  passes unfenced on a genuinely absent ref, which is the common case there.
+  `RALPH_SLOT` set, so every tick mutation in those suites is really fenced — and since
+  (5) below an absent Claim ref no longer passes them: their logging `git` mock has to
+  remember the claim push it accepted (`docs/agents/testing.md`), or every tick ends at
+  its first write.
   (5) An *absent* Claim reads the same whether nobody ever claimed the issue or a
   replacement holder took it over and released it at the end of its own unit -- so the
   Tick exports `RALPH_CLAIM_ISSUE` (`ralph_claim.CLAIMED_ENV`) when it takes a Claim,
