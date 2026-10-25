@@ -628,7 +628,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --claim --release-claim --verify-claim --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claimed-issues --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -862,9 +862,44 @@ tick() {
   return "$rc"
 }
 
+# A Claim is a lease (ADR-0008): it expires unless renewed, so a unit of work
+# longer than `concurrency.claim_ttl` keeps its Claim alive with a heartbeat --
+# a child process renewing it by compare-and-swap at a fifth of the lease. It
+# is started when the Claim is taken and stopped when the unit ends, and it
+# watches this Tick, so a Tick that is killed outright takes it with it (#137).
+start_claim_heartbeat() {
+  CLAIM_OID_FILE="$(mktemp "${TMPDIR:-/tmp}/ralph-claim-XXXXXX")"
+  # $$ is this Tick, which is *not* the heartbeat's parent: story work runs in
+  # the `work_backlog` subshell, and that subshell survives a kill of the Tick.
+  # A heartbeat watching only its parent would go on renewing from there.
+  RALPH_TICK_PID=$$ \
+    "$RALPH_BIN" --heartbeat-claim "$1" "$CLAIM_OID" "$RALPH_CONFIG" \
+    >"$CLAIM_OID_FILE" &
+  CLAIM_HEARTBEAT=$!
+}
+
+stop_claim_heartbeat() {
+  [[ -z "${CLAIM_HEARTBEAT:-}" ]] && return 0
+  # TERM asks the heartbeat to stop at its next safe point and we wait it out:
+  # a renewal already in flight has moved the Claim on origin, and killing it
+  # before it reports that object id would leave nothing able to release the
+  # ref until it expired. A renewal wedged on the network blocks here exactly
+  # as any other git push of this tick would.
+  kill -TERM "$CLAIM_HEARTBEAT" 2>/dev/null || true
+  wait "$CLAIM_HEARTBEAT" 2>/dev/null || true
+  # Whatever the heartbeat last swapped to *is* the Claim now: releasing it
+  # against the value it was taken with would be refused as stale.
+  local renewed
+  renewed="$(tail -n 1 "$CLAIM_OID_FILE" 2>/dev/null || true)"
+  [[ -n "$renewed" ]] && CLAIM_OID="$renewed"
+  rm -f "$CLAIM_OID_FILE"
+  CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+}
+
 # Work eligible stories in sequence, resume-first via the engine. Returns what
 # the tick should exit with; every early end of the tick is a return from here.
 release_story_claim() {
+  stop_claim_heartbeat
   [[ -z "${CLAIM_ISSUE:-}" ]] && return 0
   # Free the branch before making the Claim available to another Slot.
   if ! git checkout -q --detach; then
@@ -882,7 +917,7 @@ release_story_claim() {
 work_backlog() (
   # A subshell scopes the EXIT trap to story work: every early return releases
   # its Claim, before the reconciliation passes run in the parent Tick.
-  CLAIM_ISSUE="" CLAIM_OID=""
+  CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
   trap 'release_story_claim' EXIT
   trap 'exit 143' TERM
   trap 'exit 130' INT
@@ -923,6 +958,7 @@ work_backlog() (
           continue
         fi
         CLAIM_ISSUE="$issue"
+        start_claim_heartbeat "$issue"
         log "$kind #$issue"
         # In Review has resume priority so the negotiation path owns the tick,
         # but it is never more implementation work: wait out the review window
