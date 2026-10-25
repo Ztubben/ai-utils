@@ -333,6 +333,19 @@ def _cmd_await(rest):
         # longer this Slot's.
         ralph_claim.fence_mutation(story["number"], root,
                                    validated.config["concurrency"]["claim_ttl"])
+
+        def outcome(rc, what):
+            # A step refused on the Claim is not a step that failed: the
+            # takeover can land *inside* it -- while the agent runs, which the
+            # fence above cannot see -- and the inner fences report it with
+            # the same code (#139, F-2). Read as an ordinary failure it became
+            # exit 1, and the Tick asked the circuit breaker about a Story
+            # this Slot no longer owns; raised, it ends the window as the lost
+            # Claim it is.
+            if rc == ralph_claim.EXIT_CLAIM_LOST:
+                raise ralph_claim.ClaimLost(
+                    "claim #%s lost during the %s" % (story["number"], what))
+            return step_outcome(rc, what)
         if step == HOLD:
             try:
                 protected = ralph_review_complete.protected_for(
@@ -341,31 +354,31 @@ def _cmd_await(rest):
                 return False, ["could not read the reviewed diff: %s" % exc], False
             rc = ralph_review_complete.hold(story, pull_request,
                                             validated.config, root, protected)
-            return step_outcome(rc, "control-plane hold")
+            return outcome(rc, "control-plane hold")
         if step == COMPLETE:
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root)
-            return step_outcome(rc, "completion")
+            return outcome(rc, "completion")
         if step == FINISH:
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root,
                                                 already_merged=True)
-            return step_outcome(rc, "completion of a merged pull request")
+            return outcome(rc, "completion of a merged pull request")
         if step == ARBITRATE:
             rc = ralph_review_human.arbitrate(story, pull_request,
                                               validated.config, root)
-            return step_outcome(rc, "arbitration")
+            return outcome(rc, "arbitration")
         if step == ESCALATE:
             rc = ralph_review_deadlock.escalate(story, pull_request,
                                                 validated.config, root)
-            return step_outcome(rc, "escalation")
+            return outcome(rc, "escalation")
         if step == RESPOND:
             rc = last["rc"] = ralph_review_respond.respond_to_review(
                 story, pull_request, validated.config, root)
-            return step_outcome(rc, "response round")
+            return outcome(rc, "response round")
         rc = last["rc"] = ralph_review_round.run_round(story, pull_request,
                                                        validated.config, root)
-        return step_outcome(rc, "review round")
+        return outcome(rc, "review round")
 
     def record_attempt(step, errors):
         # Only a model that answered with nothing usable spends an Attempt; an

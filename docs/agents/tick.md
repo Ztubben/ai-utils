@@ -116,7 +116,11 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `ralph_claim.fence_mutation` -- `_cmd_await`'s `act` per step, and the `publish`
   closures of `ralph_review_round.run_round` and
   `ralph_review_respond.respond_to_review` -- each refusing with the same code, *after*
-  the ledger row, because the invocation's tokens were spent either way (F-2). (7) The
+  the ledger row, because the invocation's tokens were spent either way (F-2). A step
+  that comes back with that code is *not* a failed step: `_cmd_await`'s `outcome`
+  wrapper raises `ClaimLost` on it, so the window ends as a lost Claim. Read as an
+  ordinary failure it was exit 1, and the Tick asked the circuit breaker about a Story
+  this Slot no longer owned. (7) The
   Tick's own `gh` writes are invisible to the dispatcher's fence: `begin_story`'s label
   move is the first write of a `start` and ran before every fenced subcommand, so it
   calls `--fence-claim` first -- the fence alone, never fenced itself (F-3).

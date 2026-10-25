@@ -470,6 +470,13 @@ class CliAwaitReview(unittest.TestCase):
         self._write(".ralph.yml",
                     "version: 1\ngating:\n  - name: t\n    run: 'true'\n"
                     "review:\n  wait_minutes: 0.005\n  poll_seconds: 0.01\n"
+                    "models:\n  profiles:\n"
+                    "    - key: claude-opus\n      provider: claude\n"
+                    "      model: claude-opus-5\n"
+                    "    - key: codex-high\n      provider: codex\n"
+                    "      model: gpt-5-codex\n"
+                    "  defaults:\n    implementation: claude-opus\n"
+                    "    review: codex-high\n"
                     "notify:\n  github: someone\n")
         self._write("story.json", json.dumps({
             "number": 54, "title": "Wait for review",
@@ -529,6 +536,53 @@ class CliAwaitReview(unittest.TestCase):
                     '  git push -q --force origin "$lease:refs/ralph/claims/54"\n'
                     'fi\n' % (takeover_on, self.root, self.root), 1))
         return origin
+
+    def history(self):
+        """Two real commits, so a round can read the diff it is judging."""
+        def commit(name, text, message):
+            self._write(name, text)
+            subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+            subprocess.run(["git", "-c", "user.name=Ralph",
+                            "-c", "user.email=ralph@example.invalid",
+                            "commit", "-qm", message], cwd=self.root,
+                           check=True, stdout=subprocess.DEVNULL)
+            got = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                 stdout=subprocess.PIPE, text=True, check=True)
+            return got.stdout.strip()
+
+        base = commit("thing.py", "def thing():\n    return 1\n", "base")
+        return base, commit("thing.py", "def thing():\n    return 2\n", "head")
+
+    def _reviewer_taken_over_mid_invocation(self, head):
+        """A Review Agent that answers properly and is taken over while it runs.
+
+        The window's own fence passed, so the refusal can only come from
+        `run_round`'s publish fence (#139, F-2): the takeover lands *inside*
+        the invocation, which is the case a once-per-step fence cannot see.
+        """
+        payload = os.path.join(self.root, "review.json")
+        with open(os.path.join(REPO_ROOT, "test", "fixtures", "reviews",
+                               "cross-cutting.json")) as fh:
+            review = dict(json.load(fh), head=head, round=1,
+                          model="gpt-5-codex")
+        with open(payload, "w") as fh:
+            json.dump(review, fh)
+        for name in ("claude", "codex"):
+            path = self._write(name, "")
+            with open(path, "w") as fh:
+                fh.write('#!/usr/bin/env bash\n'
+                         'cat >/dev/null\n'
+                         'echo "%s LAUNCHED" >> "$RALPH_LOG"\n'
+                         'tree="$(git mktree </dev/null)"\n'
+                         'lease="$(printf \'{"expiry":%%s,"holder":"%%s:2"}\\n\' '
+                         '"$(( $(date +%%s) + 600 ))" "$(hostname)" '
+                         '| git commit-tree "$tree")"\n'
+                         'git push -q --force origin '
+                         '"$lease:refs/ralph/claims/54"\n'
+                         'echo \'```json\'\n'
+                         'cat "%s"\n'
+                         'echo \'```\'\n' % (name, payload))
+            os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def _provider_that_must_not_run(self):
         for name in ("claude", "codex"):
@@ -595,6 +649,31 @@ class CliAwaitReview(unittest.TestCase):
         self.assertNotIn("LAUNCHED", calls)
         self.assertIn(socket.gethostname() + ":2", proc.stderr)
         self.assertIn("54", proc.stderr)
+
+    def test_a_takeover_inside_the_invocation_ends_the_window_as_a_lost_claim(self):
+        # The other half of F-2: the window fenced the step it was about to
+        # take, and the takeover landed *inside* the Review Agent's
+        # invocation, so only `run_round`'s own publish fence sees it. Its
+        # exit 21 has to stay a lost Claim all the way out -- read as a
+        # failed review step instead, the Tick would ask the circuit breaker
+        # about a Story it no longer owns.
+        self.claimable()
+        base, head = self.history()
+        marked = ralph_review.MANAGED_PR_MARKER + "\n\nRefs #54\n"
+        self._gh([{"number": 70, "body": marked}],
+                 {"number": 70, "body": marked, "state": "OPEN",
+                  "headRefOid": head, "baseRefOid": base,
+                  "reviews": [], "comments": []})
+        self._reviewer_taken_over_mid_invocation(head)
+
+        proc, calls = self.run_await(slot="1")
+
+        self.assertEqual(proc.returncode, ralph_claim.EXIT_CLAIM_LOST,
+                         proc.stdout + proc.stderr)
+        self.assertIn("codex LAUNCHED", calls)      # the invocation happened
+        self.assertNotIn("pulls/70/reviews", calls)  # and published nothing
+        self.assertNotIn("ralph:attempt", calls)
+        self.assertIn(socket.gethostname() + ":2", proc.stderr)
 
     def test_a_story_whose_pull_request_already_merged_is_closed_not_resumed(self):
         # The #61 stall: completion merged the pull request, then gh failed to
