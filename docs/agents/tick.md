@@ -102,8 +102,28 @@ for the code it touches. Add a new learning here, in the file that owns it.
   and its push, and one retry flaked exactly there. (4) Every tick harness runs with
   `RALPH_SLOT` set, so every tick mutation in those suites is really fenced; the fence
   passes unfenced on a genuinely absent ref, which is the common case there.
+  (5) An *absent* Claim reads the same whether nobody ever claimed the issue or a
+  replacement holder took it over and released it at the end of its own unit -- so the
+  Tick exports `RALPH_CLAIM_ISSUE` (`ralph_claim.CLAIMED_ENV`) when it takes a Claim,
+  cleared on release and on `claim_lost`, and `fence_decision` refuses a missing lease
+  *only* when that names the same issue. Without it the lid-close had a second act: the
+  Slot that took over finished, released, and the stale Slot's next mutation sailed
+  through (PR #160 round 1, F-1). (6) The dispatcher fences a subcommand *before* it
+  runs, which is not enough for the review path: `--await-review` sleeps between polls
+  and every round waits out a whole invocation. Those re-fence from the inside through
+  `ralph_claim.fence_mutation` -- `_cmd_await`'s `act` per step, and the `publish`
+  closures of `ralph_review_round.run_round` and
+  `ralph_review_respond.respond_to_review` -- each refusing with the same code, *after*
+  the ledger row, because the invocation's tokens were spent either way (F-2). (7) The
+  Tick's own `gh` writes are invisible to the dispatcher's fence: `begin_story`'s label
+  move is the first write of a `start` and ran before every fenced subcommand, so it
+  calls `--fence-claim` first -- the fence alone, never fenced itself (F-3).
   Covered by `test_claim.py` (each mutating subcommand, the agent's own calls through a
-  mock agent that takes the Story over mid-iteration, and a Tick that loses its Claim),
+  mock agent that takes the Story over mid-iteration, a Tick that loses its Claim, one
+  whose Claim was taken over *and released*, and one taken over the instant its Claim
+  landed -- a `git` wrapper on the Slot's PATH, because the only thing between the Claim
+  and the first write is the fence), `test_review_round.py` / `test_review_wait.py` (a
+  takeover while the Review Agent runs, and one during a poll),
   `test_agent_adapters.py` (the Slot identity reaches the child, every provider × role)
   and the `lid_close_fences_the_resumed_slot` scenario.
 

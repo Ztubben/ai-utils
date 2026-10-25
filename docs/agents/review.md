@@ -4,6 +4,23 @@ Notes for `lib/ralph_review*.py`: the review bundle, contract, rendering, rounds
 `AGENTS.md` (the root file is the index), split out so an agent loads only the notes
 for the code it touches. Add a new learning here, in the file that owns it.
 
+- **The review path re-fences its own writes** (#139, PR #160 round 1 F-2). Every
+  mutating `ralph` subcommand is fenced on the caller's Claim before the dispatcher runs
+  it (`docs/agents/tick.md`), and for the review path that is not enough: a
+  `--await-review` window sleeps between polls and each round waits out a whole agent
+  invocation, so a lease can lapse and another Slot take the Story over *inside* one
+  subcommand. Three seams ask again, through `ralph_claim.fence_mutation`: `_cmd_await`'s
+  `act`, before every step it decides on (so a takeover during a poll ends the window
+  instead of reviewing, answering or completing another Slot's Story); and the `publish`
+  closures of `run_round` and `respond_to_review`, before anything reaches the pull
+  request or the branch. All three refuse with `EXIT_CLAIM_LOST` (21), which the Tick
+  already reads as "Claim lost". GOTCHA: the refusal is returned *after*
+  `ralph_ledger.record`, deliberately -- the invocation happened and its tokens were
+  spent, and the ledger is the one issue write no Claim covers
+  (`docs/scenario-harness.md`). A `publish` that is fenced returns `(False, errors)` and
+  sets a flag the caller turns into 21, rather than raising, so the ledger row is still
+  written; `act` lets `ClaimLost` propagate, because the window must end rather than let
+  the next poll pick another step.
 - `lib/ralph_review.py` owns the exact durable pull-request opt-in marker and
   `is_managed_pr`; an unmarked PR is never eligible for automated review. Locally green
   implementation promotion (#49) lives in `lib/ralph_implementation.py`: its pure
