@@ -386,6 +386,13 @@ def _cmd_await(rest):
         # retry within the window (#61).
         if last["rc"] != ralph_review_round.EXIT_INVALID_OUTPUT:
             return False
+        # Fenced like the step it accounts for (#139, F-2 of round 2): an
+        # answer that does not validate returns before the publish fence, so
+        # a takeover inside that invocation is seen here or not at all -- and
+        # unseen, it charged the new holder's Story an Attempt. `ClaimLost`
+        # ends the window, as it does in `act`.
+        ralph_claim.fence_mutation(story["number"], root,
+                                   validated.config["concurrency"]["claim_ttl"])
         agent = "Review Agent" if step == REVIEW else "Implementation Agent"
         ok, blocked = ralph_failure.record_attempt(
             story["number"], "the %s produced no usable result (%s)"

@@ -20,7 +20,12 @@ for the code it touches. Add a new learning here, in the file that owns it.
   (`docs/scenario-harness.md`). A `publish` that is fenced returns `(False, errors)` and
   sets a flag the caller turns into 21, rather than raising, so the ledger row is still
   written; `act` lets `ClaimLost` propagate, because the window must end rather than let
-  the next poll pick another step.
+  the next poll pick another step. GOTCHA (PR #160 round 2, F-2): an answer that does not
+  validate -- or a refused or missing response -- returns *before* `publish`, so its
+  fence never runs, yet what follows still writes (the window's Attempt for invalid
+  output, the response's Attempt or escalation). Those paths ask the fence themselves:
+  `_cmd_await`'s `record_attempt` closure, and `respond_to_review` on any failed
+  outcome. A new write after an agent invocation needs its own fence, not the publish one.
 - `lib/ralph_review.py` owns the exact durable pull-request opt-in marker and
   `is_managed_pr`; an unmarked PR is never eligible for automated review. Locally green
   implementation promotion (#49) lives in `lib/ralph_implementation.py`: its pure

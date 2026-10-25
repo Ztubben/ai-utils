@@ -550,6 +550,16 @@ def respond_to_review(story, pull_request, config, root, comments=None):
         # spent, which is the one issue write no Claim covers.
         sys.stderr.write("REFUSED: respond-review (%s)\n" % lost[0])
         return ralph_claim.EXIT_CLAIM_LOST
+    if not outcome.ok:
+        # A refused or missing answer never reached `publish`, so its fence
+        # never ran, and what follows writes: an Attempt, an escalation
+        # (#139, F-2 of round 2). Asked here, a takeover inside the
+        # invocation leaves the new holder's Story alone.
+        try:
+            ralph_claim.fence_mutation(story.get("number"), root)
+        except ralph_claim.ClaimLost as exc:
+            sys.stderr.write("REFUSED: respond-review (%s)\n" % exc)
+            return ralph_claim.EXIT_CLAIM_LOST
     if outcome.ok:
         print("OK: answered round %s of #%s; %s is now %s"
               % (result.get("round"), story["number"], outcome.head,

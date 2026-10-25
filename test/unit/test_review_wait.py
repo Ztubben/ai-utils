@@ -553,12 +553,13 @@ class CliAwaitReview(unittest.TestCase):
         base = commit("thing.py", "def thing():\n    return 1\n", "base")
         return base, commit("thing.py", "def thing():\n    return 2\n", "head")
 
-    def _reviewer_taken_over_mid_invocation(self, head):
+    def _reviewer_taken_over_mid_invocation(self, head, answer=None):
         """A Review Agent that answers properly and is taken over while it runs.
 
         The window's own fence passed, so the refusal can only come from
         `run_round`'s publish fence (#139, F-2): the takeover lands *inside*
         the invocation, which is the case a once-per-step fence cannot see.
+        With *answer*, the agent prints that instead of a review.
         """
         payload = os.path.join(self.root, "review.json")
         with open(os.path.join(REPO_ROOT, "test", "fixtures", "reviews",
@@ -566,7 +567,10 @@ class CliAwaitReview(unittest.TestCase):
             review = dict(json.load(fh), head=head, round=1,
                           model="gpt-5-codex")
         with open(payload, "w") as fh:
-            json.dump(review, fh)
+            if answer is None:
+                fh.write("```json\n%s\n```\n" % json.dumps(review))
+            else:
+                fh.write(answer)
         for name in ("claude", "codex"):
             path = self._write(name, "")
             with open(path, "w") as fh:
@@ -579,9 +583,7 @@ class CliAwaitReview(unittest.TestCase):
                          '| git commit-tree "$tree")"\n'
                          'git push -q --force origin '
                          '"$lease:refs/ralph/claims/54"\n'
-                         'echo \'```json\'\n'
-                         'cat "%s"\n'
-                         'echo \'```\'\n' % (name, payload))
+                         'cat "%s"\n' % (name, payload))
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def _provider_that_must_not_run(self):
@@ -673,6 +675,44 @@ class CliAwaitReview(unittest.TestCase):
         self.assertIn("codex LAUNCHED", calls)      # the invocation happened
         self.assertNotIn("pulls/70/reviews", calls)  # and published nothing
         self.assertNotIn("ralph:attempt", calls)
+        self.assertIn(socket.gethostname() + ":2", proc.stderr)
+
+    def test_a_takeover_inside_an_invocation_that_answered_nothing_spends_no_attempt(self):
+        # F-2 of round 2: an answer that does not validate never reaches the
+        # publish fence, and the window then charged the Story an Attempt --
+        # the Story another Slot now holds -- and ended with 19, not 21. The
+        # Attempt is a write like any other, so it asks the fence first.
+        self.claimable()
+        base, head = self.history()
+        marked = ralph_review.MANAGED_PR_MARKER + "\n\nRefs #54\n"
+        self._gh([{"number": 70, "body": marked}],
+                 {"number": 70, "body": marked, "state": "OPEN",
+                  "headRefOid": head, "baseRefOid": base,
+                  "reviews": [], "comments": []})
+        self._reviewer_taken_over_mid_invocation(head, answer="no review here\n")
+        # The Story itself, so an Attempt has something to count from and is
+        # really written -- an empty read would fail it quietly.
+        self._write("issue.json", json.dumps({
+            "number": 54, "title": "Wait for review", "state": "OPEN",
+            "body": "", "comments": [],
+            "labels": [{"name": "state:in-review"}]}))
+        gh = os.path.join(self.root, "gh")
+        with open(gh) as fh:
+            script = fh.read()
+        with open(gh, "w") as fh:
+            fh.write(script.replace(
+                'exit 0\n',
+                'if [[ "$1 $2" == "issue view" ]]; then cat "%s/issue.json"; fi\n'
+                'exit 0\n' % self.root))
+
+        proc, calls = self.run_await(slot="1")
+
+        self.assertEqual(proc.returncode, ralph_claim.EXIT_CLAIM_LOST,
+                         proc.stdout + proc.stderr)
+        self.assertIn("codex LAUNCHED", calls)
+        self.assertNotIn("pulls/70/reviews", calls)
+        self.assertNotIn("ralph:attempt", calls)
+        self.assertNotIn("state:blocked", calls)
         self.assertIn(socket.gethostname() + ":2", proc.stderr)
 
     def test_a_story_whose_pull_request_already_merged_is_closed_not_resumed(self):
