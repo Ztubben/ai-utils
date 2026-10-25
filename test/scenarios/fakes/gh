@@ -26,6 +26,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import support
+
 OPERATOR = "ralph-operator"
 EPOCH = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
 
@@ -521,7 +524,7 @@ COMMANDS = {"issue": cmd_issue, "pr": cmd_pr, "label": cmd_label,
 
 
 def main(argv):
-    state_path, log_path = os.environ["SCENARIO_STATE"], os.environ["SCENARIO_LOG"]
+    state_path = os.environ["SCENARIO_STATE"]
     entry = {"tool": "gh", "argv": argv, "cwd": os.getcwd()}
     rc = 0
     # One lock over read-modify-write, so a Tick's calls never interleave.
@@ -529,9 +532,13 @@ def main(argv):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with open(state_path) as fh:
             state = json.load(fh)
+        entry['slot'] = os.environ.get('RALPH_SLOT')
         try:
             if not argv or argv[0] not in COMMANDS or len(argv) < 2:
                 raise Unemulated(" ".join(argv[:2]))
+            entry['issues'] = support.github_issues(argv, state)
+            if entry['issues']:
+                entry.update(support.snapshot())
             COMMANDS[argv[0]](state, argv[1:])
         except Unemulated as exc:
             entry["unemulated"] = str(exc)
@@ -551,8 +558,7 @@ def main(argv):
                 json.dump(state, fh, indent=1, sort_keys=True)
             os.replace(state_path + ".tmp", state_path)
         entry["rc"] = rc
-        with open(log_path, "a") as fh:
-            fh.write(json.dumps(entry) + "\n")
+        support.log(entry)
     return rc
 
 

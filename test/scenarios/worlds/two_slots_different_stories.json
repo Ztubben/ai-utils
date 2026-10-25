@@ -1,0 +1,103 @@
+{
+  "description": "Slot 1 pauses after claiming the in-progress Story; Slot 2 skips it and works the Ready Story, then Slot 1 resumes.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "main",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:in-progress",
+          "model:impl:claude-scenario",
+          "model:review:codex-scenario"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      },
+      {
+        "number": 2,
+        "title": "Add the farewell",
+        "labels": [
+          "type:afk",
+          "prio:2",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative"
+  },
+  "ticks": 3,
+  "expect": {
+    "1": "passing",
+    "2": "passing"
+  },
+  "slots": [
+    "1",
+    "2"
+  ],
+  "steps": [
+    {
+      "slot": "1",
+      "action": "tick",
+      "pause": "after-claim"
+    },
+    {
+      "slot": "2",
+      "action": "tick"
+    },
+    {
+      "slot": "1",
+      "action": "resume"
+    }
+  ]
+}
