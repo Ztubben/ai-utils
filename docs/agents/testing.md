@@ -141,3 +141,9 @@ for the code it touches. Add a new learning here, in the file that owns it.
   sentence is fine when it scopes itself to the submodule mount or names the target repository
   (ADR-0001 amendment), and a doc may spell HITL only in a forbidding context (`never HITL`,
   `_Avoid_: HITL`). New Feature vocabulary goes in CONTEXT.md **and** in this guard's term list.
+
+- Reconciliation scenarios can pause at `issue-view` with an `issue` number.
+  The fake pauses before acquiring its state lock so the other Slot remains
+  free to use GitHub. The empty-run invariant excludes the blocked-to-review
+  label change: Human Arbitration reopens existing work without claiming a
+  new Implementation Agent invocation.

@@ -106,6 +106,7 @@ Use `steps` for deterministic interleaving, within the `ticks` budget:
 |---|---|
 | `tick` | Run the named Slot's real Tick to its end. |
 | `tick`, `pause: after-claim` | Wait until the scripted Implementation Agent starts with its Story's Claim, then suspend the entire Tick process group before the agent does work. The heartbeat pauses too. |
+| `tick`, `pause: issue-view`, `issue: N` | Suspend at the fresh issue read for reconciliation, before the fake takes its state lock. |
 | `resume` | Release that agent's barrier and continue the paused Tick to its end. |
 | `expire` | Replace the paused Slot's Story lease on the real remote with an expired lease of the same holder, by compare-and-swap. No wall-clock lease wait is needed. |
 

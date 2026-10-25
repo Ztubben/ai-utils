@@ -209,7 +209,11 @@ def empty_runs_never_count(obs):
                                                      phase), records))
         promotions = [c for c in obs.calls if c["tool"] == "gh"
                       and c["argv"][:3] == ["issue", "edit", str(story["number"])]
-                      and _adds(c["argv"], "state:in-review") and c.get("rc") == 0]
+                      and _adds(c["argv"], "state:in-review") and c.get("rc") == 0
+                      # Human Arbitration returns blocked work to review;
+                      # it does not claim a fresh implementation ran.
+                      and not any(c["argv"][i:i + 2] == ['--remove-label', 'state:blocked']
+                                  for i in range(len(c["argv"]) - 1))]
         runs = [c for c in obs.agent_calls(story=story["number"], phase="iteration")
                 if not is_empty(c)]
         if len(promotions) > len(runs):
