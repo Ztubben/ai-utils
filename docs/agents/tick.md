@@ -56,6 +56,85 @@ for the code it touches. Add a new learning here, in the file that owns it.
   from the remote: the compare-and-swap *is* the check, so a holder that has lost its
   Claim fails and the new holder's lease is left intact.
 
+- **Mutations are fenced on the caller's Claim** (#139, ADR-0008). A Slot that has lost
+  its Claim can no longer change the issue. When `RALPH_SLOT` is set and the subcommand
+  is in `bin/ralph`'s `RALPH_FENCED`, `main()` runs the fence *before* dispatching:
+  `ralph_claim.py fence ISSUE` reads the remote lease and `fence_decision` answers one
+  of three ways — no Claim at all passes (the completion, arbitration and unpark passes
+  hold none, and the fence refuses a *lost* Claim, not an unclaimed mutation), another
+  holder refuses with **exit 21** (`EXIT_CLAIM_LOST`, mirrored as `RC_CLAIM_LOST` in
+  `bin/ralph.sh` — keep the two in step) naming the holder, and this holder passes *by
+  renewing*: the compare-and-swap is the check, so a takeover inside the window fails
+  the renewal and the mutation is refused then. It **fails closed** — a lease it cannot
+  read or a renewal it cannot push refuses too, naming the reason and whatever holder
+  can still be read, because a Claim this Slot cannot verify is not one it holds and a
+  Tick that cannot reach origin could do nothing useful with the issue anyway. The fenced set (`RALPH_FENCED`) is every
+  subcommand that moves a label, writes a Handoff or Attempt, publishes, answers or
+  arbitrates a review, merges or pushes — and `--resume`, which checks the Story branch
+  out into this Slot, which a Slot that has lost the Story has no business doing. Left
+  unfenced (`bin/ralph` carries the list and the reasons) are every read-only
+  subcommand; the Claim plane itself, which *is* the compare-and-swap;
+  `--check-breaker` and `--unpark-stories`, which name no single issue;
+  `--render-review`, whose subject is a pull request and which is only reached
+  through an already-fenced round; and the token-usage ledger, which no dispatcher
+  fence can reach because it is written *after* the invocation it accounts for
+  (`invariants.py` exempts it for the same reason). Without `RALPH_SLOT` — a subcommand run by hand — nothing is fenced
+  and every call behaves exactly as before. `RALPH_SLOT` reaches the agent through the
+  environment it already inherits (`AgentAdapter.environment`), so the agent's own
+  `--checkpoint` and `--record-attempt` are fenced with no prompt change.
+  The Tick maps 21 at every mutating call site to `claim_lost`: it logs the issue and
+  its current holder (`--claim-holder`), stops the heartbeat, clears `CLAIM_ISSUE`/
+  `CLAIM_OID` so the EXIT trap pushes no release of a Claim that is no longer ours,
+  detaches to free the Story branch for the new holder, and ends the unit of work
+  returning 0 — no Attempt (the Story did not fail) and nothing toward the circuit
+  breaker. A *fenced* promotion in `complete_story` is explicitly not a failed Attempt.
+  GOTCHAS: (1) the fence needs the issue, which it reads out of the subcommand's own
+  `gh --json` document (`issue_of`, isolated `python3 -I` — the document sits in a
+  repository an agent is editing, and a `json.py` a Story added next to it must not be
+  imported). A document that names no issue is left unfenced: such a call changes
+  nothing anyway, since the module refuses it on its own terms. (2) The `-` stdin path
+  cannot fence and then `exec`: `run_fenced` slurps
+  stdin to a temp file, fences from it, and runs `( dispatch "$@" ) <"$tmp"` in a
+  **subshell** so the `exec` inside `dispatch` cannot strand the file, propagating the
+  module's own exit code. (3) The renewal retry is bounded (`CAS_RETRIES`, 3) and
+  re-reads the ref each time, retrying only while it is still this holder's *live*
+  lease: under contention a second fence can move the ref between the recovery's read
+  and its push, and one retry flaked exactly there. (4) Every tick harness runs with
+  `RALPH_SLOT` set, so every tick mutation in those suites is really fenced — and since
+  (5) below an absent Claim ref no longer passes them: their logging `git` mock has to
+  remember the claim push it accepted (`docs/agents/testing.md`), or every tick ends at
+  its first write.
+  (5) An *absent* Claim reads the same whether nobody ever claimed the issue or a
+  replacement holder took it over and released it at the end of its own unit -- so the
+  Tick exports `RALPH_CLAIM_ISSUE` (`ralph_claim.CLAIMED_ENV`) when it takes a Claim,
+  cleared on release and on `claim_lost`, and `fence_decision` refuses a missing lease
+  *only* when that names the same issue. Without it the lid-close had a second act: the
+  Slot that took over finished, released, and the stale Slot's next mutation sailed
+  through (PR #160 round 1, F-1). (6) The dispatcher fences a subcommand *before* it
+  runs, which is not enough for the review path: `--await-review` sleeps between polls
+  and every round waits out a whole invocation. Those re-fence from the inside through
+  `ralph_claim.fence_mutation` -- `_cmd_await`'s `act` per step, and the `publish`
+  closures of `ralph_review_round.run_round` and
+  `ralph_review_respond.respond_to_review` -- each refusing with the same code, *after*
+  the ledger row, because the invocation's tokens were spent either way (F-2). A step
+  that comes back with that code is *not* a failed step: `_cmd_await`'s `outcome`
+  wrapper raises `ClaimLost` on it, so the window ends as a lost Claim. Read as an
+  ordinary failure it was exit 1, and the Tick asked the circuit breaker about a Story
+  this Slot no longer owned. An invocation whose answer never reaches `publish`
+  (invalid output, a refused response) is fenced again before the Attempt or escalation
+  it would write (round 2, F-2; `docs/agents/review.md`). (7) The
+  Tick's own `gh` writes are invisible to the dispatcher's fence: `begin_story`'s label
+  move is the first write of a `start` and ran before every fenced subcommand, so it
+  calls `--fence-claim` first -- the fence alone, never fenced itself (F-3).
+  Covered by `test_claim.py` (each mutating subcommand, the agent's own calls through a
+  mock agent that takes the Story over mid-iteration, a Tick that loses its Claim, one
+  whose Claim was taken over *and released*, and one taken over the instant its Claim
+  landed -- a `git` wrapper on the Slot's PATH, because the only thing between the Claim
+  and the first write is the fence), `test_review_round.py` / `test_review_wait.py` (a
+  takeover while the Review Agent runs, and one during a poll),
+  `test_agent_adapters.py` (the Slot identity reaches the child, every provider × role)
+  and the `lid_close_fences_the_resumed_slot` scenario.
+
 - `bin/ralph.sh` is the unattended **tick** (US-011, ADR-0002/0004/Tick): thin orchestration —
   the TDD/gating happen inside the `claude` iteration it launches (driven by
   `prompts/iterate.v1.md`), but the tick owns the state transitions around it. Order: (1)

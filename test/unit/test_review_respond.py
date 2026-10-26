@@ -7,6 +7,7 @@ open finding.
 """
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
@@ -17,6 +18,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_review  # noqa: E402
 import ralph_review_complete  # noqa: E402
 import ralph_review_render  # noqa: E402
@@ -423,11 +425,12 @@ notify:
     DISPUTE_EVIDENCE = "test/unit/test_review_result.py:210 already loads an " \
                        "oversized payload and asserts the refusal."
 
-    def _agent(self, fix="append"):
+    def _agent(self, fix="append", takeover=False):
         """A mock implementation CLI that really changes the branch.
 
         `fix="dispute"` is the one mode that does not: a dispute answers the
-        finding and leaves the reviewed commit exactly where it was.
+        finding and leaves the reviewed commit exactly where it was. With
+        *takeover*, Slot 2 takes the Story's Claim while the agent runs.
         """
         answer = dict(response(head=self.head, ids=("F-1",)),
                       model="claude-opus-5")
@@ -442,6 +445,13 @@ notify:
                 "amend": "printf '\\n# fix\\n' >> lib/thing.py\n"
                          "git commit -aqm 'amended' --amend >/dev/null 2>&1",
                 "dispute": ":"}[fix]
+        if takeover:
+            edit += ('\ntree="$(git mktree </dev/null)"\n'
+                     'lease="$(printf \'{"expiry":%s,"holder":"%s:2"}\\n\' '
+                     '"$(( $(date +%s) + 600 ))" "$(hostname)" '
+                     '| git commit-tree "$tree")"\n'
+                     'git push -q --force origin '
+                     '"$lease:refs/ralph/claims/55"')
         path = self._write("claude", "")
         with open(path, "w") as fh:
             fh.write('#!/usr/bin/env bash\n'
@@ -491,15 +501,17 @@ with open("issue-comments.json", "w") as fh:
                      'exit 0\n' % {"r": self.root})
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
-    def run_respond(self):
+    def run_respond(self, slot=None):
         assigned = dict(story(), labels=story()["labels"] + [
             {"name": "model:impl:claude-opus-5"},
             {"name": "model:review:gpt-5-codex"}])
         self._write("story.json", json.dumps(assigned))
         env = dict(os.environ, PATH=self.root + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=self.log)
-        for name in ("RALPH_CLAUDE", "RALPH_CODEX"):
+        for name in ("RALPH_CLAUDE", "RALPH_CODEX", "RALPH_SLOT"):
             env.pop(name, None)
+        if slot:
+            env["RALPH_SLOT"] = slot
         proc = subprocess.run(
             [os.path.join(REPO_ROOT, "bin", "ralph"), "--respond-review",
              os.path.join(self.root, "story.json"), ".ralph.yml", self.root],
@@ -640,6 +652,27 @@ with open("issue-comments.json", "w") as fh:
         self.assertNotIn("ralph-review-response:v1", calls)
         # Refused *and* remembered: it spends an Attempt on the Story (#100).
         self.assertIn("gh issue comment 55 --body " + ralph_failure.ATTEMPT_MARKER, calls)
+
+    def test_a_takeover_inside_a_refused_response_spends_no_attempt(self):
+        # F-2 of round 2, on the response side: an amended head is refused
+        # before `publish`, so its fence never ran, and the Attempt that
+        # refusal spends went on a Story another Slot now holds (#139).
+        got = subprocess.run([os.path.join(REPO_ROOT, "bin", "ralph"), "--claim",
+                              "55", ".ralph.yml"], cwd=self.root, text=True,
+                             env=dict(os.environ, RALPH_SLOT="1"),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self._agent(fix="amend", takeover=True)
+        self._gh()
+
+        proc, calls = self.run_respond(slot="1")
+
+        self.assertEqual(proc.returncode, ralph_claim.EXIT_CLAIM_LOST,
+                         proc.stdout + proc.stderr)
+        self.assertIn("claude --dangerously-skip-permissions", calls)
+        self.assertNotIn(ralph_failure.ATTEMPT_MARKER, calls)
+        self.assertNotIn("replies", calls)
+        self.assertIn(socket.gethostname() + ":2", proc.stderr)
 
 
 class NoAnswerIsRefused(unittest.TestCase):

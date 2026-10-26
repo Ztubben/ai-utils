@@ -11,6 +11,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_failure  # noqa: E402
 import ralph_review  # noqa: E402
@@ -323,6 +324,28 @@ def _cmd_await(rest):
             return []
 
     def act(step, pull_request):
+        # Fenced per step, not once per window (#139, F-2): the entry fence ran
+        # before the first poll, and a window sleeps between polls -- past a
+        # lease, if the machine suspends. Every step here writes: a review, a
+        # response, an escalation, a label, a merge. `ClaimLost` is not caught:
+        # it ends the window at once, through `await_review`, rather than
+        # letting the next poll decide another step on a Story that is no
+        # longer this Slot's.
+        ralph_claim.fence_mutation(story["number"], root,
+                                   validated.config["concurrency"]["claim_ttl"])
+
+        def outcome(rc, what):
+            # A step refused on the Claim is not a step that failed: the
+            # takeover can land *inside* it -- while the agent runs, which the
+            # fence above cannot see -- and the inner fences report it with
+            # the same code (#139, F-2). Read as an ordinary failure it became
+            # exit 1, and the Tick asked the circuit breaker about a Story
+            # this Slot no longer owns; raised, it ends the window as the lost
+            # Claim it is.
+            if rc == ralph_claim.EXIT_CLAIM_LOST:
+                raise ralph_claim.ClaimLost(
+                    "claim #%s lost during the %s" % (story["number"], what))
+            return step_outcome(rc, what)
         if step == HOLD:
             try:
                 protected = ralph_review_complete.protected_for(
@@ -331,31 +354,31 @@ def _cmd_await(rest):
                 return False, ["could not read the reviewed diff: %s" % exc], False
             rc = ralph_review_complete.hold(story, pull_request,
                                             validated.config, root, protected)
-            return step_outcome(rc, "control-plane hold")
+            return outcome(rc, "control-plane hold")
         if step == COMPLETE:
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root)
-            return step_outcome(rc, "completion")
+            return outcome(rc, "completion")
         if step == FINISH:
             rc = ralph_review_complete.complete(story, pull_request,
                                                 validated.config, root,
                                                 already_merged=True)
-            return step_outcome(rc, "completion of a merged pull request")
+            return outcome(rc, "completion of a merged pull request")
         if step == ARBITRATE:
             rc = ralph_review_human.arbitrate(story, pull_request,
                                               validated.config, root)
-            return step_outcome(rc, "arbitration")
+            return outcome(rc, "arbitration")
         if step == ESCALATE:
             rc = ralph_review_deadlock.escalate(story, pull_request,
                                                 validated.config, root)
-            return step_outcome(rc, "escalation")
+            return outcome(rc, "escalation")
         if step == RESPOND:
             rc = last["rc"] = ralph_review_respond.respond_to_review(
                 story, pull_request, validated.config, root)
-            return step_outcome(rc, "response round")
+            return outcome(rc, "response round")
         rc = last["rc"] = ralph_review_round.run_round(story, pull_request,
                                                        validated.config, root)
-        return step_outcome(rc, "review round")
+        return outcome(rc, "review round")
 
     def record_attempt(step, errors):
         # Only a model that answered with nothing usable spends an Attempt; an
@@ -363,6 +386,13 @@ def _cmd_await(rest):
         # retry within the window (#61).
         if last["rc"] != ralph_review_round.EXIT_INVALID_OUTPUT:
             return False
+        # Fenced like the step it accounts for (#139, F-2 of round 2): an
+        # answer that does not validate returns before the publish fence, so
+        # a takeover inside that invocation is seen here or not at all -- and
+        # unseen, it charged the new holder's Story an Attempt. `ClaimLost`
+        # ends the window, as it does in `act`.
+        ralph_claim.fence_mutation(story["number"], root,
+                                   validated.config["concurrency"]["claim_ttl"])
         agent = "Review Agent" if step == REVIEW else "Implementation Agent"
         ok, blocked = ralph_failure.record_attempt(
             story["number"], "the %s produced no usable result (%s)"
@@ -386,12 +416,19 @@ def _cmd_await(rest):
             return ("(unknown -- the reviewed diff could not be read)",)
 
     policy = WaitPolicy.from_config(validated.config)
-    result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
-                          now=time.monotonic, read_comments=read_comments,
-                          read_protected=read_protected,
-                          approvers=ralph_review_human.approvers_from(
-                              validated.config),
-                          record_attempt=record_attempt)
+    try:
+        result = await_review(policy, fetch=fetch, act=act, sleep=time.sleep,
+                              now=time.monotonic, read_comments=read_comments,
+                              read_protected=read_protected,
+                              approvers=ralph_review_human.approvers_from(
+                                  validated.config),
+                              record_attempt=record_attempt)
+    except ralph_claim.ClaimLost as exc:
+        # Another Slot holds the Story and its negotiation with it. The unit of
+        # work is over; the Tick reads this code as "Claim lost" and records no
+        # Attempt (#139).
+        sys.stderr.write("REFUSED: await-review (%s)\n" % exc)
+        return ralph_claim.EXIT_CLAIM_LOST
     number = story.get("number", "?")
     if result.kind == EXPIRED:
         print("OK: review window closed after %.0fs on #%s (%d poll%s, %d "

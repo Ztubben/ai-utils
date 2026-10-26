@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "lib"))
 
 import ralph_agent  # noqa: E402
 import ralph_config  # noqa: E402
+import ralph_slot  # noqa: E402
 
 FIXTURES = os.path.join(REPO_ROOT, "test", "fixtures", "config", "valid")
 RALPH_SH = os.path.join(REPO_ROOT, "bin", "ralph.sh")
@@ -184,6 +185,26 @@ class AdaptersLaunchTheirModelInAFreshProcess(unittest.TestCase):
         self.assertNotIn("CODEX_SESSION_ID", rec.env)
         self.assertNotIn("CODEX_THREAD_ID", rec.env)
         self.assertEqual(rec.env.get("CODEX_HOME"), "/keep")
+
+    def test_the_slot_identity_reaches_the_child_in_either_role(self):
+        # Drift guard (#139): an agent runs mutating `ralph` subcommands itself
+        # (`--checkpoint`, `--record-attempt`), and those are fenced on the
+        # caller's Claim through `RALPH_SLOT` alone -- no prompt says so. A
+        # strip that ever took it out of the child environment would silently
+        # unfence every write the agent makes.
+        for provider in sorted(ralph_agent.PROVIDERS):
+            for role in ralph_agent.ROLES:
+                rec = Recorder()
+                old = dict(os.environ)
+                os.environ[ralph_slot.SLOT_ENV] = "3"
+                try:
+                    ralph_agent.PROVIDERS[provider]("a-model", role=role).launch(
+                        "prompt", run=rec)
+                finally:
+                    os.environ.clear()
+                    os.environ.update(old)
+                self.assertEqual(rec.env.get(ralph_slot.SLOT_ENV), "3",
+                                 "%s/%s dropped the Slot identity" % (provider, role))
 
     def test_the_prompt_is_handed_over_on_stdin(self):
         for provider, model in (("claude", "claude-opus-5"), ("codex", "gpt-5-codex")):
