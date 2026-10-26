@@ -305,6 +305,14 @@ for the code it touches. Add a new learning here, in the file that owns it.
   unresolvable branch leaves git untouched and the iteration resolves it itself. (4) The
   freshness tick tests and `test/bats/story_branch.bats` run on **real git**: a logging mock
   answers "already an ancestor" to everything and cannot show which branch a merge hit.
+- **Branches held by the operator** (#142). After taking the Story and Feature
+  Claims, resolve the canonical branch and inspect `git worktree list --porcelain -z`
+  before labels, model assignment or review. A branch held by another worktree is
+  skipped for this Tick, naming the Story and path; the next selection releases
+  both Claims and excludes the Story locally. No Attempt or durable state changes.
+  NUL-delimited records preserve paths containing spaces and quoting characters.
+  `test/scenarios/test_multislot.py` covers Ready and In Progress Stories, work on
+  the next Story, Claim release, and resumption after the operator detaches.
 - **Reconciliation runs however the story loop ends** (#120). `tick()` validates, then calls
   `work_backlog` (the story loop; every early end of the tick -- a Story left in review, a
   session limit, a failed promotion, a halt, a launcher refusal -- is a `return` from it), and
