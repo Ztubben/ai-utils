@@ -11,6 +11,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   harness suspends the entire Tick process group, including its heartbeat.
   Expiry replaces the real Claim commit by compare-and-swap; it never sleeps
   out a TTL. Cleanup must kill paused groups before removing their worktrees.
+  Expiry's `git mktree` must receive explicit empty input (#162): inherited
+  agent stdin can stay open indefinitely, hanging the gate while the Slot is
+  paused. The open-stdin regression bounds subprocess calls and cleans up the
+  paused group even on failure.
   The `claim-held-for-mutation` invariant checks successful issue-related pushes
   and GitHub writes against remote Claim snapshots at the write (holder **and**
   expiry), not end-of-Tick refs, which have usually been released. The bare remote’s
@@ -31,11 +35,40 @@ for the code it touches. Add a new learning here, in the file that owns it.
   configured base's *fresh* tip -- not the Tick's earlier cut -- because the
   fake GitHub refuses (as unemulated) merging a head that is behind its base.
 
-- Claim plumbing (#136) in the logging git mocks answers an empty remote Claim
-  namespace plus object ids for `mktree` / `commit-tree`. It deliberately proves
-  no coordination semantics: `test_claim.py` uses real git and independent clones
-  against a bare remote for acquisition races, holder reporting and stale deletion,
-  and the real Tick for Claim lifetime, selection and detachment.
+- Fencing a takeover in a scenario (#139) needed three harness seams. (1) A **step**
+  may carry its own `agents`, merged over the world's for that Tick: an agent reads its
+  behaviour from the environment of the Tick that launched it, so this is the only way
+  one Slot's agent behaves differently from another's. (2) A world may put a Slot on
+  another **machine** (`"machines": {"2": "b"}`): its own clone of the same remote.
+  Not optional for a takeover — the Slots of one machine are worktrees of one clone, so
+  Slot 2's `--resume` died on `fatal: '<story branch>' is already used by worktree at
+  …slot-1`. ADR-0008 rejected separate clones because detaching on release removes that
+  refusal, but a takeover is exactly the case where the previous holder never released
+  and so never detached; cross-machine is the ADR's own takeover case.
+  (3) `claim-held-for-mutation` exempts the **token ledger** (matched on
+  `ralph_ledger.LEDGER_MARKER`): the row is written after the invocation it accounts
+  for, so no Claim covers it and no dispatcher fence could reach it either — fencing
+  the launch would not have helped. Both exemption and `machines` are seen red in
+  `test_invariants.py` / `test_multislot.py`, and the world is verified red by taking
+  `--park-story` out of `bin/ralph`'s `RALPH_FENCED`: Slot 1 then parks the Story Slot 2
+  is working and the invariant catches it.
+
+- Claim plumbing (#136) in the logging git mocks answers object ids for `mktree` /
+  `commit-tree` and a Claim namespace that **remembers the pushes it accepted**: a
+  claim push touches a file under the mock common dir, `ls-remote` answers the fixed
+  object id for a name that file exists for, and `show` renders that id as this Slot's
+  own unexpired lease. It deliberately proves no coordination semantics: `test_claim.py`
+  uses real git and independent clones against a bare remote for acquisition races,
+  holder reporting and stale deletion, and the real Tick for Claim lifetime, selection
+  and detachment. GOTCHA (#139): the namespace used to answer *empty*, which the fence
+  read as a Claim this Tick had taken and lost (`RALPH_CLAIM_ISSUE`, F-1), so every tick
+  in both harnesses ended at its first write with "Claim lost" — a mock that accepts a
+  claim push must be able to answer for it afterwards. GOTCHA: `test_orchestrate.py`
+  builds its mocks as `textwrap.dedent` of a Python string, so a `\t` or `\n` meant for
+  the mock's own `printf` has to be written `\\t` / `\\n`. Unescaped, the newline ends
+  the line at column 0, `dedent` then finds no common indent and strips nothing, and the
+  shebang keeps its leading spaces: every `git` call dies with `Exec format error`, which
+  surfaces as the unrelated "is not a git repository, so it has no slot".
 
 - The tick harness (`test/unit/test_orchestrate.py`) mocks `git ls-remote --exit-code --heads
   origin <branch>` from `TickHarness.set_remote_branches(...)` — unpinned means "origin has

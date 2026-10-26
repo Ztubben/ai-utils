@@ -31,6 +31,19 @@ class ValidConfigTests(unittest.TestCase):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
         self.assertEqual(result.config["concurrency"]["claim_ttl"], 600)
 
+    def test_the_shipped_defaults_are_readable_without_a_config(self):
+        # The mutation fence (#139) must renew a Claim even when the target
+        # repository's .ralph.yml cannot be read, and never by hard-coding the
+        # lease the schema already ships.
+        shipped = ralph_config.defaults()
+        self.assertEqual(shipped["concurrency"]["claim_ttl"], 600)
+        self.assertEqual(shipped["concurrency"]["claim_ttl"],
+                         ralph_config.load_and_validate(
+                             valid("minimal.yml")).config["concurrency"]["claim_ttl"])
+        # A caller may not mutate the shipped defaults out from under the next.
+        shipped["concurrency"]["claim_ttl"] = 1
+        self.assertEqual(ralph_config.defaults()["concurrency"]["claim_ttl"], 600)
+
     def test_feature_exclusive_is_defaulted_on(self):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
         self.assertIs(result.config["concurrency"]["feature_exclusive"], True)
