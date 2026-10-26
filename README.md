@@ -60,7 +60,9 @@ human must verify on the bench.
 | **AFK story** (`type:afk`) | *Away-From-Keyboard.* Fully verifiable without a physical bench (logic, parsing, refactors, build config), but still passes independent model review before final merge. |
 | **HIL story** (`type:hil`) | *Human-In-the-Loop.* Needs a human to confirm real behavior on the physical bench (GPIO, timing, sensors). Green implementation and model review are necessary but **not** sufficient. |
 | **Blocker** | A story needing a human *design decision before coding.* Kept out of `state:ready` (labelled `ready-for-human`) so Ralph never picks it up. |
-| **Tick** | One scheduled run of the loop (every ~5 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. Only one tick per superproject runs at a time (guarded by a `flock`). |
+| **Tick** | One scheduled run of the loop (every ~5 hours). Resumes any in-progress story first, then works as many ready stories as the session budget allows. It runs in a *Slot*, and only one tick per Slot runs at a time (guarded by a `flock`). |
+| **Slot** | A git worktree dedicated to one Loop, next to the superproject checkout (`<superproject>.ralph-slot-N/`). Every tick does its git work there, never in your checkout. A machine runs Slot 1 by default and may burst to more, up to the committed `concurrency.max_slots` ([ADR-0008](docs/adr/0008-parallel-loops-slots-and-claims.md)). |
+| **Claim** | A short lease on one issue, held as a git ref (`refs/ralph/claims/<issue>`) on `origin`, that keeps two Slots — on one machine or several — from ever working the same issue. Taken per unit of work, renewed while it runs, and released at its end. |
 | **Iteration** | A single fresh-context agent process inside a tick. Ralph **never compacts context** — when it fills, the iteration writes a *Handoff* and the next iteration resumes with clean context. |
 | **Handoff** | The checkpoint an iteration leaves so a story can resume: a summary as an issue comment + WIP commits on the story branch. |
 | **Story pull request** | The one Ralph-managed pull request a story owns, from its own branch into its own base. An Orphan story targets the base branch; a story belonging to a Feature targets that Feature's integration branch, which merges into the base branch as one piece when the Feature is complete ([ADR-0006](docs/adr/0006-per-feature-integration-branches.md)). A Feature's stories never share one, so the reviewed diff and the round budget are each story's own. |
@@ -89,7 +91,7 @@ configurable**:
 scheduler (every ~5h)
         │
         ▼
-   bin/ralph.sh  ──► flock (one tick at a time)
+   bin/ralph.sh  ──► Slot + flock (one tick per Slot), Slot ceiling
         │
         ▼
    validate .ralph.yml  (fails loud if invalid)
@@ -232,11 +234,21 @@ Unattended operation is just a **tick every 5 hours**. ai-utils ships sample
 scheduler units under [`scheduler/`](scheduler/) — pick **one**:
 
 - `scheduler/ralph.service` + `scheduler/ralph.timer` — a systemd timer, or
-- `scheduler/ralph.cron` — a single crontab line.
+- `scheduler/ralph.cron` — a single crontab line, or
+- `scheduler/ralph@.service` + `scheduler/ralph@.timer` — the systemd *template*
+  form, one instance per Slot, for [bursting](#bursting-more-than-one-slot).
 
-Both run `ai-utils/bin/ralph.sh` (the tick) from your superproject root. The tick
-is flock-guarded, so a scheduled run that overlaps a still-running one is a
-harmless no-op.
+All of them run `ai-utils/bin/ralph.sh` (the tick) from your superproject root.
+The single-instance units and the cron line name no Slot, so they run as Slot 1.
+The tick is flock-guarded per Slot, so a scheduled run that overlaps a
+still-running one in the same Slot is a harmless no-op.
+
+On its first run a tick creates its Slot directory **next to** your checkout —
+`/path/to/your/superproject.ralph-slot-1/`, a git worktree of the same clone — and
+does every checkout, sync and merge there, so your own checkout, branch and
+working tree are left alone while the Loop works. Leave the Slot directory be: a
+tick repairs it if it goes missing, and a tick that finds it mid-merge refuses
+until a human finishes or aborts that merge.
 
 ### Auth prerequisites (do this first)
 
@@ -275,6 +287,38 @@ crontab -e
 #   0 */5 * * *   cd /path/to/your/superproject && ai-utils/bin/ralph.sh >> .ralph.log 2>&1
 ```
 
+### Bursting: more than one Slot
+
+Slots and Claims are always on, even with one Slot: each tick **claims** the
+issue it is about to work (a lease on `origin`, renewed while it works and
+released at the end of the unit), so a second Slot — on this machine or another —
+never works the same issue, and by default never a sibling Story of the same
+Feature (`concurrency.feature_exclusive`). A unit of work holds no affinity to a
+Slot: the next one may be taken by any Slot, and resumes from the pushed Handoff.
+
+How many Slots a machine runs is the operator's choice, **under a ceiling the
+target repository commits**: `concurrency.max_slots` in `.ralph.yml` on the base
+branch (default 1). A tick whose Slot number exceeds it exits non-zero before it
+labels anything, naming the ceiling; Slot 1 always runs. The tick reads the
+ceiling from the config its Slot was reset to, so raising it in your own checkout
+lifts nothing until it is merged. To burst, commit a higher ceiling, install the
+template units and enable one more instance — the instance number is the Slot:
+
+```sh
+cp ai-utils/scheduler/ralph@.service ai-utils/scheduler/ralph@.timer ~/.config/systemd/user/
+# edit the two paths in ralph@.service, then:
+systemctl --user daemon-reload
+systemctl --user enable --now ralph@2.timer    # start a burst: Slot 2
+systemctl --user disable --now ralph@2.timer   # end it
+```
+
+Slot 2 gets its own worktree (`<superproject>.ralph-slot-2/`) and its own lock.
+Run Slot 1 from *either* `ralph.timer` or `ralph@1.timer`, not both — they are the
+same Slot. A disabled Slot's worktree stays where it is and is reused by the next
+burst; remove it with `git worktree remove` if you want the space back. Its Claim,
+if a tick was cut short, expires on its own within one lease
+(`concurrency.claim_ttl`).
+
 Once installed, Ralph wakes every 5 hours, resumes any active Story
 (`state:in-progress` or `state:in-review`), works as many Ready Stories as the
 session budget allows, then sleeps until the next
@@ -305,6 +349,12 @@ branching:
   branch_pattern: "ralph/{issue}-{slug}"   # every story's own working branch
   feature_pattern: "feature/{issue}-{slug}"  # {issue}/{slug} from the PRD issue
   afk_merge: squash                        # merge | squash | rebase (default: squash)
+
+# Slot coordination (ADR-0008): Claims on origin and the committed Slot ceiling.
+concurrency:
+  claim_ttl: 600           # Claim lease in seconds, renewed every fifth (default: 600)
+  feature_exclusive: true  # one Slot per Feature (default: true)
+  max_slots: 1             # ceiling on Slots per machine; Slot 1 always runs (default: 1)
 
 # Failure-handling limits.
 limits:
@@ -644,6 +694,7 @@ that mounts ai-utils as a submodule inherits none of it and supplies its own.
 | CI | `.github/workflows/test.yml` | the same `test/run.sh`, on pull requests to `main` and pushes to it; job named `test` so its check matches the gating step |
 | Protected control plane | `.ralph.yml` `control_plane` | the review machinery itself — prompts, schemas, `lib/ralph_review*.py`, the review contract, both entrypoints, `.ralph.yml`, and `.github/workflows/**` |
 | Base branch | `.ralph.yml` `branching.base` | `main`; Ralph may auto-merge into it, and there is no promotion step — a superproject's submodule pointer bump is the release (ADR-0007) |
+| Slots | `.ralph.yml` `concurrency` | the defaults: `max_slots: 1`, so a machine runs Slot 1 alone (`ralph.timer`, or `ralph@1.timer`); a burst first raises the ceiling, which — `.ralph.yml` being protected — takes a person's approval |
 | Tooling the Loop runs | (none: it follows `origin/main`) | each tick runs a frozen copy of `origin/main` as of its start, never the checkout the agent edits, so ai-utils builds its own tooling and upgrades itself once a Story merges (ADR-0009) |
 
 **Branch protection on `main`.** Two checks are required — `test` (CI) and
@@ -714,7 +765,7 @@ ai-utils setting — every target repository gets it.
 ```
 bin/
   ralph          Bash CLI entrypoint — dispatches subcommands to lib/.
-  ralph.sh       The unattended tick: flock → validate → select → iterate → complete.
+  ralph.sh       The unattended tick: Slot + flock → validate → ceiling → select → iterate → complete.
 lib/*.py         Pure logic (Python 3, stdlib + jsonschema + PyYAML). No network, no side effects.
   ralph_config.py   .ralph.yml validation + default application.
   ralph_story.py    Canonical story-format checker + label normalization.
@@ -731,7 +782,8 @@ schema/          Shipped JSON-schemas (ralph.schema.json for .ralph.yml).
 prompts/         Checked-in agent prompts (iterate/handoff/failure/memory), drift-guarded by tests.
 skills/          Authoring skills shipped with the tool (ralph-story + examples,
                  ralph-backlog-audit).
-scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, ralph.cron) — a tick every 5h.
+scheduler/       Sample scheduler units (systemd ralph.service + ralph.timer, the ralph@.service + ralph@.timer
+                 template whose instance is the Slot, ralph.cron) — a tick every 5h.
 docs/adr/        Architecture Decision Records (0001–0007).
 test/            Green gate: test/run.sh, unit tests, fixtures, bats.
 .github/workflows/  ai-utils' own CI (self-hosting only — not inherited by a submodule mount).

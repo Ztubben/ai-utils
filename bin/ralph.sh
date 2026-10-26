@@ -707,7 +707,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claim-holder --fence-claim --claimed-issues --feature-claim --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --slot-ceiling --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claim-holder --fence-claim --claimed-issues --feature-claim --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -910,6 +910,18 @@ tick() {
   fi
 
   preflight || return $?
+
+  # --- the committed Slot ceiling (#143, ADR-0008) ---
+  # A burst is one more template instance, never more than the ceiling the
+  # target repository commits: read from the config this Slot was reset to,
+  # so raising it in the operator's checkout lifts nothing. Checked after the
+  # preflight -- a ceiling refusal is not the tooling's fault, so it must not
+  # send a candidate copy to Last-Known-Good -- and before anything is labelled.
+  local why
+  if ! why="$("$RALPH_BIN" --slot-ceiling "$RALPH_CONFIG" 2>&1)"; then
+    log "${why#REFUSED: }; refusing to tick"
+    return 2
+  fi
 
   # --- prune the frozen copies nothing needs any more (#147; best-effort) ---
   if [[ -n "$TOOLING_COMMIT" ]]; then

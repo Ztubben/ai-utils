@@ -48,6 +48,10 @@ class ValidConfigTests(unittest.TestCase):
         result = ralph_config.load_and_validate(valid("minimal.yml"))
         self.assertIs(result.config["concurrency"]["feature_exclusive"], True)
 
+    def test_max_slots_is_defaulted_to_one(self):
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        self.assertEqual(result.config["concurrency"]["max_slots"], 1)
+
     def test_cli_validates_claim_ttl_and_names_unknown_concurrency_fields(self):
         import tempfile
         with open(valid("minimal.yml")) as fh:
@@ -59,6 +63,9 @@ class ValidConfigTests(unittest.TestCase):
             ("typo: 10", 1, "concurrency/typo"),
             ("feature_exclusive: false", 0, "feature exclusive: False"),
             ("feature_exclusive: maybe", 1, "concurrency/feature_exclusive"),
+            ("max_slots: 3", 0, "max slots: 3"),
+            ("max_slots: 0", 1, "concurrency/max_slots"),
+            ("max_slots: many", 1, "concurrency/max_slots"),
         ):
             with self.subTest(block=block), tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as fh:
                 fh.write(minimal + "\nconcurrency:\n  " + block + "\n")
