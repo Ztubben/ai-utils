@@ -128,6 +128,25 @@ resolve_story_branch() {
   return "$rc"
 }
 
+# NUL-delimited porcelain preserves worktree paths containing whitespace or
+# git's quoting characters. Never take a branch away from another worktree.
+story_branch_worktree() {
+  local branch="$1" field path="" here
+  here="$(pwd -P)"
+  while IFS= read -r -d '' field; do
+    case "$field" in
+      worktree\ *) path="${field#worktree }" ;;
+      "branch refs/heads/$branch")
+        if [[ "$path" != "$here" ]]; then
+          printf '%s\n' "$path"
+          return 0
+        fi
+        ;;
+    esac
+  done < <(git worktree list --porcelain -z)
+  return 1
+}
+
 # Put the checkout on the Story's own branch before anything else touches git
 # (#121). The tick used to sync and merge into whatever HEAD the previous
 # iteration left behind -- another Story's branch, of another Feature -- and a
@@ -1138,6 +1157,18 @@ work_backlog() (
           n=$(( n + 1 ))
           continue
         fi
+        # Before labels, assignment, review or checkout: an operator inspecting
+        # this branch parks it for this Tick only, without spending an Attempt.
+        local branch_resolved=no holding_worktree
+        if resolve_story_branch "$issue"; then
+          branch_resolved=yes
+          if holding_worktree="$(story_branch_worktree "$STORY_BRANCH")"; then
+            log "#$issue branch $STORY_BRANCH is held by worktree $holding_worktree; skipping it for this tick"
+            skipped="$skipped $issue"
+            n=$(( n + 1 ))
+            continue
+          fi
+        fi
         log "$kind #$issue"
         # In Review has resume priority so the negotiation path owns the tick,
         # but it is never more implementation work: wait out the review window
@@ -1218,11 +1249,11 @@ work_backlog() (
           n=$(( n + 1 ))
           continue
         fi
-        # Asked before anything else so every Story consumes the same backlog
-        # reads whether or not its branch resolves.
+        # Every unskipped Story consumes the same freshness backlog reads,
+        # whether or not its branch resolved.
         local fresh
         fresh="$("$RALPH_BIN" --needs-freshness "$issue" 2>/dev/null || true)"
-        if ! resolve_story_branch "$issue"; then
+        if [[ "$branch_resolved" != yes ]]; then
           log "cannot resolve the branch for #$issue; leaving the checkout to the iteration"
         elif ! checkout_story_branch "$STORY_BRANCH" "$STORY_CUT_FROM" "$base_branch"; then
           log "could not check out $STORY_BRANCH for #$issue; ending tick (next tick retries)"
