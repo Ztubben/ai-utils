@@ -1,0 +1,105 @@
+{
+  "description": "The lid-close (#139, ADR-0008): Slot 1 claims the Story and its machine sleeps; the lease expires; Slot 2 takes the Claim over and is working the Story when Slot 1 wakes. Slot 1's next mutation -- parking the Story on a human -- is refused on the Claim it no longer holds, so Slot 2's labels, comments and branch are untouched and Slot 2 carries the Story through to Passing.",
+  "config": {
+    "version": 1,
+    "branching": {
+      "base": "main",
+      "afk_merge": "squash"
+    },
+    "gating": [
+      {
+        "name": "test",
+        "run": "true"
+      }
+    ],
+    "notify": {
+      "github": "maintainer"
+    },
+    "models": {
+      "profiles": [
+        {
+          "key": "impl",
+          "provider": "claude",
+          "model": "claude-scenario"
+        },
+        {
+          "key": "rev",
+          "provider": "codex",
+          "model": "codex-scenario"
+        }
+      ],
+      "defaults": {
+        "implementation": "impl",
+        "review": "rev"
+      }
+    },
+    "review": {
+      "wait_minutes": 0.1,
+      "poll_seconds": 0.05
+    }
+  },
+  "github": {
+    "ci": [
+      {
+        "__typename": "CheckRun",
+        "name": "test",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "Add the greeting",
+        "labels": [
+          "type:afk",
+          "prio:1",
+          "state:ready"
+        ],
+        "body": "## What to build\nA greeting.\n\n## Acceptance Criteria\n- [ ] the greeting exists\n\nParent: None\nDepends on: None\n"
+      }
+    ]
+  },
+  "agents": {
+    "implementation": "cooperative",
+    "review": "cooperative"
+  },
+  "ticks": 5,
+  "expect": {
+    "1": "passing"
+  },
+  "slots": [
+    "1",
+    "2"
+  ],
+  "machines": {
+    "2": "b"
+  },
+  "steps": [
+    {
+      "slot": "1",
+      "action": "tick",
+      "pause": "after-claim",
+      "agents": {
+        "iteration": "needs-human"
+      }
+    },
+    {
+      "slot": "1",
+      "action": "expire"
+    },
+    {
+      "slot": "2",
+      "action": "tick",
+      "pause": "after-claim"
+    },
+    {
+      "slot": "1",
+      "action": "resume"
+    },
+    {
+      "slot": "2",
+      "action": "resume"
+    }
+  ]
+}

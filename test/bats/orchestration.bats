@@ -90,7 +90,33 @@ if [[ "$1" == "mktree" || "$1" == "commit-tree" ]]; then
   echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   exit 0
 fi
+# The Claim this tick holds has to be readable *after* it is taken: every
+# mutation of the unit is fenced on it (#139), so a mock that answered an
+# empty namespace right after accepting the claim push would report the Claim
+# lost and end every tick at its first write. Still no coordination semantics
+# -- real races are test_claim.py's -- only a push this mock remembers.
+CLAIMS="$RALPH_MOCK_COMMON_DIR/mock-claims"
+if [[ "$1" == "push" && "$*" == *refs/ralph/claims/* ]]; then
+  mkdir -p "$CLAIMS"
+  spec="${@: -1}"
+  if [[ "$spec" == :* ]]; then
+    rm -f "$CLAIMS/${spec##*/}"
+  else
+    : > "$CLAIMS/${spec##*/}"
+  fi
+  exit 0
+fi
 if [[ "$1" == "ls-remote" && "${@: -1}" == refs/ralph/claims/* ]]; then
+  n="${@: -1}"; n="${n##*/}"
+  if [[ "$n" != "*" && -e "$CLAIMS/$n" ]]; then
+    printf '%s\trefs/ralph/claims/%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "$n"
+  fi
+  exit 0
+fi
+if [[ "$1" == "show" && "$*" == *aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa* ]]; then
+  # The lease that object id stands for: this Slot's own, unexpired.
+  printf '{"expiry":%s,"holder":"%s:%s"}\n' "$(( $(date +%s) + 600 ))" \
+         "$(hostname)" "${RALPH_SLOT:-1}"
   exit 0
 fi
 if [[ "$1" == "worktree" ]]; then

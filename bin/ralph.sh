@@ -326,6 +326,12 @@ RC_LAUNCH_UNAVAILABLE=13
 # holds what it said the human must do.
 RC_NEEDS_HUMAN=20
 NEEDS_HUMAN=""
+# A fenced `ralph` call refused because this Slot no longer holds the issue's
+# Claim (#139, ADR-0008): another Slot took the lease over and is working it.
+# Reported by every mutating subcommand, and by the agent's own calls, which
+# inherit RALPH_SLOT. Not a failure of the Story: `claim_lost` below ends the
+# unit of work without an Attempt. Keep in step with ralph_claim.EXIT_CLAIM_LOST.
+RC_CLAIM_LOST=21
 run_iteration() {
   local action="$1" issue="$2" out rc
   export RALPH_ITERATION_ACTION="$action" RALPH_ITERATION_ISSUE="$issue"
@@ -400,23 +406,33 @@ story_handoffs() {
 # be recorded, the iteration bound is still there. The breaker is asked every
 # time: a Story blocked here counts toward limits.circuit_breaker, and without
 # asking, the tick went straight on to block the next Story too.
+# A Claim lost here (#139) is the one failure that must not be recorded: the
+# Attempt would be charged to a Story another Slot is working, and the breaker
+# would count a block this Slot has no business declaring. Returns
+# RC_CLAIM_LOST so the caller ends the unit of work instead.
 record_failed_attempt() {
-  local issue="$1" reason="$2"
+  local issue="$1" reason="$2" rc=0
   log "#$issue: $reason; recording a failed Attempt"
   gh issue view "$issue" --json number,title,labels,body,state,comments \
-    | "$RALPH_BIN" --record-attempt - "$reason" "$RALPH_CONFIG" \
-    || log "could not record the Attempt for #$issue; continuing"
+    | "$RALPH_BIN" --record-attempt - "$reason" "$RALPH_CONFIG" || rc=$?
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return 0; fi
+  if (( rc != 0 )); then
+    log "could not record the Attempt for #$issue; continuing"
+  fi
   check_breaker
 }
 
 # Write a Handoff for the current in-progress story and end the tick cleanly.
 # The story is fetched fresh from gh so `ralph --checkpoint` has the full record.
 checkpoint_story() {
-  local issue="$1"
+  local issue="$1" rc=0
   log "session limit reached; checkpointing #$issue via Handoff"
   gh issue view "$issue" \
      --json number,title,labels,body,comments,state \
-   | "$RALPH_BIN" --checkpoint - "Session limit reached; resume next tick." "$RALPH_CONFIG"
+   | "$RALPH_BIN" --checkpoint - "Session limit reached; resume next tick." "$RALPH_CONFIG" \
+   || rc=$?
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return 0; fi
+  return "$rc"
 }
 
 # Park the story on a human (#114): it said it can only go on once a human acts.
@@ -424,10 +440,14 @@ checkpoint_story() {
 # correctly on a human can no longer trip the circuit breaker and halt the loop.
 # Selection skips it from here on; removing needs-human resumes it.
 park_story() {
-  local issue="$1" need="$2"
+  local issue="$1" need="$2" rc=0
   log "#$issue is waiting on a human; parking it on needs-human"
   gh issue view "$issue" --json number,title,labels,body,state \
-    | "$RALPH_BIN" --park-story - "$need" "$RALPH_CONFIG"
+    | "$RALPH_BIN" --park-story - "$need" "$RALPH_CONFIG" || rc=$?
+  # A Claim lost here (#139) is not a parking failure: the new holder decides
+  # what this issue needs now, and the unit of work is simply over.
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return 0; fi
+  return "$rc"
 }
 
 # Count a Handoff that left the Story branch unchanged (#111); at the limit the
@@ -436,9 +456,13 @@ park_story() {
 record_idle_handoff() {
   local issue="$1"
   log "#$issue handed off without changing $STORY_BRANCH; counting an idle Handoff"
+  local rc=0
   gh issue view "$issue" --json number,title,labels,body,state,comments \
-    | "$RALPH_BIN" --record-idle-handoff - "$STORY_BRANCH" "$RALPH_CONFIG" \
-    || log "could not record the idle Handoff for #$issue; continuing"
+    | "$RALPH_BIN" --record-idle-handoff - "$STORY_BRANCH" "$RALPH_CONFIG" || rc=$?
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return 0; fi
+  if (( rc != 0 )); then
+    log "could not record the idle Handoff for #$issue; continuing"
+  fi
 }
 
 # Move a freshly-selected story from state:ready to state:in-progress before its
@@ -449,7 +473,14 @@ record_idle_handoff() {
 # Best-effort: a failure here almost always means the labels were never created,
 # so point at `ralph --init` and continue (the iteration can still do work).
 begin_story() {
-  local issue="$1"
+  local issue="$1" rc=0
+  # Fenced before the label move (#139, F-3 of PR #160 round 1): this is the
+  # tick's own `gh` write, not a subcommand's, so the dispatcher's fence never
+  # sees it -- and it is the *first* write of a `start`, before every fenced
+  # subcommand of the unit. A Slot whose Claim was taken over between
+  # acquiring it and here must leave the new holder's labels alone.
+  "$RALPH_BIN" --fence-claim "$issue" "$RALPH_CONFIG" || rc=$?
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return "$RC_CLAIM_LOST"; fi
   log "moving #$issue to state:in-progress"
   gh issue edit "$issue" \
      --add-label state:in-progress --remove-label state:ready \
@@ -474,10 +505,13 @@ assign_story_models() {
     return 0
   fi
   "$RALPH_BIN" --assign-models "$story_file" "$RALPH_CONFIG" >/dev/null || rc=$?
+  rm -f "$story_file"
+  # Fenced (#139): this is the first write of the unit, so a Claim already
+  # lost here means another Slot owns the Story and nothing else should run.
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return "$RC_CLAIM_LOST"; fi
   if (( rc != 0 )); then
     log "could not record the model assignment for #$issue (exit $rc); continuing"
   fi
-  rm -f "$story_file"
   return 0
 }
 
@@ -528,6 +562,7 @@ checkpoint_review() {
     "Review window closed with the negotiation still open. The Story stays In Review; the next tick resumes it and its pull request first." \
     "$RALPH_CONFIG" --comment-only || rc=$?
   rm -f "$story_file"
+  if (( rc == RC_CLAIM_LOST )); then claim_lost "$issue"; return 0; fi
   if (( rc != 0 )); then
     log "could not write the review Handoff for #$issue (exit $rc); continuing"
   fi
@@ -672,7 +707,7 @@ preflight() {
   # leave the backlog half-edited the way that tick did.
   local sub usage missing=()
   usage="$("$RALPH_BIN" --help 2>&1 || true)"
-  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claimed-issues --feature-claim --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
+  for sub in --dry-run --claim --renew-claim --heartbeat-claim --release-claim --verify-claim --claim-holder --fence-claim --claimed-issues --feature-claim --check-pointer --launch-agent --assign-models --checkpoint --count-handoffs --record-attempt --implementation-green --review-round --await-review --escalate-review --arbitrate-review --complete-story --blocked-stories --check-breaker --park-story --record-idle-handoff --unpark-stories --prune-tooling --fallback-issue; do
     grep -qF -- "$sub" <<<"$usage" || missing+=("$sub")
   done
   if (( ${#missing[@]} )); then
@@ -971,6 +1006,26 @@ claim_story_feature() {
   start_claim_heartbeat "$prd" FEATURE_CLAIM
 }
 
+# This Slot's mutation was refused because it no longer holds the issue's
+# Claim (#139): its lease lapsed and another Slot took the issue over. The
+# unit of work is over, and the right response is to write nothing more --
+# whatever the new holder has done to the labels, the comments and the branch
+# is now the truth, and a second writer is exactly what the Claim prevents.
+# So: no Attempt (this is not the Story failing), nothing toward the circuit
+# breaker, and no release -- the Claim is not ours to delete any more, so only
+# the heartbeat is stopped and the EXIT trap is left with nothing to do. The
+# issue and its current holder are logged, which is the one thing a lost Claim
+# is worth saying out loud.
+claim_lost() {
+  local issue="$1" holder
+  holder="$("$RALPH_BIN" --claim-holder "$issue" 2>/dev/null || true)"
+  log "Claim lost for #$issue (held by ${holder:-another Slot}); ending the unit of work, recording no Attempt"
+  stop_claim_heartbeat
+  CLAIM_ISSUE="" CLAIM_OID="" RALPH_CLAIM_ISSUE=""
+  # Free the Story branch for its new holder; it is working the issue now.
+  git checkout -q --detach || log "could not detach the Slot after #$issue"
+}
+
 # Work eligible stories in sequence, resume-first via the engine. Returns what
 # the tick should exit with; every early end of the tick is a return from here.
 release_story_claim() {
@@ -988,7 +1043,7 @@ release_story_claim() {
   if [[ -n "${CLAIM_ISSUE:-}" ]]; then
     if "$RALPH_BIN" --release-claim "$CLAIM_ISSUE" "$CLAIM_OID"; then
       log "released Claim for #$CLAIM_ISSUE; Slot detached"
-      CLAIM_ISSUE="" CLAIM_OID=""
+      CLAIM_ISSUE="" CLAIM_OID="" RALPH_CLAIM_ISSUE=""
     else
       log "could not release the Claim for #$CLAIM_ISSUE"
       rc=2
@@ -1049,6 +1104,7 @@ work_backlog() (
   # A subshell scopes the EXIT trap to story work: every early return releases
   # its Claim, before the reconciliation passes run in the parent Tick.
   CLAIM_ISSUE="" CLAIM_OID="" CLAIM_HEARTBEAT="" CLAIM_OID_FILE=""
+  RALPH_CLAIM_ISSUE=""
   FEATURE_CLAIM_ISSUE="" FEATURE_CLAIM_OID="" FEATURE_CLAIM_HEARTBEAT="" FEATURE_CLAIM_OID_FILE=""
   trap 'release_story_claim' EXIT
   trap 'exit 143' TERM
@@ -1090,6 +1146,11 @@ work_backlog() (
           continue
         fi
         CLAIM_ISSUE="$issue"
+        # What tells a fence that an *absent* Claim is a lost one rather than
+        # an unclaimed mutation (#139): this Slot took one on this issue, so a
+        # ref that is gone means the Slot that took it over has since released
+        # it. Exported, so the agent's own calls read it too.
+        export RALPH_CLAIM_ISSUE="$issue"
         start_claim_heartbeat "$issue"
         if ! claim_story_feature "$issue"; then
           skipped="$skipped $issue"
@@ -1135,6 +1196,12 @@ work_backlog() (
               n=$(( n + 1 ))
               continue
               ;;
+            "$RC_CLAIM_LOST")
+              # Another Slot holds this Story's Claim and its review with it.
+              claim_lost "$issue"
+              n=$(( n + 1 ))
+              continue
+              ;;
             "$RC_REVIEW_BLOCKED")
               # A model that kept answering with nothing usable spent the
               # Story's Attempts (#95): it is state:blocked, like a deadlock,
@@ -1169,9 +1236,19 @@ work_backlog() (
         # checkpoint/partial pass/completion all see the expected state. `resume`
         # is already active (in-progress or in-review), so it is left alone.
         if [[ "$kind" == "start" ]]; then
-          begin_story "$issue"
+          # Its own refusal, for the same reason the assignment below has one.
+          if ! begin_story "$issue"; then
+            n=$(( n + 1 ))
+            continue
+          fi
         fi
-        assign_story_models "$issue"
+        # The unit's first write, so it is also where a Claim this Slot
+        # already lost shows up first (#139): the Story belongs to another
+        # Slot now, and this one must leave it alone.
+        if ! assign_story_models "$issue"; then
+          n=$(( n + 1 ))
+          continue
+        fi
         # Every unskipped Story consumes the same freshness backlog reads,
         # whether or not its branch resolved.
         local fresh
@@ -1235,10 +1312,19 @@ work_backlog() (
             # A done-signal that cannot be promoted -- no Story branch, nothing
             # committed -- is a failed Attempt (#98). Unrecorded, the Story
             # stayed in progress and was relaunched every tick, forever.
-            complete_story "$issue" \
-              || { promo_failed[$issue]=1
-                   log "promotion of #$issue failed (see above); leaving it in-progress"
-                   record_failed_attempt "$issue" "the iteration signalled done but its work could not be promoted into review"; }
+            # A promotion that was merely *fenced* is not a failed Attempt
+            # (#139): the Story is another Slot's now, and charging it an
+            # Attempt -- or retrying the promotion -- would be this Slot
+            # writing to work it no longer owns.
+            local promo_rc=0
+            complete_story "$issue" || promo_rc=$?
+            if (( promo_rc == RC_CLAIM_LOST )); then
+              claim_lost "$issue"
+            elif (( promo_rc != 0 )); then
+              promo_failed[$issue]=1
+              log "promotion of #$issue failed (see above); leaving it in-progress"
+              record_failed_attempt "$issue" "the iteration signalled done but its work could not be promoted into review"
+            fi
             ;;
           "$RC_NEEDS_HUMAN")
             # Unparked, resume-first would relaunch it at once to hear the

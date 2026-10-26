@@ -538,6 +538,15 @@ ones you approve.
 orchestrator (`bin/ralph.sh`) and the agent stitch them together. Run
 `ralph --help` for the full usage text.
 
+When `RALPH_SLOT` names a Slot — which it does inside a tick, and for the agent
+it launches — every **mutating** subcommand is *fenced on that Slot's Claim*: it
+first confirms, by compare-and-swap renewal, that this Slot still holds the
+issue's Claim, and refuses with exit **21** naming the current holder if the
+lease lapsed and another Slot took the issue over (ADR-0008). The tick reads
+that code as "Claim lost": it ends the unit of work, writes nothing further and
+records no Attempt. Read-only subcommands are never fenced, and a subcommand run
+by hand, without `RALPH_SLOT`, is not fenced at all.
+
 | Command | What it does |
 | --- | --- |
 | `ralph --init [CONFIG]` | Bootstrap the superproject: idempotently create the canonical labels, the base branch if missing (off the default branch), and relative `.claude/skills/<name>` links to the shipped skills (existing names are left alone). Run once per repo before authoring stories, and again after an ai-utils bump. |

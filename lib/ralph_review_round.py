@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_agent  # noqa: E402
+import ralph_claim  # noqa: E402
 import ralph_config  # noqa: E402
 import ralph_ledger  # noqa: E402
 import ralph_review  # noqa: E402
@@ -382,7 +383,18 @@ def run_round(story, pull_request, config, root, comments=None):
     # withdrawal to be inferred from silence.
     prior_findings = ralph_review.previous_findings(comments)
 
+    lost = []
+
     def publish(review, usage_event):
+        # The Review Agent has just run, and an invocation can outlast a lease
+        # (#139, F-2): asked once, before the round, the fence would not see a
+        # takeover that happened while the model was thinking. So it is asked
+        # again here, before anything reaches the pull request.
+        try:
+            ralph_claim.fence_mutation(story.get("number"), root)
+        except ralph_claim.ClaimLost as exc:
+            lost.append(str(exc))
+            return False, ["%s; nothing was published" % exc]
         posted = ralph_review_render.publish(review, pull_request, cwd=root,
                                              story_number=story.get("number"),
                                              prior_findings=prior_findings,
@@ -397,6 +409,12 @@ def run_round(story, pull_request, config, root, comments=None):
     ralph_usage.emit(result.usage_event)
     ralph_ledger.record(story.get("number"), result.usage_event, cwd=root,
                         comments=comments)
+    if lost:
+        # After the ledger row, deliberately: the invocation happened and its
+        # tokens were spent, and telemetry of this Slot's own spend is the one
+        # issue write no Claim covers (docs/scenario-harness.md).
+        sys.stderr.write("REFUSED: review-round (%s)\n" % lost[0])
+        return ralph_claim.EXIT_CLAIM_LOST
     number = pull_request.get("number", "?")
     if result.kind == ALREADY_REVIEWED:
         print("OK: %s is already reviewed on PR #%s; no invocation spent"
