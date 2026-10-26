@@ -46,7 +46,23 @@ if [[ "$1 $2" == "issue list" ]]; then
   f="$RALPH_GH_QUEUE_DIR/$n.json"
   if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
 elif [[ "$1 $2" == "issue view" ]]; then
-  cat "$RALPH_GH_QUEUE_DIR/story.json"
+  if [[ -f "$RALPH_GH_QUEUE_DIR/issue-$3.json" ]]; then
+    cat "$RALPH_GH_QUEUE_DIR/issue-$3.json"
+  elif [[ -f "$RALPH_GH_QUEUE_DIR/story.json" ]]; then
+    cat "$RALPH_GH_QUEUE_DIR/story.json"
+  else
+    # No record pinned: answer the issue as a queued backlog has it.
+    python3 - "$RALPH_GH_QUEUE_DIR" "$3" <<'PY'
+import glob, json, os, sys
+for path in sorted(glob.glob(os.path.join(sys.argv[1], "[0-9]*.json"))):
+    with open(path) as fh:
+        for issue in json.load(fh):
+            if str(issue.get("number")) == sys.argv[2]:
+                print(json.dumps(issue))
+                sys.exit(0)
+sys.exit(1)
+PY
+  fi
 fi
 EOF
   for provider in claude codex; do
@@ -406,6 +422,7 @@ MKEOF
   eligible_prd_backlog > "$SP/ghq/2.json"
   eligible_prd_backlog > "$SP/ghq/3.json"
   story 5 in-progress > "$SP/ghq/story.json"
+  prd 10 > "$SP/ghq/issue-10.json"
   mock_make
   run bash -c "cd '$SP' && RALPH_AGENT_EXIT=91 '$RALPH_SH'"
   [ "$status" -eq 0 ]

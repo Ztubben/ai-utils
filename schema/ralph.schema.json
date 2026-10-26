@@ -68,6 +68,11 @@
           "type": "integer",
           "minimum": 1,
           "default": 600
+        },
+        "feature_exclusive": {
+          "description": "One Slot per Feature: a Feature Story's unit of work also holds its PRD's Claim, so sibling Stories never run in parallel (ADR-0008). false lets them.",
+          "type": "boolean",
+          "default": true
         }
       }
     },

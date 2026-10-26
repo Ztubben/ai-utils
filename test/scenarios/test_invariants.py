@@ -142,6 +142,13 @@ class HandBuiltWorld(unittest.TestCase):
                 "issue", "edit", "1", "--add-label", "state:in-review"]}) + "\n")
         self.assertEqual(self.red(), ["empty-runs-never-count"])
 
+    def test_human_arbitration_reopening_is_not_an_implementation_promotion(self):
+        with open(self.world.log_path, "a") as fh:
+            fh.write(json.dumps({"tool": "gh", "rc": 0, "argv": [
+                "issue", "edit", "1", "--add-label", "state:in-review",
+                "--remove-label", "state:blocked"]}) + "\n")
+        self.assertEqual(self.red(), [])
+
     def test_a_responder_told_the_checkout_is_read_only(self):
         # PR #94: the reviewer's bundle line, reaching the responder.
         prompt = "\n".join(contracts.CONTRACTS["response"]["required"] + [

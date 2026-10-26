@@ -30,6 +30,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   The cooperative #64 replay exposes the existing Feature completion pass
   writing without the PRD's Claim; it is a `known_defect` for #140, which owns
   reconciliation Claims. Remove that declaration when #140 makes it green.
+  The scripted agent works Feature Stories (#141): it passes the PRD to
+  `ralph --branch-name` and, until the Feature branch exists, cuts from the
+  configured base's *fresh* tip -- not the Tick's earlier cut -- because the
+  fake GitHub refuses (as unemulated) merging a head that is behind its base.
 
 - Fencing a takeover in a scenario (#139) needed three harness seams. (1) A **step**
   may carry its own `agents`, merged over the world's for that Tick: an agent reads its
@@ -174,3 +178,9 @@ for the code it touches. Add a new learning here, in the file that owns it.
   sentence is fine when it scopes itself to the submodule mount or names the target repository
   (ADR-0001 amendment), and a doc may spell HITL only in a forbidding context (`never HITL`,
   `_Avoid_: HITL`). New Feature vocabulary goes in CONTEXT.md **and** in this guard's term list.
+
+- Reconciliation scenarios can pause at `issue-view` with an `issue` number.
+  The fake pauses before acquiring its state lock so the other Slot remains
+  free to use GitHub. The empty-run invariant excludes the blocked-to-review
+  label change: Human Arbitration reopens existing work without claiming a
+  new Implementation Agent invocation.

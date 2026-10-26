@@ -44,6 +44,10 @@ class ValidConfigTests(unittest.TestCase):
         shipped["concurrency"]["claim_ttl"] = 1
         self.assertEqual(ralph_config.defaults()["concurrency"]["claim_ttl"], 600)
 
+    def test_feature_exclusive_is_defaulted_on(self):
+        result = ralph_config.load_and_validate(valid("minimal.yml"))
+        self.assertIs(result.config["concurrency"]["feature_exclusive"], True)
+
     def test_cli_validates_claim_ttl_and_names_unknown_concurrency_fields(self):
         import tempfile
         with open(valid("minimal.yml")) as fh:
@@ -53,6 +57,8 @@ class ValidConfigTests(unittest.TestCase):
             ("claim_ttl: 0", 1, "concurrency/claim_ttl"),
             ("claim_ttl: tomorrow", 1, "concurrency/claim_ttl"),
             ("typo: 10", 1, "concurrency/typo"),
+            ("feature_exclusive: false", 0, "feature exclusive: False"),
+            ("feature_exclusive: maybe", 1, "concurrency/feature_exclusive"),
         ):
             with self.subTest(block=block), tempfile.NamedTemporaryFile(mode="w", suffix=".yml") as fh:
                 fh.write(minimal + "\nconcurrency:\n  " + block + "\n")

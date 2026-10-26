@@ -73,6 +73,7 @@ usage: ralph --init [CONFIG]
        ralph --claim-holder ISSUE
        ralph --fence-claim ISSUE [CONFIG]
        ralph --claimed-issues
+       ralph --feature-claim ISSUE_JSON [CONFIG]
        ralph --tooling-commit [CONFIG]
        ralph --tooling-copy COMMIT REPO
        ralph --prune-tooling COPIES KEEP...
@@ -172,6 +173,11 @@ usage: ralph --init [CONFIG]
                           writes it makes with `gh` directly, which no
                           dispatcher fence can see (ADR-0008).
   --claimed-issues        Print issues held by other machines or Slots.
+  --feature-claim ISSUE_JSON [CONFIG]
+                          Print the PRD whose Claim a unit of work on the issue
+                          also holds (one Slot per Feature, unless
+                          concurrency.feature_exclusive is false); nothing for
+                          an Orphan Story or a PRD.
 
   --dry-run [PATH]        Scan the backlog and print the next action
                           (--claimed-issues NUMBERS supplies issues to skip).
@@ -666,7 +672,7 @@ dispatch() {
       shift
       exec python3 "$RALPH_HOME/lib/ralph_select.py" "$@"
       ;;
-    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claim-holder|--fence-claim|--claimed-issues)
+    --claim|--renew-claim|--heartbeat-claim|--release-claim|--verify-claim|--claim-holder|--fence-claim|--claimed-issues|--feature-claim)
       local command="$1"
       shift
       case "$command" in
@@ -678,6 +684,7 @@ dispatch() {
         --claim-holder) command=holder ;;
         --fence-claim) command=fence ;;
         --claimed-issues) command=list ;;
+        --feature-claim) command=feature ;;
       esac
       exec python3 "$RALPH_HOME/lib/ralph_claim.py" "$command" "$@"
       ;;

@@ -168,6 +168,48 @@ class ClaimPlans(unittest.TestCase):
         self.assertFalse(ralph_claim.renew_plan(136, "", A).ok)
 
 
+def feature_story(number, parent):
+    story = ready_story(number)
+    story["body"] = story["body"].replace("Parent: None", "Parent: #%d" % parent)
+    return story
+
+
+def prd(number):
+    return {"number": number, "title": "P%d" % number, "state": "OPEN",
+            "labels": [{"name": "prd"}], "body": "A Feature.\n"}
+
+
+class FeatureClaims(unittest.TestCase):
+    """One Slot per Feature (#141): which PRD a unit of work also claims."""
+
+    def test_a_feature_story_also_claims_its_prd_by_default(self):
+        self.assertEqual(ralph_claim.feature_claim(feature_story(11, 10), True), 10)
+
+    def test_an_orphan_story_holds_only_its_own_claim(self):
+        self.assertIsNone(ralph_claim.feature_claim(ready_story(7), True))
+
+    def test_a_prd_claims_nothing_more(self):
+        self.assertIsNone(ralph_claim.feature_claim(prd(10), True))
+
+    def test_lifting_exclusivity_takes_only_the_storys_own_claim(self):
+        self.assertIsNone(ralph_claim.feature_claim(feature_story(11, 10), False))
+
+    def test_the_cli_reads_the_story_and_the_configs_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            story = os.path.join(tmp, "story.json")
+            with open(story, "w") as fh:
+                json.dump(feature_story(11, 10), fh)
+            lifted = os.path.join(tmp, "lifted.yml")
+            with open(FULL_CONFIG) as src, open(lifted, "w") as fh:
+                fh.write(src.read() + "concurrency:\n  feature_exclusive: false\n")
+            for config, expected in ((FULL_CONFIG, "10"), (lifted, "")):
+                with self.subTest(config=config):
+                    proc = subprocess.run([RALPH, "--feature-claim", story, config],
+                                          text=True, capture_output=True)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual(proc.stdout.strip(), expected)
+
+
 class ClaimsOnGit(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -250,6 +292,80 @@ echo "worked=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
         refs = self.world.git("ls-remote", "origin", "refs/ralph/claims/*")
         self.assertIn("refs/ralph/claims/7", refs)
         self.assertNotIn("refs/ralph/claims/8", refs)
+
+    def verifying_agents(self):
+        """Agents that log which Claims their Slot holds while they work."""
+        for provider in ("claude", "codex"):
+            _write_exec(os.path.join(self.world.mockbin, provider), """#!/usr/bin/env bash
+cat >/dev/null
+for issue in "$RALPH_ITERATION_ISSUE" 10; do
+  if ralph --verify-claim "$issue" >/dev/null 2>&1; then
+    echo "holds=$issue" >> "$RALPH_LOG"
+  fi
+done
+echo "worked=$RALPH_ITERATION_ISSUE" >> "$RALPH_LOG"
+""")
+
+    def test_a_feature_storys_unit_holds_its_prds_claim_and_releases_both(self):
+        self.world.set_backlog([prd(10), feature_story(11, 10)])
+        self.verifying_agents()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        lines = self.world.log_lines()
+        self.assertIn("holds=11", lines, proc.stdout)
+        self.assertIn("holds=10", lines, proc.stdout)
+        self.assertEqual(self.world.git("ls-remote", "origin", "refs/ralph/claims/*"), "")
+
+    def test_an_orphan_storys_unit_holds_only_its_own_claim(self):
+        self.world.set_backlog([prd(10), ready_story(7)])
+        self.verifying_agents()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("holds=7", self.world.log_lines(), proc.stdout)
+        self.assertNotIn("holds=10", self.world.log_lines())
+
+    def test_lifted_exclusivity_takes_only_the_storys_own_claim(self):
+        self.world.merge_to_main(".ralph.yml", "concurrency:\n  feature_exclusive: false\n")
+        self.world.set_backlog([prd(10), feature_story(11, 10)])
+        self.verifying_agents()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("holds=11", self.world.log_lines(), proc.stdout)
+        self.assertNotIn("holds=10", self.world.log_lines())
+
+    def test_a_tick_skips_a_feature_whose_prd_another_holder_claims(self):
+        self.assertEqual(self.cli("--claim", "10", slot="2").returncode, 0)
+        self.world.set_backlog([prd(10), feature_story(11, 10), ready_story(12)])
+        self.verifying_agents()
+        proc = self.world.tick()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("worked=12", self.world.log_lines(), proc.stdout)
+        self.assertNotIn("worked=11", self.world.log_lines())
+        refs = self.world.git("ls-remote", "origin", "refs/ralph/claims/*")
+        self.assertEqual(refs.split()[1:], ["refs/ralph/claims/10"])
+
+    def test_losing_the_prd_race_releases_the_storys_claim_and_moves_on(self):
+        # Selection saw #10 free, but another Slot claims it while this Tick
+        # reads #11 -- after selection, before its own PRD Claim.
+        self.world.set_backlog([prd(10), feature_story(11, 10), ready_story(12)])
+        self.verifying_agents()
+        gh = os.path.join(self.world.mockbin, "gh")
+        os.rename(gh, gh + ".real")
+        _write_exec(gh, """#!/usr/bin/env bash
+if [[ "$1 $2 $3" == "issue view 11" && ! -e "$RALPH_GH_DIR/raced" ]]; then
+  touch "$RALPH_GH_DIR/raced"
+  RALPH_SLOT=2 %s --claim 10 >/dev/null
+fi
+exec "%s.real" "$@"
+""" % (RALPH, gh))
+        # The lost race spends one pass of the Tick; the next works #12.
+        proc = self.world.tick(RALPH_MAX_ITERATIONS="2")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("could not claim Feature #10", proc.stdout)
+        self.assertIn("worked=12", self.world.log_lines(), proc.stdout)
+        self.assertNotIn("worked=11", self.world.log_lines())
+        refs = self.world.git("ls-remote", "origin", "refs/ralph/claims/*")
+        self.assertEqual(refs.split()[1:], ["refs/ralph/claims/10"])
 
     def config(self, ttl):
         """A config whose lease is short enough for a test to outlive it."""

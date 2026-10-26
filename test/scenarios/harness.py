@@ -459,13 +459,15 @@ class World:
             if slot in self.active:
                 raise ScenarioFailure('Slot %s already has an active Tick' % slot)
             pause = step.get('pause')
-            if pause not in (None, 'after-claim'):
+            if pause not in (None, 'after-claim', 'issue-view'):
                 raise ScenarioFailure('unknown pause point: %s' % pause)
             if pause:
                 for suffix in ('.paused', '.resume'):
                     if os.path.exists(gate + suffix):
                         os.unlink(gate + suffix)
                 env['SCENARIO_PAUSE'] = gate
+                if pause == 'issue-view':
+                    env['SCENARIO_PAUSE_ISSUE'] = str(step['issue'])
             # One Tick's own profiles, over the world's. A Slot that resumes
             # into a Claim another Slot took over has to behave differently
             # from the Slot that took it (#139), and the agent reads its
@@ -489,7 +491,7 @@ class World:
                         raise ScenarioFailure('Slot %s never reached after-claim' % slot)
                     time.sleep(0.01)
                 # Stop the whole unit, including its heartbeat. The scripted
-                # agent is at a barrier before any work, already holding a Claim.
+                # agent or issue read is at a barrier before any work.
                 os.killpg(proc.pid, signal.SIGSTOP)
                 os.waitpid(proc.pid, os.WUNTRACED)
                 return subprocess.CompletedProcess(proc.args, 0, '')

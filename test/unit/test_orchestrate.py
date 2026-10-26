@@ -225,7 +225,21 @@ class TickHarness:
             elif [[ "$1 $2" == "issue view" ]]; then
               f="$RALPH_GH_QUEUE_DIR/story-$3.json"
               [[ -f "$f" ]] || f="$RALPH_GH_QUEUE_DIR/story.json"
-              cat "$f"
+              if [[ -f "$f" ]]; then
+                cat "$f"
+              else
+                # No record pinned: answer the issue as a queued backlog has it.
+                python3 - "$RALPH_GH_QUEUE_DIR" "$3" <<'PY'
+            import glob, json, os, sys
+            for path in sorted(glob.glob(os.path.join(sys.argv[1], "[0-9]*.json"))):
+                with open(path) as fh:
+                    for issue in json.load(fh):
+                        if str(issue.get("number")) == sys.argv[2]:
+                            print(json.dumps(issue))
+                            sys.exit(0)
+            sys.exit(1)
+            PY
+              fi
             elif [[ "$1 $2" == "pr list" ]]; then
               f="$RALPH_GH_QUEUE_DIR/prs.json"
               if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi

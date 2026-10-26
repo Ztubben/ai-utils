@@ -23,6 +23,8 @@ for the code it touches. Add a new learning here, in the file that owns it.
   changing dependency satisfaction or the circuit breaker's global halt. The
   CLI accepts `--claimed-issues NUMBERS` (comma or whitespace separated); the
   Tick reads the Claim refs and supplies the set, keeping selection pure.
+  A claimed PRD in the set also excludes every Story whose `Parent:` it is
+  (one Slot per Feature, #141; see `docs/agents/tick.md`).
 - `lib/ralph_iterate.py` holds the deterministic seams of one iteration: `branch_name`/
   `slugify` (pure — story branch from `branch_pattern`, `{issue}`/`{slug}` substituted),
   `resolve_topology` (#70, PRD #69 — the two names one Story has: the working branch it

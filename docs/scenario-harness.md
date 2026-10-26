@@ -118,6 +118,7 @@ Use `steps` for deterministic interleaving, within the `ticks` budget:
 |---|---|
 | `tick` | Run the named Slot's real Tick to its end. |
 | `tick`, `pause: after-claim` | Wait until the scripted Implementation Agent starts with its Story's Claim, then suspend the entire Tick process group before the agent does work. The heartbeat pauses too. |
+| `tick`, `pause: issue-view`, `issue: N` | Suspend at the fresh issue read for reconciliation, before the fake takes its state lock. |
 | `resume` | Release that agent's barrier and continue the paused Tick to its end. |
 | `expire` | Replace the paused Slot's Story lease on the real remote with an expired lease of the same holder, by compare-and-swap. No wall-clock lease wait is needed. |
 
@@ -135,6 +136,9 @@ Cleanup kills any still-paused process group before deleting the world.
 
 `two_slots_different_stories.json` pauses Slot 1 on an in-progress Story while
 Slot 2 skips that Claim and completes a Ready Story. Slot 1 then resumes.
+`two_slots_one_feature.json` (#141) pauses Slot 1 on a Feature Story, holding
+its PRD's Claim too; Slot 2 skips the sibling and completes the Orphan Story,
+and Slot 1 then works both siblings in turn.
 `lid_close_fences_the_resumed_slot.json` is the takeover: Slot 1 claims and its
 machine sleeps, the lease expires, Slot 2 (on machine `b`) takes the Claim over
 and is working the Story when Slot 1 wakes, and Slot 1's next mutation is

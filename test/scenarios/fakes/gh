@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import support
@@ -524,6 +525,15 @@ COMMANDS = {"issue": cmd_issue, "pr": cmd_pr, "label": cmd_label,
 
 
 def main(argv):
+    # Pause before taking the state lock: another Slot must still read/write.
+    gate = os.environ.get('SCENARIO_PAUSE')
+    issue = os.environ.get('SCENARIO_PAUSE_ISSUE')
+    if gate and issue and argv[:3] == ['issue', 'view', issue] and not os.path.exists(gate + '.paused'):
+        with open(gate + '.tmp', 'w') as fh:
+            json.dump({'story': int(issue)}, fh)
+        os.replace(gate + '.tmp', gate + '.paused')
+        while not os.path.exists(gate + '.resume'):
+            time.sleep(0.01)
     state_path = os.environ["SCENARIO_STATE"]
     entry = {"tool": "gh", "argv": argv, "cwd": os.getcwd()}
     rc = 0
