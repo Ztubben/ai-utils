@@ -24,6 +24,12 @@ import ralph_review  # noqa: E402
 import ralph_review_wait  # noqa: E402
 
 HEAD = "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d"
+# The fakes forge a takeover with `git commit-tree`, which needs an identity. A
+# CI runner has none, so the harness brings its own and ignores the developer's
+# global config -- otherwise the takeover silently never happens there (#170).
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 
 
 def pull_request(head=HEAD, reviews=None, state="OPEN"):
@@ -516,7 +522,7 @@ class CliAwaitReview(unittest.TestCase):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         got = subprocess.run([os.path.join(REPO_ROOT, "bin", "ralph"), "--claim",
                               "54", ".ralph.yml"], cwd=self.root, text=True,
-                             env=dict(os.environ, RALPH_SLOT=slot),
+                             env=dict(os.environ, RALPH_SLOT=slot, **GIT_ENV),
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertEqual(got.returncode, 0, got.stderr)
         if takeover_on:
@@ -595,7 +601,8 @@ class CliAwaitReview(unittest.TestCase):
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
 
     def run_await(self, slot=None):
-        env = dict(os.environ, PATH=self.root + os.pathsep + os.environ["PATH"],
+        env = dict(os.environ, **GIT_ENV,
+                   PATH=self.root + os.pathsep + os.environ["PATH"],
                    RALPH_LOG=self.log)
         env.pop("RALPH_SLOT", None)
         if slot:
