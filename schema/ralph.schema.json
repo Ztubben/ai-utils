@@ -73,6 +73,12 @@
           "description": "One Slot per Feature: a Feature Story's unit of work also holds its PRD's Claim, so sibling Stories never run in parallel (ADR-0008). false lets them.",
           "type": "boolean",
           "default": true
+        },
+        "max_slots": {
+          "description": "The committed ceiling on Slots per machine (ADR-0008): a Tick whose Slot number exceeds it refuses before labelling anything. Slot 1 always runs.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
         }
       }
     },

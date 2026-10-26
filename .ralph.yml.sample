@@ -30,9 +30,13 @@ branching:
 # over by another Slot once it has expired. By default a Feature Story's unit of
 # work also holds its PRD's Claim, so one Slot at a time works a Feature;
 # `feature_exclusive: false` lets sibling Stories run in parallel.
+# `max_slots` is the ceiling this repository commits on Slots per machine: an
+# operator bursts by enabling another `ralph@N.timer`, and a Tick whose Slot
+# number N exceeds the ceiling refuses before labelling anything.
 concurrency:
   claim_ttl: 600       # default: ten minutes, renewed every two
   feature_exclusive: true  # default: one Slot per Feature
+  max_slots: 1         # default: 1 (Slot 1 always runs)
 
 # Failure-handling limits.
 limits:

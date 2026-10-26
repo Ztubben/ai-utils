@@ -24,11 +24,17 @@ main worktree so that it answers the same from the operator's checkout and from
 any Slot (`main_worktree` is read by `ralph_tooling` and `ralph_pointer` for
 exactly that).
 
-`slot_number`, `slot_dir`, `lock_file` and `action` are pure; `resolve` and
-`ensure` do the git work:
+An operator bursts by enabling one more template instance (`ralph@N.timer`),
+under a ceiling the target repository commits (`concurrency.max_slots`, #143):
+a Tick whose Slot is over it refuses before it labels anything. Slot 1 is
+always within it, so the single-instance units and the cron line keep working.
+
+`slot_number`, `slot_dir`, `lock_file`, `action` and `ceiling_refusal` are
+pure; `resolve` and `ensure` do the git work:
 
   ralph_slot.py resolve                 print "NUMBER LOCK_FILE SLOT_PATH"
   ralph_slot.py ensure PATH [COMMITISH] provision/repair; print created|repaired|reused
+  ralph_slot.py ceiling [CONFIG]        refuse (exit 2) a Slot over concurrency.max_slots
 """
 import os
 import re
@@ -73,6 +79,21 @@ def action(exists, is_slot):
     if not exists:
         return CREATED
     return REUSED if is_slot else REPAIRED
+
+
+def ceiling_refusal(number, max_slots):
+    """Why Slot *number* may not run under a ceiling of *max_slots*, or None.
+
+    Only a numbered Slot can be counted against the ceiling: a Slot named
+    anything else would let a misnamed instance burst past it, so it is over
+    every ceiling -- except Slot 1, which always runs."""
+    if number == DEFAULT_SLOT:
+        return None
+    if number.isdigit() and not number.startswith("0") and int(number) <= max_slots:
+        return None
+    return ("slot %s is over the committed ceiling concurrency.max_slots = %d; "
+            "raise it in .ralph.yml on the base branch to burst further"
+            % (number, max_slots))
 
 
 class Resolution:
@@ -219,8 +240,27 @@ def cmd_ensure(argv):
     return 0
 
 
+def cmd_ceiling(argv):
+    import ralph_config
+    config = ralph_config.load_and_validate(argv[0] if argv else ".ralph.yml")
+    if not config.ok:
+        sys.stderr.write("REFUSED: cannot read the slot ceiling: %s\n"
+                         % "; ".join(config.errors))
+        return 2
+    number = slot_number(os.environ)
+    if number is None:
+        sys.stderr.write("REFUSED: %s: %r is not a usable slot number\n"
+                         % (SLOT_ENV, os.environ.get(SLOT_ENV)))
+        return 2
+    why = ceiling_refusal(number, config.config["concurrency"]["max_slots"])
+    if why:
+        sys.stderr.write("REFUSED: %s\n" % why)
+        return 2
+    return 0
+
+
 def main(argv):
-    commands = {"resolve": cmd_resolve, "ensure": cmd_ensure}
+    commands = {"resolve": cmd_resolve, "ensure": cmd_ensure, "ceiling": cmd_ceiling}
     if not argv or argv[0] not in commands:
         sys.stderr.write("usage: ralph_slot.py {%s} ...\n" % ",".join(sorted(commands)))
         return 2

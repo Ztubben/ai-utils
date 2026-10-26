@@ -1,0 +1,20 @@
+# Sample systemd template timer: fire Slot %i's Ralph Loop tick every 5 hours.
+#
+# Pairs with ralph@.service; see it for install steps. `ralph@N.timer` starts
+# `ralph@N.service`, the tick in Slot N. Each Slot's tick is flock-guarded, so a
+# fire that lands while that Slot's previous tick still runs simply no-ops.
+
+[Unit]
+Description=Run the Ralph Loop tick in Slot %i every 5 hours
+
+[Timer]
+# Every 5 hours, on the hour (00:00, 05:00, 10:00, 15:00, 20:00).
+OnCalendar=*-*-* 00/5:00:00
+# If the machine was asleep/off at a fire time, run once on the next boot.
+Persistent=true
+# Jitter, which also keeps the Slots of one machine from all claiming at once.
+RandomizedDelaySec=120
+Unit=ralph@%i.service
+
+[Install]
+WantedBy=timers.target
