@@ -13,6 +13,7 @@ class ReconciliationClaims(unittest.TestCase):
         spec = harness.load('afk_happy_path')
         spec.pop('matrix', None)
         spec['slots'] = ['1', '2']
+        spec['config'].setdefault('concurrency', {})['max_slots'] = 2
         if feature:
             spec['github']['issues'][0].update(state='CLOSED', body='Parent: #10\n')
             spec['github']['issues'].append(dict(number=10, title='Greeting feature',

@@ -49,6 +49,7 @@ class ValidationResult:
         lines.append("claim ttl: %s" % c.get("concurrency", {}).get("claim_ttl"))
         lines.append("feature exclusive: %s"
                      % c.get("concurrency", {}).get("feature_exclusive"))
+        lines.append("max slots: %s" % c.get("concurrency", {}).get("max_slots"))
         protected = (c.get("control_plane") or {}).get("protected") or []
         lines.append("protected control plane: %s"
                      % (", ".join(protected) if protected else "(none)"))

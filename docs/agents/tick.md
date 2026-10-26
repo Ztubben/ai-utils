@@ -357,7 +357,11 @@ for the code it touches. Add a new learning here, in the file that owns it.
 - `scheduler/` ships the sample schedulers (US-012, ADR-0001): systemd `ralph.service`
   (`Type=oneshot`, `ExecStart=.../bin/ralph.sh`) + `ralph.timer` (`OnCalendar=*-*-* 00/5:00:00`,
   i.e. every 5h) and a `ralph.cron` one-liner (`0 */5 * * *`). Both just fire the flock-guarded
-  tick. Green gate is a DRIFT-GUARD (`test/unit/test_scheduler.py`), same idea as the prompt
+  tick. The template pair `ralph@.service` (`Environment=RALPH_SLOT=%i`) +
+  `ralph@.timer` (`Unit=ralph@%i.service`, same cadence) makes the instance the Slot (#143):
+  a burst is `systemctl --user enable --now ralph@N.timer`. The single-instance units and the
+  cron line name no Slot and run as Slot 1 (`test_scheduler.py` guards that none of them sets
+  `RALPH_SLOT`). Green gate is a DRIFT-GUARD (`test/unit/test_scheduler.py`), same idea as the prompt
   tests: assert the files exist and still carry the 5-hour cadence + `ralph.sh` ExecStart, and
   that the README's install section covers submodule/config/schedule/`gh auth login`+`claude`
   auth. GOTCHA: do NOT `assertNotIn("HITL", README)` — the README intentionally says "never
@@ -399,6 +403,24 @@ for the code it touches. Add a new learning here, in the file that owns it.
   the fake GitHub's issue read before taking its state lock, so another Slot can
   reconcile while the first is suspended; they cover integration, the blocker
   path, one human approval, stale eligibility and replaced leases.
+
+- **The committed Slot ceiling** (#143, ADR-0008). `concurrency.max_slots` (default 1)
+  caps the Slots a machine runs. The pure decision is `ralph_slot.ceiling_refusal(number,
+  max_slots)`: Slot 1 always runs; any other Slot must be a plain positive integer no
+  greater than the ceiling, so a non-numeric instance (`intruder`, `01`) is over every
+  ceiling rather than uncountable. `ralph --slot-ceiling [CONFIG]` reads `RALPH_SLOT` and
+  the config and exits 2 naming the ceiling. The Tick calls it right **after** `preflight`
+  and before pruning or any selection, so nothing is labelled. GOTCHAS: (1) it is not *in*
+  `preflight`: `preflight_copy` treats a preflight failure as the candidate tooling's
+  fault and would fall back to Last-Known-Good over a ceiling refusal. (2) It reads the
+  config the Slot was reset to (origin/<base>), so raising the ceiling in the operator's
+  checkout lifts nothing until merged. (3) A refused Slot has still been provisioned and
+  locked -- the directory exists; that is harmless and is reused once the ceiling allows
+  it. (4) Every scenario world or harness that ticks a second Slot has to commit
+  `concurrency.max_slots` to match (`two_slots_*`, `lid_close_*`, and
+  `test_reconciliation_claims.py`), and so does `test_slot.py`'s second-Slot test.
+  Covered by `TheSlotCeiling` / `TheTickHonoursTheSlotCeiling` (`test_slot.py`, real git)
+  and `test_validate_config.py`.
 
 - **One Slot per Feature** (#141, ADR-0008). A Feature Story's unit of work --
   an Iteration, a review wait, an arbitration -- also holds its PRD's Claim

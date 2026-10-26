@@ -9,6 +9,7 @@
 #   ralph --run                   Run one unattended tick (bin/ralph.sh): select, work, promote.
 #   ralph --slot                  Print "NUMBER LOCK SLOT_PATH" for the Slot this Tick runs in (ADR-0008).
 #   ralph --slot-ensure PATH [COMMITISH]  Provision or repair the Slot worktree at PATH.
+#   ralph --slot-ceiling [CONFIG] Refuse a Slot over concurrency.max_slots (#143).
 #   ralph --tooling-commit [CONFIG]  Print the Tooling Commit this checkout's Tick runs (ADR-0009).
 #   ralph --tooling-copy COMMIT REPO  Make sure COMMIT's frozen tooling copy exists; print its path.
 #   ralph --prune-tooling COPIES KEEP...  Remove the frozen tooling copies nothing needs any more.
@@ -65,6 +66,7 @@ usage: ralph --init [CONFIG]
        ralph --run
        ralph --slot
        ralph --slot-ensure PATH [COMMITISH]
+       ralph --slot-ceiling [CONFIG]
        ralph --claim ISSUE [CONFIG]
        ralph --renew-claim ISSUE OID [CONFIG]
        ralph --heartbeat-claim ISSUE OID [CONFIG]
@@ -202,6 +204,9 @@ usage: ralph --init [CONFIG]
                           COMMITISH when given) or repairing it when it was
                           deleted or is something else, and print what it did
                           (created|repaired|reused). Exits 2 when it cannot.
+  --slot-ceiling [CONFIG] Exit 0 when this Tick's Slot (RALPH_SLOT, default 1)
+                          is within the committed concurrency.max_slots, else
+                          exit 2 naming the ceiling. Slot 1 always runs.
   --tooling-commit        Print the Tooling Commit the Tick runs (ADR-0009) as
        [CONFIG]           "KIND COMMIT REPO MOUNT COPIES": origin/<base> after a fetch
                           when ai-utils is the checkout root (self-hosted), the
@@ -703,6 +708,10 @@ dispatch() {
     --slot-ensure)
       shift
       exec python3 "$RALPH_HOME/lib/ralph_slot.py" ensure "$@"
+      ;;
+    --slot-ceiling)
+      shift
+      exec python3 "$RALPH_HOME/lib/ralph_slot.py" ceiling "$@"
       ;;
     --tooling-commit)
       shift

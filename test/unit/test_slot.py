@@ -253,6 +253,7 @@ class TheTickProvisionsItsSlot(SlotTest):
     def test_a_second_slot_gets_its_own_worktree_and_lock(self):
         w = self.world()
         self.addCleanup(lambda: shutil.rmtree(w.slot("2"), ignore_errors=True))
+        w.merge_to_main(".ralph.yml", "concurrency:\n  max_slots: 2\n", "a burst ceiling")
         self.ticked(w)
         proc = self.ticked(w, RALPH_SLOT="2")
         self.assertIn("slot 2: created %s" % w.slot("2"), proc.stdout)
@@ -414,6 +415,75 @@ class AlternationIsSharedByTheSlotsOfOneClone(unittest.TestCase):
         self.assertTrue(ralph_alternation.write_phase(from_slot, 3))
         self.assertEqual(ralph_alternation.read_phase(from_main), 3)
         self.assertEqual(os.path.realpath(from_main), os.path.realpath(from_slot))
+
+
+class TheSlotCeiling(unittest.TestCase):
+    """#143: a burst stays under the ceiling the target repository commits."""
+
+    def test_slot_one_is_always_within_the_ceiling(self):
+        self.assertIsNone(ralph_slot.ceiling_refusal("1", 1))
+        self.assertIsNone(ralph_slot.ceiling_refusal("1", 4))
+
+    def test_a_slot_up_to_the_ceiling_runs(self):
+        self.assertIsNone(ralph_slot.ceiling_refusal("2", 2))
+        self.assertIsNone(ralph_slot.ceiling_refusal("3", 4))
+
+    def test_a_slot_over_the_ceiling_is_refused_naming_it(self):
+        why = ralph_slot.ceiling_refusal("3", 2)
+        self.assertIn("slot 3", why)
+        self.assertIn("concurrency.max_slots", why)
+        self.assertIn("2", why)
+
+    def test_a_slot_that_is_no_number_is_over_any_ceiling(self):
+        # Only a numbered Slot can be counted against the ceiling; anything
+        # else would let a misnamed instance burst past it.
+        for number in ("intruder", "01x", "0"):
+            with self.subTest(number=number):
+                self.assertIn("concurrency.max_slots",
+                              ralph_slot.ceiling_refusal(number, 8))
+
+
+class TheTickHonoursTheSlotCeiling(SlotTest):
+    def edits(self, w):
+        return [ln for ln in w.log_lines() if ln.startswith("gh issue edit")]
+
+    def test_a_slot_over_the_default_ceiling_refuses_before_any_label(self):
+        w = self.world()
+        self.addCleanup(lambda: shutil.rmtree(w.slot("2"), ignore_errors=True))
+        w.set_backlog([ready_story()])
+        proc = w.tick(RALPH_SLOT="2")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("concurrency.max_slots", proc.stdout)
+        self.assertIn("slot 2", proc.stdout)
+        self.assertFalse(self.edits(w), w.log_lines())
+        self.assertFalse([ln for ln in w.log_lines() if " ralph=" in ln])
+
+    def test_a_slot_under_the_committed_ceiling_works_the_backlog(self):
+        w = self.world()
+        self.addCleanup(lambda: shutil.rmtree(w.slot("2"), ignore_errors=True))
+        w.merge_to_main(".ralph.yml", "concurrency:\n  max_slots: 2\n", "a burst ceiling")
+        w.set_backlog([ready_story()])
+        proc = self.ticked(w, RALPH_SLOT="2")
+        self.assertTrue(self.edits(w), proc.stdout)
+
+    def test_the_ceiling_is_the_committed_one_not_the_checkouts(self):
+        # The operator raising the ceiling in their own checkout lifts nothing:
+        # the Tick reads the config its Slot was reset to, the base's.
+        w = self.world()
+        self.addCleanup(lambda: shutil.rmtree(w.slot("2"), ignore_errors=True))
+        with open(os.path.join(w.checkout, ".ralph.yml"), "a") as fh:
+            fh.write("concurrency:\n  max_slots: 2\n")
+        w.set_backlog([ready_story()])
+        proc = w.tick(RALPH_SLOT="2")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("concurrency.max_slots", proc.stdout)
+        self.assertFalse(self.edits(w), w.log_lines())
+
+    def test_slot_one_runs_under_the_default_ceiling(self):
+        w = self.world()
+        w.set_backlog([ready_story()])
+        proc = self.ticked(w)
+        self.assertTrue(self.edits(w), proc.stdout)
 
 
 if __name__ == "__main__":

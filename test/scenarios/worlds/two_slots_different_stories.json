@@ -36,6 +36,9 @@
     "review": {
       "wait_minutes": 0.1,
       "poll_seconds": 0.05
+    },
+    "concurrency": {
+      "max_slots": 2
     }
   },
   "github": {
