@@ -267,7 +267,16 @@ class ClaudeAdapter(AgentAdapter):
             argv = [self.binary(), "--print", "--safe-mode",
                     "--permission-mode", "plan", "--no-session-persistence"]
         else:
-            argv = [self.binary(), "--dangerously-skip-permissions", "--print"]
+            argv = [self.binary(), "--dangerously-skip-permissions", "--print",
+                    # The operator's user settings, plugins, hooks and MCP
+                    # servers would load into an unattended run and be re-read
+                    # on every turn (~23k of a 51k-token prompt, measured on
+                    # story #6), outside any tier Ralph reviews. Only the
+                    # repository's own configuration is loaded; `--settings`
+                    # below still applies. (Review gets this from --safe-mode.)
+                    "--setting-sources", "project,local",
+                    "--mcp-config", json.dumps({"mcpServers": {}}),
+                    "--strict-mcp-config"]
             if self.handoff_tokens:
                 # The only way a `--print` run learns how full its context is:
                 # a hook that reads the transcript after each tool call and

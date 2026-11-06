@@ -11,6 +11,7 @@ These tests drive the seam directly (with the process launch injected) and the
 exit-code contract `bin/ralph.sh` reads. The tick end-to-end against fake
 provider binaries on PATH lives in test_orchestrate.py, next to the harness.
 """
+import json
 import os
 import re
 import sys
@@ -317,6 +318,19 @@ class NoAgentKeepsMemoryOutsideRalphsTwoTiers(unittest.TestCase):
         env = self.env_for("claude", "implementation",
                            CLAUDE_CODE_DISABLE_AUTO_MEMORY="0")
         self.assertEqual(env.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY"), "1")
+
+    def test_the_claude_implementation_run_loads_no_operator_configuration(self):
+        # The operator's user settings, plugins, hooks and MCP servers are
+        # re-read on every turn of an unattended run (~23k tokens on a
+        # 51k-token prompt, measured on story #6) and are no tier Ralph
+        # reviews. Only the repository's own configuration is loaded.
+        argv = ralph_agent.ClaudeAdapter("claude-opus-5").argv()
+        self.assertEqual(argv[argv.index("--setting-sources") + 1],
+                         "project,local")
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertEqual(
+            json.loads(argv[argv.index("--mcp-config") + 1]),
+            {"mcpServers": {}})
 
     def test_every_adapter_declares_what_it_closes(self):
         # Codex declares an empty mapping today; the point is that adding a

@@ -143,6 +143,13 @@ for the code it touches. Add a new learning here, in the file that owns it.
   the tick's checkout assumption broken by a file no review ever saw. Forcing (not
   defaulting) the variable is the point: an operator setting is exactly where such a feature
   is turned on. Adding a provider adapter is therefore a decision about its memory.
+  The same holds for the operator's **configuration**: the Claude implementation launch
+  passes `--setting-sources project,local --mcp-config '{"mcpServers":{}}'
+  --strict-mcp-config` (review already gets this from `--safe-mode`), so user settings,
+  plugins, hooks and MCP servers never load into an unattended run. Besides being an
+  unreviewed tier, they are re-read every turn: on story #6 of the SolidCraft bench they
+  were ~23k of a 51k-token prompt. Ralph's own hooks travel in `--settings`, which still
+  applies.
 - `lib/ralph_session.py` owns the one question the tick must never get wrong (#65): did the
   launched agent hit its **session limit**, or not? Reached from bash via
   `ralph --classify-session RC` (agent output on stdin, verdict as the exit code —
