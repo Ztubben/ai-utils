@@ -40,10 +40,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_select  # noqa: E402
+import ralph_review  # noqa: E402
 import ralph_review_complete  # noqa: E402
+import ralph_review_human  # noqa: E402
+import ralph_review_round  # noqa: E402
 
 DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 READY_FOR_HUMAN_LABEL = "ready-for-human"
+MODEL_REVIEW = ralph_review_complete.CHECK_CONTEXT
 
 
 class Plan:
@@ -77,6 +81,173 @@ def unverified_hil_stories(prd, raw_backlog):
         if not story.get("is_prd") and not story.get("closed")
         and story.get("parent") == prd.get("number")
         and story.get("type") == "hil" and story["number"] is not None)
+
+
+def feature_stories(prd, raw_backlog):
+    """Every Story of this Feature, open or closed, ascending.
+
+    These are the Stories whose reviews the Feature pull request inherits
+    (#172); None when the backlog was not read, which the inheritance check
+    refuses rather than reading as "a Feature of no Stories".
+    """
+    if raw_backlog is None:
+        return None
+    return sorted(
+        story["number"] for story in ralph_select.normalize(raw_backlog)
+        if not story.get("is_prd") and story.get("parent") == prd.get("number")
+        and story["number"] is not None)
+
+
+class Inheritance:
+    def __init__(self, ok, errors, sources):
+        self.ok = ok
+        self.errors = errors
+        # The Story pull requests whose reviews the Feature head inherits.
+        self.sources = sources
+
+
+def _review_of(pull_request, comments):
+    """What reviewed this merged Story pull request's head, if anything."""
+    for entry in pull_request.get("statusCheckRollup") or []:
+        if (ralph_review_complete._name(entry) == MODEL_REVIEW
+                and ralph_review_complete._verdict(entry) == "passing"):
+            return "model review"
+    if ralph_review_human.approval_for(comments, pull_request.get("headRefOid")):
+        return "human approval"
+    return None
+
+
+def inheritance_verdict(stories, pulls, comments, commits):
+    """May the Feature head inherit its Stories' model reviews? (#172)
+
+    Pure. *stories* are the Feature's Story numbers; *pulls* its merged,
+    Ralph-managed Story pull requests (each carrying the ``patch_id`` of its
+    diff); *comments* each Story's comments, where a human approval is
+    recorded; *commits* the rebased Feature branch's commits (``sha``,
+    ``subject``, ``patch_id``), oldest first.
+
+    Inheritance holds only when integration changed nothing: every Story
+    merged through a pull request whose merged head was reviewed, and every
+    Feature commit carries exactly the patch of one such reviewed change. A
+    commit no Story pull request carried and a Story change the rebase onto
+    the base altered look the same from here -- a patch nobody reviewed -- and
+    both are named.
+    """
+    if stories is None:
+        return Inheritance(False, [
+            "backlog: the Feature's Stories were not read, so no review can "
+            "be inherited"], [])
+    errors = []
+    reviewed = {}  # patch-id -> Story pull request number
+    for number in stories:
+        own = [pr for pr in pulls
+               if ralph_review_round.references_story(pr, number)]
+        if not own:
+            errors.append("story/#%d: merged through no Ralph-managed pull "
+                          "request" % number)
+            continue
+        passed = [pr for pr in own
+                  if _review_of(pr, comments.get(number) or [])]
+        if not passed:
+            errors.append(
+                "story/#%d: merged through %s, whose merged head carries "
+                "neither a passing %s nor a recorded human approval"
+                % (number, ", ".join("#%s at %s" % (
+                    pr["number"], (pr.get("headRefOid") or "?")[:7])
+                    for pr in own), MODEL_REVIEW))
+            continue
+        for pr in passed:
+            if pr.get("patch_id"):
+                reviewed.setdefault(pr["patch_id"], pr["number"])
+    sources = []
+    for commit in commits:
+        source = reviewed.get(commit.get("patch_id"))
+        if source is None:
+            errors.append(
+                "commit/%s \"%s\": its patch is no reviewed Story pull "
+                "request's merged change (no Story pull request carried it, "
+                "or the rebase onto the base altered it)"
+                % (commit["sha"][:7], commit.get("subject", "")))
+        elif source not in sources:
+            sources.append(source)
+    if errors:
+        return Inheritance(False, errors, [])
+    return Inheritance(True, [], sorted(sources))
+
+
+def inherited_description(sources):
+    """The status description naming the Story pull requests inherited from."""
+    return ("Inherited from Story PRs %s"
+            % ", ".join("#%s" % n for n in sources))[:140]
+
+
+def _patch_id(diff, cwd):
+    proc = subprocess.run(["git", "patch-id", "--stable"], input=diff, cwd=cwd,
+                          capture_output=True, text=True, check=True)
+    return (proc.stdout.split() or [None])[0]
+
+
+def gather_inheritance(plan, stories, cwd):
+    """Read what `inheritance_verdict` judges: merged Story pull requests into
+    the Feature branch, their diffs' patch-ids, and the rebased Feature's
+    commits. Raises CalledProcessError/ValueError when GitHub or git cannot
+    answer -- an unread fact is never an inherited review. A Story's
+    approvals that cannot be read refuse as a named error instead, so the
+    Feature takes the blocker path rather than crashing the pass (F-1)."""
+    def run(args):
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                              check=True).stdout
+
+    pulls = []
+    if stories:
+        listed = json.loads(run(
+            ["gh", "pr", "list", "--state", "merged", "--base", plan.branch,
+             "--limit", "100", "--json",
+             "number,body,headRefOid,statusCheckRollup"]) or "[]")
+        for pr in ralph_review.review_candidates(listed):
+            if not any(ralph_review_round.references_story(pr, n)
+                       for n in stories):
+                continue
+            pr["patch_id"] = _patch_id(
+                run(["gh", "pr", "diff", str(pr["number"]), "--color", "never"]),
+                cwd)
+            pulls.append(pr)
+    comments = {}
+    for number in stories or []:
+        own = [pr for pr in pulls if ralph_review_round.references_story(pr, number)]
+        if own and not any(_review_of(pr, []) for pr in own):
+            try:
+                comments[number] = ralph_review_round.story_comments(number, cwd)
+            except (RuntimeError, ValueError) as error:
+                # An unread approval is never an inherited review (F-1): refuse
+                # through the blocker path, naming the Story and the failure.
+                return Inheritance(False, [
+                    "story/#%d: its recorded human approvals could not be read "
+                    "(%s)" % (number, str(error).strip()[:200])], [])
+    return inheritance_verdict(stories, pulls, comments,
+                               feature_commits(plan.base, plan.branch, cwd))
+
+
+def feature_commits(base, branch, cwd):
+    """The rebased Feature branch's own commits, oldest first, with patch-ids.
+
+    Read from the local Feature ref against the base as origin has it -- the
+    head the pass gated and pushed, never the checkout's HEAD.
+    """
+    def run(args):
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                              check=True).stdout
+
+    commits = []
+    log = run(["git", "log", "--reverse", "--no-merges", "--format=%H%x09%s",
+               "origin/%s..refs/heads/%s" % (base, branch)])
+    for line in log.splitlines():
+        if not line.strip():
+            continue
+        sha, _, subject = line.partition("\t")
+        commits.append(dict(sha=sha, subject=subject, patch_id=_patch_id(
+            run(["git", "show", "--no-color", "--format=", sha]), cwd)))
+    return commits
 
 
 def feature_complete_plan(prd, base=DEFAULT_BASE,
@@ -191,8 +362,9 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
         # gh deletes the local branch too, which fails after the merge.
         {
             "name": "pr-create",
-            "required_checks": [g["name"] for g in gating or []] + ["ralph/model-review"],
+            "required_checks": [g["name"] for g in gating or []] + [MODEL_REVIEW],
             "prd_number": prd_number,
+            "stories": feature_stories(prd, backlog),
             "commands": [
                 ["gh", "pr", "create", "--base", base, "--head", branch,
                  "--title", prd.get("title", "Feature #%d" % prd_number),
@@ -241,10 +413,31 @@ def required_check_verdict(pull_request, required):
     return failing, pending
 
 
+def inheritance_status(head, sources):
+    """Write the inherited model review on exactly the Feature head (#172)."""
+    return ["gh", "api", "--method", "POST",
+            "repos/{owner}/{repo}/statuses/%s" % head,
+            "-f", "state=success",
+            "-f", "context=" + MODEL_REVIEW,
+            "-f", "description=" + inherited_description(sources)]
+
+
 def _checked_feature_pr(plan, step, cwd):
-    """Find/create the PR, then merge only the exact published, checked head."""
+    """Find/create the PR, then merge only the exact published, checked head.
+
+    The Feature pull request is never re-reviewed (#172): its
+    `ralph/model-review` is inherited from its Story pull requests, which this
+    pass confirms against the rebased Feature branch before writing the context
+    itself -- on this head and no other.
+    """
     def run(args):
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout
+
+    def block(body):
+        run(["gh", "issue", "comment", str(step["prd_number"]), "--body", body])
+        run(["gh", "issue", "edit", str(step["prd_number"]),
+             "--add-label", READY_FOR_HUMAN_LABEL])
+        return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
 
     try:
         head = run(["git", "rev-parse", "--verify", "refs/heads/" + plan.branch]).strip()
@@ -260,26 +453,23 @@ def _checked_feature_pr(plan, step, cwd):
             return PlanResult(True, pending=True)
         failing, pending = required_check_verdict(pr, step["required_checks"])
         if failing:
-            run(["gh", "issue", "comment", str(step["prd_number"]), "--body",
-                 "Feature completion blocked: failing checks %s on %s (head %s)."
-                 % (", ".join(failing), pr["url"], head)])
-            run(["gh", "issue", "edit", str(step["prd_number"]),
-                 "--add-label", READY_FOR_HUMAN_LABEL])
-            return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
-        # Feature PRs have no automatic model-review producer. Give a new PR
-        # one Tick to receive statuses, then make an absent review visible.
-        # A present but pending context still waits normally.
-        if prs and not any((e.get("context") or e.get("name")) == "ralph/model-review"
-                           for e in pr.get("statusCheckRollup") or []):
-            run(["gh", "issue", "comment", str(step["prd_number"]), "--body",
-                 "Feature completion blocked: missing ralph/model-review on %s (head %s) "
-                 "when revisiting the open Feature PR. HIL triage required: configure "
-                 "a trusted producer for this context on the Feature head, then remove "
-                 "ready-for-human from this PRD to retry. Feature PRs have no automatic "
-                 "Review Agent or model-review waiver." % (pr["url"], head)])
-            run(["gh", "issue", "edit", str(step["prd_number"]),
-                 "--add-label", READY_FOR_HUMAN_LABEL])
-            return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
+            return block("Feature completion blocked: failing checks %s on %s (head %s)."
+                         % (", ".join(failing), pr["url"], head))
+        inherited = gather_inheritance(plan, step.get("stories"), cwd)
+        if not inherited.ok:
+            return block(
+                "Feature completion blocked: %s on %s (head %s) cannot inherit "
+                "its Story pull requests' model reviews. The Feature pull "
+                "request is never re-reviewed, so every commit on it must be "
+                "the unchanged counterpart of a reviewed Story's merged "
+                "change:\n\n%s\n\nHIL triage required: take the named work "
+                "through a reviewed Story pull request (or review this head "
+                "yourself), then remove ready-for-human from this PRD to retry."
+                % (MODEL_REVIEW, pr["url"], head,
+                   "\n".join("- " + error for error in inherited.errors)))
+        if MODEL_REVIEW in pending:
+            run(inheritance_status(head, inherited.sources))
+            pending.remove(MODEL_REVIEW)
         if pending:
             return PlanResult(True, pending=True)
         run([head if arg == "{head}" else arg for arg in step["commands"][1]])

@@ -63,6 +63,9 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "[0-9]*.json"))):
 sys.exit(1)
 PY
   fi
+elif [[ "$1 $2" == "pr list" && " $* " == *" --state merged "* ]]; then
+  # A Feature's merged Story pull requests, whose reviews it inherits (#172).
+  cat "$RALPH_GH_QUEUE_DIR/merged-prs.json" 2>/dev/null || echo '[]'
 elif [[ "$1 $2" == "pr list" ]]; then
   echo '[]'
 elif [[ "$1 $2" == "pr view" ]]; then
@@ -369,6 +372,11 @@ mock_feature_checks() {
   echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$SP/ghq/feature-head"
   cat > "$SP/ghq/feature-pr.json" <<'EOF'
 {"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[{"context":"build","state":"SUCCESS"},{"context":"test","state":"SUCCESS"},{"context":"ralph/model-review","state":"SUCCESS"}]}
+EOF
+  # Story #11 merged into the Feature through a reviewed pull request, so the
+  # Feature pull request inherits its model review (#172).
+  cat > "$SP/ghq/merged-prs.json" <<'EOF'
+[{"number":111,"body":"<!-- ralph-managed-pr:v1 -->\n\nRefs #11\n","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","statusCheckRollup":[{"context":"ralph/model-review","state":"SUCCESS"}]}]
 EOF
 }
 

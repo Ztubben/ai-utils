@@ -8,6 +8,48 @@ import invariants
 import ralph_review
 
 
+def seed_reviewed_story(world, story=1, feature='feature/10-greeting-feature'):
+    """Story #1 already merged into its Feature through a reviewed pull request.
+
+    The Feature pull request inherits that review (#172), so a Feature world
+    needs the Story pull request it inherits from: its head reviewed, and the
+    Feature branch carrying exactly its change.
+    """
+    def git(*args):
+        return subprocess.run(['git'] + list(args), cwd=world.checkout, env=world.env,
+                              capture_output=True, check=True, text=True).stdout.strip()
+    base = git('rev-parse', 'HEAD')
+    branch = 'ralph/%d-add-the-greeting' % story
+    git('checkout', '-q', '-b', branch)
+    with open('%s/greeting.txt' % world.checkout, 'w') as fh:
+        fh.write('hello\n')
+    git('add', 'greeting.txt')
+    git('commit', '-q', '-m', 'feat: greeting')
+    head = git('rev-parse', 'HEAD')
+    with open(world.state_path) as fh:
+        state = json.load(fh)
+    number = state['next_number']
+    # Squash-merged, as `afk_merge: squash` does: the Feature carries the
+    # Story's change in a commit of its own, never the reviewed commit itself.
+    squash = git('commit-tree', head + '^{tree}', '-p', base,
+                 '-m', 'Add the greeting (#%d)' % number)
+    git('push', '-q', 'origin', 'HEAD:refs/heads/' + branch,
+        '%s:refs/heads/%s' % (squash, feature))
+    git('checkout', '-q', '-')
+    state['next_number'] += 1
+    state['pulls'][str(number)] = dict(
+        number=number, title='Add the greeting', state='MERGED',
+        body='%s\n\nRefs #%d' % (ralph_review.MANAGED_PR_MARKER, story),
+        headRefName=branch, baseRefName=feature, mergedHeadOid=head,
+        mergedBaseOid=base, mergeCommit=squash, mergedAt='2026-01-01T00:00:00Z',
+        url='https://github.com/acme/target/pull/%d' % number,
+        comments=[], reviews=[], reviewComments=[])
+    state['statuses'][head] = [dict(state='success', context='ralph/model-review',
+                                    description='approve', at='2026-01-01T00:00:00Z')]
+    with open(world.state_path, 'w') as fh:
+        json.dump(state, fh)
+
+
 class ReconciliationClaims(unittest.TestCase):
     def world(self, feature=False, blocker=False):
         spec = harness.load('afk_happy_path')
@@ -26,10 +68,7 @@ class ReconciliationClaims(unittest.TestCase):
         world = harness.World(spec)
         self.addCleanup(world.cleanup)
         if feature:
-            for args in (['commit', '--allow-empty', '-m', 'feat: greeting'],
-                         ['push', 'origin', 'HEAD:refs/heads/feature/10-greeting-feature']):
-                subprocess.run(['git'] + args, cwd=world.checkout, env=world.env,
-                               capture_output=True, check=True)
+            seed_reviewed_story(world)
         else:
             proc = world.tick()
             self.assertEqual(proc.returncode, 0, proc.stdout)
@@ -85,7 +124,8 @@ class ReconciliationClaims(unittest.TestCase):
             json.dump(state, fh)
         proc = world.step(dict(slot='1', action='resume'))
         self.assertEqual(proc.returncode, 0, proc.stdout)
-        self.assertEqual(world.state()['pulls'], {})
+        self.assertEqual([p for p in world.state()['pulls'].values()
+                          if p['headRefName'].startswith('feature/')], [])
         self.assertEqual(invariants.Watch(world).check(), [])
 
     def test_feature_is_integrated_once(self):

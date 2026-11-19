@@ -178,6 +178,18 @@ class TickHarness:
         with open(os.path.join(self.queue, "pr-view.json"), "w") as fh:
             json.dump(view if view is not None else (listing or [{}])[0], fh)
 
+    def set_merged_story_pull_requests(self, *stories):
+        """Answer `gh pr list --state merged`: one reviewed, Ralph-managed
+        pull request per Story, merged into the Feature branch (#172)."""
+        with open(os.path.join(self.queue, "prs-merged.json"), "w") as fh:
+            json.dump([
+                {"number": 100 + n,
+                 "body": "<!-- ralph-managed-pr:v1 -->\n\nRefs #%d\n" % n,
+                 "headRefOid": "%040d" % n,
+                 "statusCheckRollup": [{"context": "ralph/model-review",
+                                        "state": "SUCCESS"}]}
+                for n in stories], fh)
+
     def mock_make(self):
         """full.yml's gating steps shell `make`; the completion pass runs them."""
         _write_exec(os.path.join(self.tmp, "mockbin", "make"), textwrap.dedent("""\
@@ -240,6 +252,11 @@ class TickHarness:
             sys.exit(1)
             PY
               fi
+            elif [[ "$1 $2" == "pr list" && " $* " == *" --state merged "* ]]; then
+              # The Feature's merged Story pull requests, whose reviews its
+              # own pull request inherits (#172).
+              f="$RALPH_GH_QUEUE_DIR/prs-merged.json"
+              if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
             elif [[ "$1 $2" == "pr list" ]]; then
               f="$RALPH_GH_QUEUE_DIR/prs.json"
               if [[ -f "$f" ]]; then cat "$f"; else echo "[]"; fi
@@ -1246,6 +1263,7 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         h.set_backlogs([], backlog, backlog, [])
         h.set_view_stories(prd_issue())
         h.mock_make()
+        h.set_merged_story_pull_requests(20, 21)
         h.set_pull_requests([], dict(headRefOid="a" * 40, statusCheckRollup=[
             dict(context=name, state="SUCCESS") for name in
             ("build", "test", "ralph/model-review")]))

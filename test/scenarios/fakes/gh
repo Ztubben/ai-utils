@@ -350,6 +350,16 @@ def cmd_pr(state, args):
         pr = get_pr(state, ref)
         comment = add_comment(state, pr, "pull", pr["number"], opts["--body"])
         return print(comment["url"])
+    if sub == "diff":
+        (ref,), opts = parse(rest, ("--color",))
+        pr = get_pr(state, ref)
+        head = head_oid(pr)
+        base = pr.get("mergedBaseOid") or _ref_oid(pr["baseRefName"])
+        # GitHub's pull request diff: the head against its merge base.
+        rc, out = _git_remote("diff", "--no-color", "%s...%s" % (base, head))
+        if rc != 0:
+            raise Refused("could not find pull request diff")
+        return print(out)
     if sub == "merge":
         (ref,), opts = parse(rest, ("--match-head-commit",), bools=("--squash", "--merge", "--rebase",
                                               "--delete-branch"))

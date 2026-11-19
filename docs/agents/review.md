@@ -283,6 +283,15 @@ for the code it touches. Add a new learning here, in the file that owns it.
   when the Story has a `Parent:`, so no caller has to know to do it first. (6) This is
   the review-gated successor to `--complete-afk`/`--complete-hil`, which remain as the
   pre-review paths; do not add review logic to those.
+- **Inherited review on the Feature pull request** (#172, ADR-0010, `lib/ralph_feature.py`).
+  `ralph/model-review` on a Feature head is never produced by a Review Agent or a waiver.
+  The completion pass writes it, on that exact head only, once `inheritance_verdict`
+  holds: every Story merged through a managed PR whose merged head passed review (the
+  context, or a `ralph_review_human.approval_for` that head), and every rebased Feature
+  commit's `patch-id --stable` equals a reviewed Story PR's diff. The description names the
+  source Story PRs. GOTCHA: the waiver still skips `feature/*`. Do not widen it, because
+  inheritance is the only legitimate producer for a Feature head. Details are in
+  `completion.md`.
 - The **protected control plane** (#60, PRD #42) is config plus one extra condition on
   the completion gate, not a module of its own. `control_plane.protected` is a list of
   repository-relative path patterns in the schema; `ralph_config._control_plane_errors`
