@@ -107,9 +107,18 @@ for the code it touches. Add a new learning here, in the file that owns it.
   name the contexts and PR URL on the PRD and add only `ready-for-human`. No
   Feature-level Review Agent or synthetic approval is launched by this pass.
 
-- Feature PRs have no automatic model-review producer (#171, F-1). A newly
-  created PR gets one Tick of grace; when revisiting an existing PR, an absent
-  `ralph/model-review` context comments the PR URL, head and HIL triage action
-  on the PRD and adds `ready-for-human`. The Tick skips that PRD thereafter,
-  avoiding duplicate notices. A present pending context still waits. Never seed
-  an approval in production to conceal the missing producer.
+- Feature PRs **inherit** their Stories' model reviews (#172, ADR-0010; this replaces
+  #171's F-1 "missing review" triage). After the failing-check verdict and before
+  the merge, `_checked_feature_pr` calls `gather_inheritance` (merged, Ralph-managed
+  Story PRs via `gh pr list --state merged --base <feature>`, each one's
+  `gh pr diff` patch-id, and `feature_commits` = `origin/<base>..refs/heads/<feature>`
+  patch-ids), then the pure `inheritance_verdict`. If it holds and `ralph/model-review` is
+  still pending or absent, the pass writes the context itself (`inheritance_status`)
+  on exactly the gated head, naming the source Story PRs. If it fails, the PRD gets a
+  comment listing `story/#N` and `commit/<sha7> "subject"` and is labelled
+  `ready-for-human` (no breaker). GOTCHAS: (1) the plan step's `stories` comes from
+  `feature_stories(prd, backlog)`, and `None` (unread backlog) refuses. (2) A Story PR
+  is matched as **one** patch (its whole diff), so a rebase-merged multi-commit Story
+  fails closed. (3) Tick harnesses that drive a Feature to merge must answer
+  `gh pr list --state merged` with a reviewed managed PR per Story
+  (`TickHarness.set_merged_story_pull_requests`, the scenario `seed_reviewed_story`).
