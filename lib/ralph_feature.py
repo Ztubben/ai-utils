@@ -266,6 +266,20 @@ def _checked_feature_pr(plan, step, cwd):
             run(["gh", "issue", "edit", str(step["prd_number"]),
                  "--add-label", READY_FOR_HUMAN_LABEL])
             return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
+        # Feature PRs have no automatic model-review producer. Give a new PR
+        # one Tick to receive statuses, then make an absent review visible.
+        # A present but pending context still waits normally.
+        if prs and not any((e.get("context") or e.get("name")) == "ralph/model-review"
+                           for e in pr.get("statusCheckRollup") or []):
+            run(["gh", "issue", "comment", str(step["prd_number"]), "--body",
+                 "Feature completion blocked: missing ralph/model-review on %s (head %s) "
+                 "when revisiting the open Feature PR. HIL triage required: configure "
+                 "a trusted producer for this context on the Feature head, then remove "
+                 "ready-for-human from this PRD to retry. Feature PRs have no automatic "
+                 "Review Agent or model-review waiver." % (pr["url"], head)])
+            run(["gh", "issue", "edit", str(step["prd_number"]),
+                 "--add-label", READY_FOR_HUMAN_LABEL])
+            return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
         if pending:
             return PlanResult(True, pending=True)
         run([head if arg == "{head}" else arg for arg in step["commands"][1]])

@@ -106,3 +106,10 @@ for the code it touches. Add a new learning here, in the file that owns it.
   result before PRD close or cleanup; a later Tick reuses the PR. Failing checks
   name the contexts and PR URL on the PRD and add only `ready-for-human`. No
   Feature-level Review Agent or synthetic approval is launched by this pass.
+
+- Feature PRs have no automatic model-review producer (#171, F-1). A newly
+  created PR gets one Tick of grace; when revisiting an existing PR, an absent
+  `ralph/model-review` context comments the PR URL, head and HIL triage action
+  on the PRD and adds `ready-for-human`. The Tick skips that PRD thereafter,
+  avoiding duplicate notices. A present pending context still waits. Never seed
+  an approval in production to conceal the missing producer.
