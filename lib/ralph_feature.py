@@ -191,7 +191,9 @@ def gather_inheritance(plan, stories, cwd):
     """Read what `inheritance_verdict` judges: merged Story pull requests into
     the Feature branch, their diffs' patch-ids, and the rebased Feature's
     commits. Raises CalledProcessError/ValueError when GitHub or git cannot
-    answer -- an unread fact is never an inherited review."""
+    answer -- an unread fact is never an inherited review. A Story's
+    approvals that cannot be read refuse as a named error instead, so the
+    Feature takes the blocker path rather than crashing the pass (F-1)."""
     def run(args):
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                               check=True).stdout
@@ -214,7 +216,14 @@ def gather_inheritance(plan, stories, cwd):
     for number in stories or []:
         own = [pr for pr in pulls if ralph_review_round.references_story(pr, number)]
         if own and not any(_review_of(pr, []) for pr in own):
-            comments[number] = ralph_review_round.story_comments(number, cwd)
+            try:
+                comments[number] = ralph_review_round.story_comments(number, cwd)
+            except (RuntimeError, ValueError) as error:
+                # An unread approval is never an inherited review (F-1): refuse
+                # through the blocker path, naming the Story and the failure.
+                return Inheritance(False, [
+                    "story/#%d: its recorded human approvals could not be read "
+                    "(%s)" % (number, str(error).strip()[:200])], [])
     return inheritance_verdict(stories, pulls, comments,
                                feature_commits(plan.base, plan.branch, cwd))
 

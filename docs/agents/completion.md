@@ -121,4 +121,6 @@ for the code it touches. Add a new learning here, in the file that owns it.
   is matched as **one** patch (its whole diff), so a rebase-merged multi-commit Story
   fails closed. (3) Tick harnesses that drive a Feature to merge must answer
   `gh pr list --state merged` with a reviewed managed PR per Story
-  (`TickHarness.set_merged_story_pull_requests`, the scenario `seed_reviewed_story`).
+  (`TickHarness.set_merged_story_pull_requests`, the scenario `seed_reviewed_story`). (4) Story comments are read through `ralph_review_round.story_comments`, which
+  raises `RuntimeError` (not `CalledProcessError`) on a `gh` failure; `gather_inheritance`
+  turns that into a named `story/#N` refusal so the Feature takes the blocker path (F-1).

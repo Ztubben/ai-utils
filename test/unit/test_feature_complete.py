@@ -563,6 +563,49 @@ class RequiredFeatureChecks(unittest.TestCase):
                 self.assertEqual(merges[0][-2:], ['--match-head-commit', 'a' * 40])
                 self.assertNotIn('--admin', merges[0])
 
+    def test_unread_approval_evidence_takes_the_blocker_path(self):
+        """#172 F-1: a gh failure reading a Story's comments refuses, never crashes."""
+        from unittest.mock import patch
+        story = child(20, state="CLOSED")
+        plan = ralph_feature.feature_complete_plan(prd_issue(), gating=[dict(name='test', run='true')],
+                                                   backlog=[prd_issue(), story])
+        step = next(s for s in plan.steps if s['name'] == 'pr-create')
+        calls = []
+
+        def run(args, **kwargs):
+            calls.append(args)
+            output = ''
+            if args[:2] == ['git', 'rev-parse']:
+                output = 'a' * 40
+            elif args[1:3] == ['pr', 'list'] and '--state' in args and 'merged' in args:
+                # Story #20 merged through a managed PR with no passing review,
+                # so its human-approval evidence must be read.
+                output = json.dumps([dict(number=30, body="<!-- ralph-managed-pr:v1 -->\n\nRefs #20",
+                                          headRefOid='h' * 40, statusCheckRollup=[])])
+            elif args[1:3] == ['pr', 'list']:
+                output = '[{"number": 99}]'
+            elif args[1:3] == ['pr', 'view']:
+                output = json.dumps(dict(headRefOid='a' * 40, url='https://x/pull/99',
+                    statusCheckRollup=[dict(context='test', state='SUCCESS')]))
+            elif args[1:3] == ['pr', 'diff']:
+                output = 'diff --git a/f b/f\n'
+            elif args[1:3] == ['issue', 'view']:
+                return subprocess.CompletedProcess(args, 1, stdout='temporary API error')
+            elif args[:2] == ['git', 'patch-id']:
+                output = 'p1 ' + '0' * 40
+            return subprocess.CompletedProcess(args, 0, stdout=output)
+        with patch.object(ralph_feature.subprocess, 'run', side_effect=run):
+            result = ralph_feature._checked_feature_pr(plan, step, '/tmp')
+        self.assertFalse(result.ok)
+        self.assertEqual(result.failed_step, 'github-checks')
+        comments = [a for a in calls if a[1:3] == ['issue', 'comment']]
+        self.assertEqual(len(comments), 1)
+        self.assertIn('story/#20', comments[0][-1])
+        self.assertIn('temporary API error', comments[0][-1])
+        self.assertIn(['gh', 'issue', 'edit', '18', '--add-label', 'ready-for-human'],
+                      [a for a in calls if a[1:3] == ['issue', 'edit']])
+        self.assertEqual([a for a in calls if a[1:2] == ['api'] or a[1:3] == ['pr', 'merge']], [])
+
 
 # ---------------------------------------------------------------------------
 # #172: the Feature pull request inherits its Story pull requests' reviews
