@@ -184,3 +184,12 @@ for the code it touches. Add a new learning here, in the file that owns it.
   free to use GitHub. The empty-run invariant excludes the blocked-to-review
   label change: Human Arbitration reopens existing work without claiming a
   new Implementation Agent invocation.
+
+- When running the whole gate from inside an Iteration (#171), remove the
+  enclosing `RALPH_SLOT` and `RALPH_CLAIM_ISSUE` from the test process environment
+  (`env -u RALPH_SLOT -u RALPH_CLAIM_ISSUE bin/ralph --run-gating`). Several CLI
+  harnesses inherit the environment: otherwise their isolated repositories and
+  logging mocks are asked to verify synthetic issues' Claims under the enclosing
+  Iteration's Slot, producing
+  unrelated exit-21 failures and unexpected `git ls-remote` calls. Claim and
+  Tick tests set their own Slot/Claim environment; do not disable their fences.

@@ -450,7 +450,11 @@ class CliCompleteFeature(unittest.TestCase):
             with open(path, "w") as fh:
                 fh.write('#!/usr/bin/env bash\n'
                          'echo "%s $*" >> "$RALPH_LOG"\n'
-                         'exit %d\n' % (name, code))
+                         '''if [[ "%s" == git && "$1" == rev-parse ]]; then echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi
+if [[ "%s" == gh && "$1 $2" == "pr list" ]]; then echo '[]'; fi
+if [[ "%s" == gh && "$1 $2" == "pr view" ]]; then echo '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[{"context":"build","state":"SUCCESS"},{"context":"test","state":"SUCCESS"},{"context":"ralph/model-review","state":"SUCCESS"}]}'; fi
+exit %d
+''' % (name, name, name, name, code))
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP)
         return log
 
@@ -507,6 +511,56 @@ class CliCompleteFeature(unittest.TestCase):
             proc = self._run(prd_issue(), config, tmp, log)
             self.assertNotIn("refusing", proc.stderr)
             self.assertTrue(os.path.exists(log))  # the plan ran
+
+
+class RequiredFeatureChecks(unittest.TestCase):
+    def test_required_contexts_must_explicitly_succeed(self):
+        required = ['test', 'ralph/model-review']
+        for bad in ['FAILURE', 'ERROR', 'PENDING', 'EXPECTED', 'SKIPPED', 'NEUTRAL']:
+            with self.subTest(bad=bad):
+                pr = dict(statusCheckRollup=[dict(context='test', state=bad),
+                    dict(context='ralph/model-review', state='SUCCESS')])
+                failing, pending = ralph_feature.required_check_verdict(pr, required)
+                self.assertTrue(failing or pending)
+        self.assertEqual(ralph_feature.required_check_verdict({}, required), ([], required))
+
+    def test_check_runs_statuses_and_multiple_gating_steps(self):
+        pr = dict(statusCheckRollup=[dict(name='build', status='COMPLETED', conclusion='SUCCESS'),
+            dict(context='test', state='SUCCESS'), dict(context='ralph/model-review', state='SUCCESS')])
+        self.assertEqual(ralph_feature.required_check_verdict(pr,
+                         ['build', 'test', 'ralph/model-review']), ([], []))
+
+    def test_head_change_does_not_merge_and_merge_race_is_pinned(self):
+        from unittest.mock import patch
+        plan = ralph_feature.feature_complete_plan(prd_issue(), gating=[dict(name='test', run='true')])
+        step = next(s for s in plan.steps if s['name'] == 'pr-create')
+        for changed in (False, True):
+            calls = []
+            def run(args, **kwargs):
+                calls.append(args)
+                output = ''
+                if args[:2] == ['git', 'rev-parse']:
+                    output = 'a' * 40
+                elif args[1:3] == ['pr', 'list']:
+                    output = '[{"number": 99}]'
+                elif args[1:3] == ['pr', 'view']:
+                    output = json.dumps(dict(headRefOid=('b' if changed else 'a') * 40,
+                        statusCheckRollup=[dict(context=n, state='SUCCESS') for n in
+                                          ['test', 'ralph/model-review']]))
+                elif args[1:3] == ['pr', 'merge']:
+                    # GitHub refuses if a push races the read: never retry without the pin.
+                    raise subprocess.CalledProcessError(1, args)
+                return subprocess.CompletedProcess(args, 0, stdout=output)
+            with patch.object(ralph_feature.subprocess, 'run', side_effect=run):
+                result = ralph_feature._checked_feature_pr(plan, step, '/tmp')
+            merges = [a for a in calls if a[1:3] == ['pr', 'merge']]
+            if changed:
+                self.assertTrue(result.pending)
+                self.assertEqual(merges, [])
+            else:
+                self.assertFalse(result.ok)
+                self.assertEqual(merges[0][-2:], ['--match-head-commit', 'a' * 40])
+                self.assertNotIn('--admin', merges[0])
 
 
 if __name__ == "__main__":

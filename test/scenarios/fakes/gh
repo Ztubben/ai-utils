@@ -351,7 +351,7 @@ def cmd_pr(state, args):
         comment = add_comment(state, pr, "pull", pr["number"], opts["--body"])
         return print(comment["url"])
     if sub == "merge":
-        (ref,), opts = parse(rest, (), bools=("--squash", "--merge", "--rebase",
+        (ref,), opts = parse(rest, ("--match-head-commit",), bools=("--squash", "--merge", "--rebase",
                                               "--delete-branch"))
         return merge(state, get_pr(state, ref), opts)
     raise Unemulated("pr %s" % sub)
@@ -370,6 +370,8 @@ def merge(state, pr, opts):
     if len(methods) != 1:
         raise Unemulated("pr merge without exactly one method")
     head, base = _ref_oid(pr["headRefName"]), _ref_oid(pr["baseRefName"])
+    if opts.get("--match-head-commit") and opts["--match-head-commit"] != head:
+        raise Refused("pull request head changed")
     rc, _ = _git_remote("merge-base", "--is-ancestor", base, head)
     if rc != 0:
         raise Unemulated("pr merge of a head that does not contain its base")
