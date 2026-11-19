@@ -352,6 +352,7 @@ class TickHarness:
             fi
             if [[ "$1" == "rev-parse" ]]; then
               case "$2" in
+                --verify) cat "$RALPH_GH_QUEUE_DIR/head.txt" 2>/dev/null || true ;;
                 --*) ;;
                 HEAD) cat "$RALPH_GH_QUEUE_DIR/head.txt" 2>/dev/null || true ;;
                 *) [[ -f "$RALPH_GH_QUEUE_DIR/head.txt" ]] && echo "$2" ;;
@@ -1245,6 +1246,11 @@ class TheStoryIsTheUnitOfThePullRequest(unittest.TestCase):
         h.set_backlogs([], backlog, backlog, [])
         h.set_view_stories(prd_issue())
         h.mock_make()
+        h.set_pull_requests([], dict(headRefOid="a" * 40, statusCheckRollup=[
+            dict(context=name, state="SUCCESS") for name in
+            ("build", "test", "ralph/model-review")]))
+        with open(os.path.join(h.queue, "head.txt"), "w") as fh:
+            fh.write("a" * 40)
 
         proc = h.run()
 

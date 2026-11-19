@@ -97,3 +97,12 @@ for the code it touches. Add a new learning here, in the file that owns it.
   `check_breaker` afterwards (`record_failed_attempt`, and a review step that failed): a
   Story blocked there counts toward `limits.circuit_breaker` (world
   `breaker_halts_after_failed_attempts`, PR #101 review).
+
+- Feature completion (#171, `ralph_feature`) finds an existing open PR by both
+  head and base before creating one. After publishing, it compares the PR head
+  with the named local Feature ref, requires every `gating[].name` context and
+  `ralph/model-review` to explicitly succeed, and pins `gh pr merge --rebase`
+  with `--match-head-commit`. Missing/pending checks return a successful pending
+  result before PRD close or cleanup; a later Tick reuses the PR. Failing checks
+  name the contexts and PR URL on the PRD and add only `ready-for-human`. No
+  Feature-level Review Agent or synthetic approval is launched by this pass.

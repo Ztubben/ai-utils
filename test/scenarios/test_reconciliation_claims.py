@@ -15,6 +15,7 @@ class ReconciliationClaims(unittest.TestCase):
         spec['slots'] = ['1', '2']
         spec['config'].setdefault('concurrency', {})['max_slots'] = 2
         if feature:
+            spec['github']['ci'].append(dict(context='ralph/model-review', state='SUCCESS'))
             spec['github']['issues'][0].update(state='CLOSED', body='Parent: #10\n')
             spec['github']['issues'].append(dict(number=10, title='Greeting feature',
                 labels=['prd', 'state:ready'], body='A feature.'))

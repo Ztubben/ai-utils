@@ -63,6 +63,10 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "[0-9]*.json"))):
 sys.exit(1)
 PY
   fi
+elif [[ "$1 $2" == "pr list" ]]; then
+  echo '[]'
+elif [[ "$1 $2" == "pr view" ]]; then
+  cat "$RALPH_GH_QUEUE_DIR/feature-pr.json"
 fi
 EOF
   for provider in claude codex; do
@@ -139,6 +143,10 @@ if [[ "$1" == "worktree" ]]; then
   exit 0
 fi
 if [[ "$1" == "rev-parse" ]]; then
+  if [[ "$2" == "--verify" && -f "$RALPH_GH_QUEUE_DIR/feature-head" ]]; then
+    cat "$RALPH_GH_QUEUE_DIR/feature-head"
+    exit 0
+  fi
   for a in "$@"; do
     if [[ "$a" == "--git-common-dir" ]]; then
       echo "$RALPH_MOCK_COMMON_DIR"
@@ -357,7 +365,15 @@ prd() {
     "$n" "$slug"
 }
 
+mock_feature_checks() {
+  echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$SP/ghq/feature-head"
+  cat > "$SP/ghq/feature-pr.json" <<'EOF'
+{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[{"context":"build","state":"SUCCESS"},{"context":"test","state":"SUCCESS"},{"context":"ralph/model-review","state":"SUCCESS"}]}
+EOF
+}
+
 @test "tick with an eligible PRD runs the completion pass end-to-end" {
+  mock_feature_checks
   # Queue 0: no stories (dry-run → no-work)
   echo "[]" > "$SP/ghq/0.json"
   # Queue 1: backlog with eligible PRD #10 (ready-features scan)
@@ -402,6 +418,7 @@ MKEOF
 }
 
 @test "a halted tick still runs the completion pass (#120)" {
+  mock_feature_checks
   # The breaker's halt: needs-human on a state:blocked story (#114).
   echo "[$(story 5 blocked | sed 's/{"name":"prio:1"}/{"name":"prio:1"},{"name":"needs-human"}/')]" > "$SP/ghq/0.json"
   eligible_prd_backlog > "$SP/ghq/1.json"   # --ready-features
@@ -417,6 +434,7 @@ MKEOF
 }
 
 @test "a tick ended by a session limit still runs the completion pass (#120)" {
+  mock_feature_checks
   echo "[$(story 5 in-progress)]" > "$SP/ghq/0.json"
   echo "[$(story 5 in-progress)]" > "$SP/ghq/1.json"   # --needs-freshness
   eligible_prd_backlog > "$SP/ghq/2.json"

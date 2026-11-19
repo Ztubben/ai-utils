@@ -7,7 +7,7 @@ commits into their story commits — on rebase conflict, abort and keep the
 linear history (cosmetic fallback only); (2) rebase the cleaned feature branch
 onto `origin/<base>`; (3) run the full gating steps; (4) push the rebased,
 gated branch with lease, so what merges is what was gated; (5) create the
-Feature's single PR and **rebase**-merge it (never a merge commit, never squash),
+Feature's single PR, require GitHub checks on its published head, and **rebase**-merge it (never a merge commit, never squash),
 then (6) close the PRD with a comment and (7) delete the remote branch. The base branch requires linear history, so
 GitHub refuses a merge commit; a squash would collapse every Story's commit into
 one.
@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ralph_config  # noqa: E402
 import ralph_iterate  # noqa: E402
 import ralph_select  # noqa: E402
+import ralph_review_complete  # noqa: E402
 
 DEFAULT_BASE = ralph_iterate.DEFAULT_BASE
 READY_FOR_HUMAN_LABEL = "ready-for-human"
@@ -55,10 +56,11 @@ class Plan:
 
 
 class PlanResult:
-    def __init__(self, ok, failed_step=None, on_fail_ran=False):
+    def __init__(self, ok, failed_step=None, on_fail_ran=False, pending=False):
         self.ok = ok
         self.failed_step = failed_step
         self.on_fail_ran = on_fail_ran
+        self.pending = pending
 
 
 def unverified_hil_stories(prd, raw_backlog):
@@ -184,17 +186,20 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
             "name": "push",
             "commands": [push],
         },
-        # Step 5: create PR and rebase-merge it (linear history, per-Story
-        # commits). No --delete-branch: the branch is checked out here, and
+        # Step 5: find/create the PR, wait for required GitHub checks, and
+        # rebase-merge the verified head (linear history, per-Story commits). No --delete-branch: the branch is checked out here, and
         # gh deletes the local branch too, which fails after the merge.
         {
             "name": "pr-create",
+            "required_checks": [g["name"] for g in gating or []] + ["ralph/model-review"],
+            "prd_number": prd_number,
             "commands": [
                 ["gh", "pr", "create", "--base", base, "--head", branch,
                  "--title", prd.get("title", "Feature #%d" % prd_number),
                  "--body", "Merges Feature #%d into %s.\n\nCloses #%d"
                  % (prd_number, base, prd_number)],
-                ["gh", "pr", "merge", branch, "--rebase"],
+                ["gh", "pr", "merge", branch, "--rebase",
+                 "--match-head-commit", "{head}"],
             ],
         },
         # Step 6: close the PRD
@@ -220,6 +225,55 @@ def feature_complete_plan(prd, base=DEFAULT_BASE,
     return Plan(True, [], steps, branch=branch, base=base)
 
 
+def required_check_verdict(pull_request, required):
+    """Read required contexts on one PR head; absent checks must wait."""
+    rollup = pull_request.get("statusCheckRollup") or []
+    failing, pending = [], []
+    for name in dict.fromkeys(required):
+        entries = [e for e in rollup if (e.get("context") or e.get("name")) == name]
+        # Required checks must explicitly succeed, including model review.
+        verdicts = [ralph_review_complete._verdict(e) for e in entries]
+        if "failing" in verdicts:
+            failing.append(name)
+        elif not entries or "pending" in verdicts or any(
+                (e.get("conclusion") or e.get("state")) != "SUCCESS" for e in entries):
+            pending.append(name)
+    return failing, pending
+
+
+def _checked_feature_pr(plan, step, cwd):
+    """Find/create the PR, then merge only the exact published, checked head."""
+    def run(args):
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout
+
+    try:
+        head = run(["git", "rev-parse", "--verify", "refs/heads/" + plan.branch]).strip()
+        if not head:
+            raise ValueError("missing Feature head")
+        prs = json.loads(run(["gh", "pr", "list", "--state", "open",
+                              "--head", plan.branch, "--base", plan.base, "--json", "number"]))
+        if not prs:
+            run(step["commands"][0])
+        pr = json.loads(run(["gh", "pr", "view", str(prs[0]["number"]) if prs else plan.branch,
+                             "--json", "headRefOid,statusCheckRollup,url"]))
+        if pr.get("headRefOid") != head:
+            return PlanResult(True, pending=True)
+        failing, pending = required_check_verdict(pr, step["required_checks"])
+        if failing:
+            run(["gh", "issue", "comment", str(step["prd_number"]), "--body",
+                 "Feature completion blocked: failing checks %s on %s (head %s)."
+                 % (", ".join(failing), pr["url"], head)])
+            run(["gh", "issue", "edit", str(step["prd_number"]),
+                 "--add-label", READY_FOR_HUMAN_LABEL])
+            return PlanResult(False, failed_step="github-checks", on_fail_ran=True)
+        if pending:
+            return PlanResult(True, pending=True)
+        run([head if arg == "{head}" else arg for arg in step["commands"][1]])
+        return PlanResult(True)
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError, TypeError):
+        return PlanResult(False, failed_step="pr-create")
+
+
 def run_feature_plan(plan, cwd=None, dry_run=False, inject_failures=None):
     """Execute a feature completion plan step-by-step.
 
@@ -239,7 +293,12 @@ def run_feature_plan(plan, cwd=None, dry_run=False, inject_failures=None):
         failed = name in inject_failures
 
         if not dry_run and not failed:
-            # For gating steps, run them via ralph_iterate.run_gating
+            if name == "pr-create":
+                result = _checked_feature_pr(plan, step, cwd)
+                if not result.ok or result.pending:
+                    return result
+                continue
+            # Local gating and GitHub checks are independent requirements.
             if name == "gating" and step.get("gating_steps"):
                 gres = ralph_iterate.run_gating(step["gating_steps"], cwd=cwd)
                 failed = not gres.ok
@@ -333,6 +392,9 @@ def _cmd_complete(rest):
         return 2
 
     run = run_feature_plan(plan, cwd=os.getcwd())
+    if run.pending:
+        print("PENDING: Feature #%s waiting for GitHub checks" % prd["number"])
+        return 0
     if run.ok:
         print("OK: Feature #%s integrated into %s (rebased); PRD closed"
               % (prd["number"], plan.base))
