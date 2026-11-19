@@ -28,6 +28,27 @@ class FeatureChecks(unittest.TestCase):
         with open(world.state_path, 'w') as fh:
             json.dump(state, fh)
 
+    def test_absent_review_on_later_tick_requests_human_triage_once(self):
+        world = self.world(feature=True)
+        self.set_ci(world, 'SUCCESS', review=False)
+        self.tick(world)
+        self.assertNotIn('ready-for-human', world.state()['issues']['10']['labels'])
+        self.tick(world)
+        state = world.state()
+        pr, = state['pulls'].values()
+        self.assertEqual(pr['state'], 'OPEN')
+        prd = state['issues']['10']
+        self.assertEqual(prd['state'], 'OPEN')
+        self.assertIn('ready-for-human', prd['labels'])
+        self.assertNotIn('needs-human', prd['labels'])
+        self.assertIn('missing ralph/model-review', prd['comments'][-1]['body'])
+        self.assertIn(pr['url'], prd['comments'][-1]['body'])
+        self.assertIn('HIL', prd['comments'][-1]['body'])
+        comments = prd['comments']
+        self.tick(world)
+        self.assertEqual(world.state()['issues']['10']['comments'], comments)
+        self.assertEqual(world.state()['pulls'][str(pr['number'])]['state'], 'OPEN')
+
     def test_failed_ci_blocks_feature_despite_green_local_gate(self):
         world = self.world(feature=True)
         self.set_ci(world, 'FAILURE')
