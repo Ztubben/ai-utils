@@ -532,7 +532,8 @@ class RequiredFeatureChecks(unittest.TestCase):
 
     def test_head_change_does_not_merge_and_merge_race_is_pinned(self):
         from unittest.mock import patch
-        plan = ralph_feature.feature_complete_plan(prd_issue(), gating=[dict(name='test', run='true')])
+        plan = ralph_feature.feature_complete_plan(prd_issue(), gating=[dict(name='test', run='true')],
+                                                   backlog=[prd_issue()])
         step = next(s for s in plan.steps if s['name'] == 'pr-create')
         for changed in (False, True):
             calls = []
@@ -561,6 +562,172 @@ class RequiredFeatureChecks(unittest.TestCase):
                 self.assertFalse(result.ok)
                 self.assertEqual(merges[0][-2:], ['--match-head-commit', 'a' * 40])
                 self.assertNotIn('--admin', merges[0])
+
+
+# ---------------------------------------------------------------------------
+# #172: the Feature pull request inherits its Story pull requests' reviews
+# ---------------------------------------------------------------------------
+MARKER = "<!-- ralph-managed-pr:v1 -->"
+
+
+def story_pr(number, story, head="h" * 40, patch="p1", review="SUCCESS"):
+    rollup = [dict(context="test", state="SUCCESS")]
+    if review:
+        rollup.append(dict(context="ralph/model-review", state=review))
+    return dict(number=number, body="%s\n\nRefs #%d" % (MARKER, story),
+                headRefOid=head, statusCheckRollup=rollup, patch_id=patch)
+
+
+def commit(sha="c" * 40, subject="feat: story", patch="p1"):
+    return dict(sha=sha, subject=subject, patch_id=patch)
+
+
+def approval(head):
+    import ralph_review
+    return dict(body=ralph_review.arbitration_record(dict(
+        review="PRR_1", decision="APPROVED", reviewer="maintainer",
+        head=head, overrode=[], note="ok")))
+
+
+class InheritedModelReview(unittest.TestCase):
+
+    def test_reviewed_unchanged_stories_are_inherited_naming_their_prs(self):
+        verdict = ralph_feature.inheritance_verdict(
+            [20, 21], [story_pr(30, 20), story_pr(31, 21, patch="p2")], {},
+            [commit(patch="p1"), commit("d" * 40, patch="p2")])
+        self.assertTrue(verdict.ok, verdict.errors)
+        self.assertEqual(verdict.sources, [30, 31])
+        description = ralph_feature.inherited_description(verdict.sources)
+        self.assertIn("#30", description)
+        self.assertIn("#31", description)
+
+    def test_a_commit_no_story_pr_carried_is_named(self):
+        verdict = ralph_feature.inheritance_verdict(
+            [20], [story_pr(30, 20)], {},
+            [commit(), commit("e" * 40, "feat: smuggled", patch="px")])
+        self.assertFalse(verdict.ok)
+        self.assertEqual(len(verdict.errors), 1)
+        self.assertIn("eeeeeee", verdict.errors[0])
+        self.assertIn("feat: smuggled", verdict.errors[0])
+        self.assertEqual(verdict.sources, [])
+
+    def test_a_commit_without_a_patch_is_never_matched(self):
+        verdict = ralph_feature.inheritance_verdict(
+            [20], [story_pr(30, 20, patch=None)], {}, [commit(patch=None)])
+        self.assertFalse(verdict.ok)
+
+    def test_a_story_with_no_merged_pr_is_named(self):
+        verdict = ralph_feature.inheritance_verdict([20, 21], [story_pr(30, 20)], {},
+                                                    [commit()])
+        self.assertFalse(verdict.ok)
+        self.assertTrue(any("story/#21" in e for e in verdict.errors), verdict.errors)
+
+    def test_an_unreviewed_story_pr_is_named_and_lends_no_patch(self):
+        for review in (None, "FAILURE", "PENDING"):
+            with self.subTest(review=review):
+                verdict = ralph_feature.inheritance_verdict(
+                    [20], [story_pr(30, 20, review=review)], {}, [commit()])
+                self.assertFalse(verdict.ok)
+                joined = " ".join(verdict.errors)
+                self.assertIn("story/#20", joined)
+                self.assertIn("#30", joined)
+                self.assertIn("commit/ccccccc", joined)
+
+    def test_a_human_approval_of_the_merged_head_is_inherited(self):
+        head = "a" * 40
+        verdict = ralph_feature.inheritance_verdict(
+            [20], [story_pr(30, 20, head=head, review=None)],
+            {20: [approval(head)]}, [commit()])
+        self.assertTrue(verdict.ok, verdict.errors)
+        stale = ralph_feature.inheritance_verdict(
+            [20], [story_pr(30, 20, head=head, review=None)],
+            {20: [approval("b" * 40)]}, [commit()])
+        self.assertFalse(stale.ok)
+
+    def test_an_unread_backlog_is_never_an_inherited_review(self):
+        verdict = ralph_feature.inheritance_verdict(None, [], {}, [])
+        self.assertFalse(verdict.ok)
+        plan = ralph_feature.feature_complete_plan(prd_issue())
+        step = next(s for s in plan.steps if s["name"] == "pr-create")
+        self.assertIsNone(step["stories"])
+
+    def test_the_plan_carries_every_story_of_this_feature(self):
+        plan = ralph_feature.feature_complete_plan(prd_issue(), backlog=[
+            prd_issue(), child(21, state="CLOSED"), child(20, state="CLOSED"),
+            child(40, parent=99, state="CLOSED")])
+        step = next(s for s in plan.steps if s["name"] == "pr-create")
+        self.assertEqual(step["stories"], [20, 21])
+
+    def test_the_status_is_written_on_the_given_head_only(self):
+        argv = ralph_feature.inheritance_status("f" * 40, [30])
+        self.assertIn("repos/{owner}/{repo}/statuses/" + "f" * 40, argv)
+        self.assertIn("state=success", argv)
+        self.assertIn("context=ralph/model-review", argv)
+        self.assertEqual([a for a in argv if "statuses/" in a],
+                         ["repos/{owner}/{repo}/statuses/" + "f" * 40])
+
+
+class FeatureCommitPatches(unittest.TestCase):
+    """Patch-ids against real git: a rebase that alters a Story's patch is caught."""
+
+    def git(self, *args, cwd=None):
+        return subprocess.check_output(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=cwd or self.repo, stderr=subprocess.STDOUT, text=True).strip()
+
+    def write(self, path, text, cwd=None):
+        with open(os.path.join(cwd or self.repo, path), "w") as fh:
+            fh.write(text)
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(subprocess.run, ["rm", "-rf", self.root])
+        remote = os.path.join(self.root, "remote.git")
+        self.repo = os.path.join(self.root, "repo")
+        self.other = os.path.join(self.root, "other")
+        self.git("init", "-q", "--bare", "-b", "main", remote, cwd=self.root)
+        self.git("clone", "-q", remote, self.repo, cwd=self.root)
+        self.write("f.txt", "a\nb\nc\nd\ne\n")
+        self.git("add", "f.txt")
+        self.git("commit", "-q", "-m", "base")
+        self.git("push", "-q", "origin", "HEAD:main")
+        base = self.git("rev-parse", "HEAD")
+        self.git("switch", "-q", "-c", "feature/1-x")
+        self.write("f.txt", "a\nb\nc\nd\ne\nstory\n")
+        self.git("commit", "-q", "-am", "feat: story")
+        # The Story pull request's diff: its head against its base.
+        self.reviewed = ralph_feature._patch_id(
+            self.git("diff", base, "HEAD") + "\n", self.repo)
+        self.git("clone", "-q", remote, self.other, cwd=self.root)
+
+    def move_base(self, path, text):
+        self.write(path, text, cwd=self.other)
+        self.git("add", path, cwd=self.other)
+        self.git("commit", "-q", "-m", "base moves on", cwd=self.other)
+        self.git("push", "-q", "origin", "HEAD:main", cwd=self.other)
+        self.git("fetch", "-q", "origin")
+        self.git("rebase", "-q", "origin/main")
+
+    def verdict(self):
+        commits = ralph_feature.feature_commits("main", "feature/1-x", self.repo)
+        self.assertEqual([c["subject"] for c in commits], ["feat: story"])
+        pr = story_pr(30, 1, patch=self.reviewed)
+        return ralph_feature.inheritance_verdict([1], [pr], {}, commits)
+
+    def test_an_unchanged_story_commit_matches_its_reviewed_diff(self):
+        self.assertTrue(self.verdict().ok, self.verdict().errors)
+
+    def test_a_base_change_elsewhere_leaves_the_patch_unchanged(self):
+        self.move_base("g.txt", "unrelated\n")
+        self.assertTrue(self.verdict().ok)
+
+    def test_a_rebase_that_alters_the_patch_is_named(self):
+        # Within the hunk's context but not in conflict: the rebase applies
+        # cleanly and still changes what the reviewer saw.
+        self.move_base("f.txt", "a\nb\nc\nD\ne\n")
+        verdict = self.verdict()
+        self.assertFalse(verdict.ok)
+        self.assertIn("feat: story", verdict.errors[0])
 
 
 if __name__ == "__main__":
